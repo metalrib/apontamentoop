@@ -1,0 +1,6 @@
+{
+  "name": "MES Chão de Fábrica - Totem de Apontamento",
+  "description": "Sistema de Apontamento de Produção em Tempo Real para Chão de Fábrica com 5 Terminais Totem, roteirização inteligente de OPs e validação sequencial de etapas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

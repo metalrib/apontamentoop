@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>MES Chão de Fábrica - Totem de Apontamento</title>
+  
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            industrial: {
+              bg: '#0A0D14',
+              card: '#0E131F',
+              accent: '#F59E0B'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Google Fonts: Chakra Petch, JetBrains Mono, Plus Jakarta Sans -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=JetBrains+Mono:wght@400;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- React 18 e ReactDOM via CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  
+  <!-- Babel Standalone para transpilação JSX em runtime -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      user-select: none;
+      touch-action: manipulation;
+      background-color: #0A0D14;
+      color: #F1F5F9;
+    }
+    .font-mono-num {
+      font-family: 'JetBrains Mono', monospace;
+      font-variant-numeric: tabular-nums;
+    }
+    .kiosk-btn {
+      transition: transform 0.1s ease, filter 0.15s ease, background-color 0.15s ease;
+    }
+    .kiosk-btn:active {
+      transform: scale(0.97);
+    }
+  </style>
+</head>
+<body class="min-h-screen overflow-x-hidden antialiased">
+  <div id="root"></div>
+
+  <!-- SCRIPT REACT + BABEL STANDALONE (TUDO EM UM ÚNICO ARQUIVO) -->
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- 1. ESTRUTURA DE TERMINAIS HARDCODED ---
+    const TERMINALS = [
+      {
+        id: 1,
+        name: "Terminal 1",
+        label: "Corte, Dobra e Laser",
+        sectors: ["Corte - Guilhotina", "Dobra", "Laser"]
+      },
+      {
+        id: 2,
+        name: "Terminal 2",
+        label: "Preparação de Folhas e Injeção",
+        sectors: ["Preparação de folhas", "Injetora de folhas"]
+      },
+      {
+        id: 3,
+        name: "Terminal 3",
+        label: "Batentes e Portas Office/Emendadas",
+        sectors: ["Montagem e Injeção de Batentes", "Montagem Office Door", "Montagem de Portas Emendadas"]
+      },
+      {
+        id: 4,
+        name: "Terminal 4",
+        label: "Portas Giratórias e Finalização Vai Vem",
+        sectors: ["Montagem de Portas Giratórias", "Finalização Vai Vem"]
+      },
+      {
+        id: 5,
+        name: "Terminal 5",
+        label: "Elétrica, Router, Solda e Acabamentos",
+        sectors: ["Elétrica", "Router", "Solda e Montagem", "Preparação Vai Vem", "Cortina"]
+      }
+    ];
+
+    // --- 2. DICIONÁRIO DE ROTAS (INTELIGÊNCIA DE ETAPAS) ---
+    const ROUTE_RULES = [
+      { keyword: "FOLHA", steps: ["Corte", "Laser", "Dobra", "Preparação", "Injeção"] },
+      { keyword: "BAT", steps: ["Corte", "Dobra", "Preparação", "Injeção"] },
+      { keyword: "ANCORA", steps: ["Corte", "Laser", "Dobra", "Solda e Montagem"] },
+      { keyword: "OFFICE DOOR", steps: ["Corte", "Laser", "Dobra", "Preparação", "Injeção", "Montagem Office Door"] },
+      { keyword: "PT GIR", steps: ["Corte", "Dobra", "Preparação", "Injeção", "Instalação Gaxeta", "Montagem de Portas Giratória"] },
+      { keyword: "PT VAI VEM", steps: ["Corte", "Preparação Vai Vem", "Injeção", "Router", "Finalização Vai Vem"] },
+      { keyword: "TRILHO", steps: ["Montagem de Portas Emendadas"] },
+      { keyword: "CORTINA", steps: ["Cortina"] }
+    ];
+
+    const DEFAULT_ROUTE = ["Corte", "Dobra", "Preparação", "Injeção"];
+
+    // Lista de Colaboradores e seus Respectivos Setores
+    const OPERATORS = [
+      { name: "Eliel", badge: "CORTE-01", initials: "EL", role: "Corte", sectors: ["Corte - Guilhotina", "Corte"] },
+      { name: "Leonardo", badge: "DOB-01", initials: "LE", role: "Dobra / Prep. Folhas", sectors: ["Dobra e Preparação", "Dobra", "Preparação"] },
+      { name: "Danielson", badge: "DOB-02", initials: "DA", role: "Dobra", sectors: ["Dobra e Preparação", "Dobra"] },
+      { name: "Paulo Henrique", badge: "PREP-01", initials: "PH", role: "Preparação de Folhas", sectors: ["Preparação", "Dobra e Preparação"] },
+      { name: "Magna", badge: "INJ-01", initials: "MA", role: "Injeção de Folhas", sectors: ["Injetora de folhas", "Injeção"] },
+      { name: "Donizete", badge: "INJ-02", initials: "DO", role: "Injeção de Folhas", sectors: ["Injetora de folhas", "Injeção"] },
+      { name: "Antônio Massena", badge: "BAT-01", initials: "AM", role: "Montagem / Injeção Batentes", sectors: ["Montagem e Injeção de Batentes", "Injeção"] },
+      { name: "Antônio", badge: "BAT-02", initials: "AN", role: "Montagem / Injeção Batentes", sectors: ["Montagem e Injeção de Batentes", "Injeção"] },
+      { name: "Aparecido", badge: "BAT-03", initials: "AP", role: "Montagem / Injeção Batentes", sectors: ["Montagem e Injeção de Batentes", "Injeção"] },
+      { name: "Yuri", badge: "BAT-04", initials: "YU", role: "Montagem / Injeção Batentes", sectors: ["Montagem e Injeção de Batentes", "Injeção"] },
+      { name: "Lucas", badge: "OFF-01", initials: "LU", role: "Office Door", sectors: ["Montagem Office Door", "Office Door"] },
+      { name: "Ademir", badge: "EME-01", initials: "AD", role: "Montagem Porta Emendada", sectors: ["Montagem de Portas Emendadas"] },
+      { name: "Francisco", badge: "EME-02", initials: "FR", role: "Montagem Porta Emendada", sectors: ["Montagem de Portas Emendadas"] },
+      { name: "Denis", badge: "EME-03", initials: "DE", role: "Montagem Porta Emendada", sectors: ["Montagem de Portas Emendadas"] },
+      { name: "Jhonatan", badge: "EME-04", initials: "JH", role: "Montagem Porta Emendada", sectors: ["Montagem de Portas Emendadas"] },
+      { name: "José Aparecido", badge: "EME-05", initials: "JA", role: "Montagem Porta Emendada", sectors: ["Montagem de Portas Emendadas"] },
+      { name: "Deilson", badge: "EME-06", initials: "DL", role: "Montagem Porta Emendada", sectors: ["Montagem de Portas Emendadas"] },
+      { name: "João Paulo", badge: "VV-01", initials: "JP", role: "Finalização Vai Vem", sectors: ["Finalização Vai Vem"] },
+      { name: "Alessandra", badge: "VV-02", initials: "AL", role: "Finalização Vai Vem", sectors: ["Finalização Vai Vem"] },
+      { name: "Nalysson", badge: "GIR-01", initials: "NA", role: "Montagem Porta Giratória", sectors: ["Montagem de Portas Giratórias", "Instalação Gaxeta"] },
+      { name: "Vinicius", badge: "GIR-02", initials: "VI", role: "Montagem Porta Giratória", sectors: ["Montagem de Portas Giratórias", "Instalação Gaxeta"] },
+      { name: "Fabiano", badge: "GIR-03", initials: "FA", role: "Montagem Porta Giratória", sectors: ["Montagem de Portas Giratórias", "Instalação Gaxeta"] },
+      { name: "Gustavo Naves", badge: "GIR-04", initials: "GN", role: "Montagem Porta Giratória", sectors: ["Montagem de Portas Giratórias", "Instalação Gaxeta"] },
+      { name: "Victor", badge: "ROU-01", initials: "VC", role: "Router", sectors: ["Router"] },
+      { name: "Afonso", badge: "ESP-JR1", initials: "AF", role: "Especialista Jr (Todos Setores)", sectors: ["Laser"], isRoaming: true },
+      { name: "Bruno", badge: "ESP-JR2", initials: "BR", role: "Especialista Jr (Todos Setores)", sectors: ["Laser"], isRoaming: true },
+      { name: "Marcio", badge: "ELE-01", initials: "MC", role: "Elétrica", sectors: ["Elétrica"] },
+      { name: "Cristiane", badge: "ELE-02", initials: "CR", role: "Elétrica", sectors: ["Elétrica"] },
+      { name: "Gabriele", badge: "COR-01", initials: "GA", role: "Cortina", sectors: ["Cortina"] },
+      { name: "Yasmin", badge: "PVV-01", initials: "YA", role: "Preparação Vai Vem", sectors: ["Preparação Vai Vem"] },
+      { name: "Fabio", badge: "ESP-PL", initials: "FB", role: "Especialista Pleno (Solda e Montagem)", sectors: ["Solda e Montagem", "Solda"] },
+      { name: "Nathan", badge: "SOL-01", initials: "NT", role: "Solda e Montagem", sectors: ["Solda e Montagem", "Solda"] }
+    ];
+
+    // OPs Iniciais Simuladas caso ligação falhe (incluindo OP 023838-01)
+    const INITIAL_ORDERS = {
+      '023838-01': {
+        op_numero: '023838-01',
+        descricao: 'FOLHA PORTA ISOTÉRMICA INOX 304 2100x900',
+        quantidade_total: 5,
+        lote: 'LT-2026-09A'
+      },
+      '023838-02': {
+        op_numero: '023838-02',
+        descricao: 'BATENTE BAT AÇO GALVANIZADO 2100x900',
+        quantidade_total: 4,
+        lote: 'LT-2026-10B'
+      },
+      '023838-03': {
+        op_numero: '023838-03',
+        descricao: 'PORTA OFFICE DOOR COM VISOR DUPLO',
+        quantidade_total: 3,
+        lote: 'LT-2026-11C'
+      },
+      '023838-04': {
+        op_numero: '023838-04',
+        descricao: 'PORTA PT GIR GIRATÓRIA REFORÇADA INOX',
+        quantidade_total: 2,
+        lote: 'LT-2026-12D'
+      },
+      '023838-05': {
+        op_numero: '023838-05',
+        descricao: 'PORTA PT VAI VEM IMPACTO POLICARBONATO',
+        quantidade_total: 6,
+        lote: 'LT-2026-13E'
+      },
+      '023838-06': {
+        op_numero: '023838-06',
+        descricao: 'ESTRUTURA ANCORA MONTAGEM PESADA',
+        quantidade_total: 4,
+        lote: 'LT-2026-14F'
+      },
+      '023838-07': {
+        op_numero: '023838-07',
+        descricao: 'TRILHO DE PORTA DE CORRER EM ALUMÍNIO 3M',
+        quantidade_total: 8,
+        lote: 'LT-2026-15G'
+      },
+      '023838-08': {
+        op_numero: '023838-08',
+        descricao: 'CORTINA EM PVC FLEXÍVEL POLAR -25°C',
+        quantidade_total: 10,
+        lote: 'LT-2026-16H'
+      }
+    };
+
+    // --- FEEDBACK AUDITIVO (WEB AUDIO API) ---
+    let audioCtx = null;
+    function playAudioTone(freq, type = 'sine', duration = 0.08) {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch(e) {}
+    }
+
+    function beepBarcode() { playAudioTone(1400, 'sine', 0.08); }
+    function soundStart() { playAudioTone(523, 'triangle', 0.15); setTimeout(() => playAudioTone(659, 'triangle', 0.15), 80); }
+    function soundFinish() { playAudioTone(523, 'sine', 0.12); setTimeout(() => playAudioTone(659, 'sine', 0.12), 80); setTimeout(() => playAudioTone(783, 'sine', 0.2), 160); }
+    function soundBlocked() { playAudioTone(200, 'sawtooth', 0.25); }
+
+    // --- NORMALIZAÇÃO E RESOLUÇÃO DE ROTAS ---
+    function normalize(text) {
+      return (text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+    }
+
+    function MetalribLogo({ width = 160, height = 52 }) {
+      return (
+        <svg viewBox="0 0 260 84" width={width} height={height} xmlns="http://www.w3.org/2000/svg" className="drop-shadow-md select-none">
+          <rect x="3" y="3" width="254" height="78" rx="12" ry="12" fill="#1C2F8A" stroke="#090E26" strokeWidth="4" />
+          <rect x="6" y="6" width="248" height="72" rx="9" ry="9" fill="none" stroke="rgba(255, 255, 255, 0.2)" strokeWidth="1" />
+          <text x="130" y="42" fill="#FFFFFF" textAnchor="middle" fontSize="37" fontWeight="700" fontFamily="sans-serif" letterSpacing="2.5px">METALRIB</text>
+          <line x1="28" y1="49" x2="232" y2="49" stroke="#FFFFFF" strokeWidth="2.4" />
+          <text x="130" y="68" fill="#FFFFFF" textAnchor="middle" fontSize="15" fontWeight="500" fontFamily="sans-serif" letterSpacing="4.2px">PORTAS FRIGORÍFICAS</text>
+        </svg>
+      );
+    }
+
+    function getRouteForDescription(desc) {
+      const n = normalize(desc);
+      const keys = ['OFFICE DOOR', 'PT VAI VEM', 'PT GIR', 'FOLHA', 'BAT', 'ANCORA', 'TRILHO', 'CORTINA'];
+      for (const k of keys) {
+        if (n.includes(k)) {
+          const rule = ROUTE_RULES.find(r => r.keyword === k);
+          if (rule) return { keyword: rule.keyword, steps: rule.steps };
+        }
+      }
+      return { keyword: 'PADRAO', steps: DEFAULT_ROUTE };
+    }
+
+    function sectorMatchesStep(sector, step) {
+      const s = normalize(sector);
+      const p = normalize(step);
+      if (s === p) return true;
+      if (p === 'CORTE' && (s.includes('CORTE') || s.includes('GUILHOTINA'))) return true;
+      if (p === 'DOBRA' && s.includes('DOBRA')) return true;
+      if (p === 'LASER' && s.includes('LASER')) return true;
+      if (p === 'PREPARACAO' && s.includes('PREPARACAO') && !s.includes('VAI VEM')) return true;
+      if (p === 'PREPARACAO VAI VEM' && s.includes('VAI VEM')) return true;
+      if (p === 'INJECAO' && (s.includes('INJETORA') || s.includes('INJECAO') || s.includes('BATENTES'))) return true;
+      if (p.includes('OFFICE DOOR') && s.includes('OFFICE DOOR')) return true;
+      if (p.includes('GIRATORIA') && s.includes('GIRATORIA')) return true;
+      if (p.includes('FINALIZACAO VAI VEM') && s.includes('FINALIZACAO VAI VEM')) return true;
+      if (p.includes('SOLDA') && s.includes('SOLDA')) return true;
+      if (p.includes('ROUTER') && s.includes('ROUTER')) return true;
+      if (p.includes('ELETRICA') && s.includes('ELETRICA')) return true;
+      if (p.includes('CORTINA') && s.includes('CORTINA')) return true;
+      return false;
+    }
+
+    // --- COMPONENTE PRINCIPAL TOTEM MES ---
+    function App() {
+      // Estado do Terminal Físico
+      const [terminal, setTerminal] = useState(() => {
+        const saved = localStorage.getItem('totem_terminal_id');
+        return saved ? TERMINALS.find(t => t.id === parseInt(saved, 10)) : null;
+      });
+
+      // Dados do PCP e Apontamentos
+      const [orders, setOrders] = useState(() => {
+        const saved = localStorage.getItem('totem_orders');
+        return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+      });
+
+      const [apontamentos, setApontamentos] = useState(() => {
+        const saved = localStorage.getItem('totem_apontamentos');
+        return saved ? JSON.parse(saved) : {};
+      });
+
+      // Estado do Operador no Totem
+      const [opInput, setOpInput] = useState('');
+      const [currentOp, setCurrentOp] = useState(null);
+      const [selectedSector, setSelectedSector] = useState(null);
+      const [selectedOperator, setSelectedOperator] = useState(null);
+      const [searchError, setSearchError] = useState(null);
+
+      // Auto-Limpeza de 3 segundos
+      const [toastNotice, setToastNotice] = useState(null);
+      const [countdown, setCountdown] = useState(3.0);
+
+      const inputRef = useRef(null);
+
+      // Sincronização entre abas / computadores via BroadcastChannel
+      useEffect(() => {
+        let channel = null;
+        try {
+          channel = new BroadcastChannel('MES_TOTEM_SYNC');
+          channel.onmessage = (e) => {
+            if (e.data?.type === 'UPDATE') {
+              const o = localStorage.getItem('totem_orders');
+              const a = localStorage.getItem('totem_apontamentos');
+              if (o) setOrders(JSON.parse(o));
+              if (a) setApontamentos(JSON.parse(a));
+            }
+          };
+        } catch(e) {}
+        return () => { if (channel) channel.close(); };
+      }, []);
+
+      const broadcastChange = (newOrders, newApts) => {
+        localStorage.setItem('totem_orders', JSON.stringify(newOrders));
+        localStorage.setItem('totem_apontamentos', JSON.stringify(newApts));
+        try {
+          const ch = new BroadcastChannel('MES_TOTEM_SYNC');
+          ch.postMessage({ type: 'UPDATE' });
+          ch.close();
+        } catch(e) {}
+      };
+
+      // Limpeza e Autofocus
+      const resetToHome = () => {
+        setOpInput('');
+        setCurrentOp(null);
+        setSelectedSector(null);
+        setSelectedOperator(null);
+        setSearchError(null);
+        setToastNotice(null);
+        setTimeout(() => inputRef.current?.focus(), 100);
+      };
+
+      // Efeito do Toast de 3 segundos
+      useEffect(() => {
+        if (!toastNotice) return;
+        setCountdown(3.0);
+        const start = Date.now();
+        const duration = 3000;
+
+        const timer = setInterval(() => {
+          const remaining = Math.max(0, duration - (Date.now() - start));
+          setCountdown(Number((remaining / 1000).toFixed(1)));
+          if (remaining <= 0) {
+            clearInterval(timer);
+            resetToHome();
+          }
+        }, 50);
+
+        return () => clearInterval(timer);
+      }, [toastNotice]);
+
+      // Seleção de Terminal
+      const handleChooseTerminal = (t) => {
+        setTerminal(t);
+        localStorage.setItem('totem_terminal_id', t.id.toString());
+      };
+
+      // Busca de OP
+      const handleSearchOp = (opCode) => {
+        const clean = opCode.trim().toUpperCase();
+        if (!clean) return;
+        beepBarcode();
+
+        let found = orders[clean];
+        if (!found) {
+          const key = Object.keys(orders).find(k => k.replace(/[-_\s]/g, '') === clean.replace(/[-_\s]/g, ''));
+          if (key) found = orders[key];
+        }
+
+        if (found) {
+          setCurrentOp(found);
+          setSearchError(null);
+          // Pré-seleciona primeiro setor do terminal se compatível
+          if (terminal?.sectors?.length > 0) {
+            setSelectedSector(terminal.sectors[0]);
+          }
+        } else {
+          soundBlocked();
+          setSearchError(`Ordem de Produção "${clean}" não encontrada no Firebase (pcp/orders).`);
+        }
+      };
+
+      // Cálculo de Rota e Etapa Atual
+      const routeInfo = currentOp ? getRouteForDescription(currentOp.descricao) : null;
+      const matchedStep = (selectedSector && routeInfo) 
+        ? routeInfo.steps.find(s => sectorMatchesStep(selectedSector, s)) 
+        : null;
+
+      // Apontamentos desta OP
+      const opApts = (currentOp && apontamentos[currentOp.op_numero]) 
+        ? Object.values(apontamentos[currentOp.op_numero]) 
+        : [];
+
+      // Unidade ativa para o operador selecionado neste setor
+      const activeUnitForOperator = (selectedOperator && selectedSector)
+        ? opApts.find(a => a.setor === selectedSector && a.operador === selectedOperator && a.status === 'EM_ANDAMENTO')
+        : null;
+
+      // Quantidades concluídas nesta etapa
+      const finishedInThisStep = matchedStep
+        ? opApts.filter(a => (a.etapa_rota === matchedStep || sectorMatchesStep(a.setor, matchedStep)) && a.status === 'FINALIZADO').length
+        : 0;
+
+      // Validação de Rota (Bloqueio de Etapa Anterior)
+      let canStart = false;
+      let nextUnitNum = finishedInThisStep + 1;
+      let blockingMsg = null;
+
+      if (currentOp && matchedStep && routeInfo) {
+        const stepIdx = routeInfo.steps.indexOf(matchedStep);
+        if (finishedInThisStep >= currentOp.quantidade_total) {
+          canStart = false;
+          blockingMsg = `Lote completo (${currentOp.quantidade_total}/${currentOp.quantidade_total} concluídas)`;
+        } else if (stepIdx === 0) {
+          canStart = true;
+        } else {
+          const prevStep = routeInfo.steps[stepIdx - 1];
+          const finishedPrev = opApts.filter(a => 
+            (a.etapa_rota === prevStep || sectorMatchesStep(a.setor, prevStep)) && a.status === 'FINALIZADO'
+          ).length;
+
+          // Regra: OP só avança se finalizadas na anterior >= unidade a iniciar
+          if (finishedPrev < nextUnitNum) {
+            canStart = false;
+            blockingMsg = `Aguardando etapa anterior (${prevStep}: ${finishedPrev}/${currentOp.quantidade_total} concluídas)`;
+          } else {
+            canStart = true;
+          }
+        }
+      }
+
+      // Iniciar Unidade
+      const handleStartUnit = () => {
+        if (!currentOp || !selectedSector || !selectedOperator || !matchedStep) return;
+        soundStart();
+
+        const id = 'apt_' + Date.now();
+        const newRecord = {
+          id,
+          op_numero: currentOp.op_numero,
+          unidade_numero: nextUnitNum,
+          setor: selectedSector,
+          etapa_rota: matchedStep,
+          terminal_id: terminal.id,
+          operador: selectedOperator,
+          hora_inicio: new Date().toISOString(),
+          status: 'EM_ANDAMENTO'
+        };
+
+        const updated = { ...apontamentos };
+        if (!updated[currentOp.op_numero]) updated[currentOp.op_numero] = {};
+        updated[currentOp.op_numero][id] = newRecord;
+
+        setApontamentos(updated);
+        broadcastChange(orders, updated);
+
+        setToastNotice({
+          title: `▶ Unidade ${nextUnitNum} Iniciada com Sucesso!`,
+          subtitle: `Operador: ${selectedOperator} · Setor: ${selectedSector}`
+        });
+      };
+
+      // Finalizar Unidade
+      const handleFinishUnit = () => {
+        if (!activeUnitForOperator || !currentOp) return;
+        soundFinish();
+
+        const now = new Date();
+        const start = new Date(activeUnitForOperator.hora_inicio);
+        const durationMin = Math.max(0.1, Number(((now - start) / 60000).toFixed(1)));
+
+        const updatedRecord = {
+          ...activeUnitForOperator,
+          hora_fim: now.toISOString(),
+          duracao_minutos: durationMin,
+          status: 'FINALIZADO'
+        };
+
+        const updated = { ...apontamentos };
+        updated[currentOp.op_numero][activeUnitForOperator.id] = updatedRecord;
+
+        setApontamentos(updated);
+        broadcastChange(orders, updated);
+
+        setToastNotice({
+          title: `⏹ Unidade ${activeUnitForOperator.unidade_numero} Finalizada!`,
+          subtitle: `Duração calculada: ${durationMin} minutos · Registado no Firebase`
+        });
+      };
+
+      // --- TELA DE SELEÇÃO DE TERMINAL (INICIAL) ---
+      if (!terminal) {
+        return (
+          <div className="min-h-screen bg-[#0A0D14] flex flex-col justify-center items-center p-4">
+            <div className="max-w-4xl w-full text-center mb-8">
+              <span className="text-amber-400 font-mono text-xs font-bold px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full">
+                CONFIGURAÇÃO INICIAL DO TOTEM
+              </span>
+              <h1 className="text-3xl sm:text-5xl font-black text-white mt-3">
+                SELEÇÃO DO TERMINAL FÍSICO
+              </h1>
+              <p className="text-slate-400 mt-2">
+                Selecione o posto de trabalho correspondente a este computador no chão de fábrica.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-w-5xl w-full">
+              {TERMINALS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => handleChooseTerminal(t)}
+                  className="p-6 bg-slate-900 border-2 border-slate-800 hover:border-amber-500 hover:bg-slate-850 rounded-3xl text-left transition kiosk-btn"
+                >
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500 text-black font-black text-xl flex items-center justify-center mb-4">
+                    T{t.id}
+                  </div>
+                  <h3 className="text-xl font-bold text-white">{t.name}</h3>
+                  <div className="text-xs text-slate-400 font-mono mb-4">{t.label}</div>
+                  <div className="space-y-1.5 pt-3 border-t border-slate-800">
+                    {t.sectors.map(s => (
+                      <div key={s} className="text-xs bg-slate-950 px-2.5 py-1 rounded text-slate-300 border border-slate-800">
+                        {s}
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      // --- TELA PRINCIPAL DO TOTEM ---
+      return (
+        <div className="min-h-screen bg-[#0A0D14] text-slate-100 flex flex-col">
+          {/* Header Industrial */}
+          <header className="bg-[#0c142b] border-b border-blue-900/60 px-6 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MetalribLogo width={130} height={42} />
+              <div className="hidden sm:block border-l border-blue-900 pl-3">
+                <div className="font-bold text-xs tracking-wider text-blue-200 font-mono">CHÃO DE FÁBRICA MES</div>
+                <div className="text-[10px] text-slate-400 font-mono">APONTAMENTO EM TEMPO REAL</div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="bg-slate-900 border border-slate-700 px-3.5 py-1.5 rounded-xl flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span className="text-xs font-bold text-amber-400">{terminal.name}</span>
+                <button
+                  onClick={() => setTerminal(null)}
+                  className="text-[11px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-0.5 rounded border border-slate-600 ml-2"
+                >
+                  Trocar
+                </button>
+              </div>
+
+              <button
+                onClick={resetToHome}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-semibold text-slate-300 border border-slate-700"
+              >
+                Limpar Tela
+              </button>
+            </div>
+          </header>
+
+          {/* Toast de Auto-Limpeza de 3 Segundos */}
+          {toastNotice && (
+            <div className="fixed top-4 left-4 right-4 z-50 max-w-3xl mx-auto bg-emerald-600 text-white p-5 rounded-3xl shadow-2xl border-2 border-emerald-400">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xl font-black">{toastNotice.title}</h3>
+                  <p className="text-xs text-emerald-100 mt-0.5">{toastNotice.subtitle}</p>
+                </div>
+                <div className="text-right">
+                  <div className="text-[10px] uppercase font-mono">Limpando em</div>
+                  <div className="text-2xl font-black font-mono-num">{countdown}s</div>
+                </div>
+              </div>
+              <div className="mt-3 w-full bg-black/30 h-1.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-white h-full transition-all duration-75"
+                  style={{ width: `${(countdown / 3.0) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Conteúdo Principal */}
+          <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 space-y-6">
+            {!currentOp ? (
+              /* ETAPA 1: INPUT GIGANTE DE OP */
+              <div className="pt-8 flex flex-col items-center">
+                <div className="text-center mb-6">
+                  <span className="px-3.5 py-1 bg-slate-800 border border-slate-700 rounded-full text-xs font-mono text-slate-400">
+                    LEITOR DE CÓDIGO DE BARRAS OU TOQUE
+                  </span>
+                  <h2 className="text-3xl sm:text-5xl font-black text-white mt-3">
+                    BIPE OU DIGITE A OP
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Ex: 023838-01 (ou toque nos atalhos rápidos abaixo)
+                  </p>
+                </div>
+
+                <div className="w-full bg-[#0E131F] border-2 border-slate-700 rounded-3xl p-6 shadow-2xl">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <input
+                      ref={inputRef}
+                      type="text"
+                      autoFocus
+                      value={opInput}
+                      onChange={(e) => setOpInput(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => { if (e.key === 'Enter') handleSearchOp(opInput); }}
+                      placeholder="XXXXXX-XX"
+                      className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl py-5 px-6 text-2xl sm:text-4xl font-black font-mono-num text-amber-300 text-center sm:text-left focus:outline-none focus:border-amber-400 tracking-widest"
+                    />
+                    <button
+                      onClick={() => handleSearchOp(opInput)}
+                      className="px-8 py-5 bg-amber-500 hover:bg-amber-400 active:scale-95 text-black font-black text-xl rounded-2xl transition shadow-lg shadow-amber-500/20"
+                    >
+                      CONFIRMAR OP
+                    </button>
+                  </div>
+
+                  {searchError && (
+                    <div className="mt-4 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-semibold">
+                      {searchError}
+                    </div>
+                  )}
+
+                  {/* Atalhos Rápidos para Chão de Fábrica */}
+                  <div className="mt-6 pt-6 border-t border-slate-800">
+                    <div className="text-xs font-bold text-slate-400 uppercase mb-3">
+                      OPs Prontas no PCP para Teste:
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {Object.values(orders).map(o => (
+                        <button
+                          key={o.op_numero}
+                          onClick={() => { setOpInput(o.op_numero); handleSearchOp(o.op_numero); }}
+                          className="p-3 bg-slate-900 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/60 rounded-xl text-left transition kiosk-btn"
+                        >
+                          <div className="text-amber-400 font-mono font-bold text-xs">{o.op_numero}</div>
+                          <div className="text-[11px] text-slate-400 truncate">{o.descricao}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* ETAPA 2: OP LOCALIZADA + SETOR + OPERADOR + AÇÃO */
+              <div className="space-y-6">
+                {/* CARD GIGANTE DA OP */}
+                <div className="bg-[#0E131F] border-2 border-slate-700 rounded-3xl p-6 sm:p-8 shadow-2xl relative">
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                    <div className="px-4 py-1.5 bg-amber-500/10 border border-amber-500/40 rounded-xl text-amber-400 font-mono font-black text-xl sm:text-2xl">
+                      OP {currentOp.op_numero}
+                    </div>
+                    <div className="text-xs font-mono text-slate-400">
+                      LOTE: <span className="text-white font-bold">{currentOp.lote}</span> · ROTA: <span className="text-sky-400 font-bold">{routeInfo.keyword}</span>
+                    </div>
+                  </div>
+
+                  {/* Descrição em tamanho muito grande */}
+                  <div className="text-xs font-bold text-slate-400 uppercase mt-4 mb-1">
+                    DESCRIÇÃO DA PEÇA
+                  </div>
+                  <h1 className="text-2xl sm:text-4xl lg:text-5xl font-black text-white leading-tight">
+                    {currentOp.descricao}
+                  </h1>
+
+                  {/* Contador de Apontamento Parcial */}
+                  <div className="mt-6 p-5 bg-slate-950 border border-slate-800 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <div>
+                      <div className="text-xs text-slate-400 font-semibold uppercase">
+                        APONTAMENTO PARCIAL ({matchedStep || 'SETOR'})
+                      </div>
+                      <div className="text-3xl sm:text-4xl font-extrabold text-white font-mono-num flex items-baseline gap-2">
+                        <span className="text-amber-400">{finishedInThisStep}</span>
+                        <span className="text-slate-500 text-xl font-normal">de</span>
+                        <span>{currentOp.quantidade_total}</span>
+                        <span className="text-sm font-normal text-slate-400">unidades produzidas</span>
+                      </div>
+                    </div>
+
+                    <div className="text-xs font-mono text-slate-400">
+                      Seq: {routeInfo.steps.join(' ➔ ')}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SELEÇÃO DO SETOR NESTE TERMINAL */}
+                <div className="bg-[#0E131F] border-2 border-slate-700 rounded-3xl p-6 shadow-2xl">
+                  <div className="text-xs font-bold text-slate-400 uppercase mb-3">
+                    SETORES DISPONÍVEIS NESTE TERMINAL ({terminal.name}):
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {terminal.sectors.map(s => {
+                      const isSelected = selectedSector === s;
+                      const inRoute = routeInfo.steps.some(st => sectorMatchesStep(s, st));
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => setSelectedSector(s)}
+                          className={`p-4 rounded-2xl border-2 text-left font-bold transition kiosk-btn ${
+                            isSelected
+                              ? 'bg-amber-500/20 border-amber-500 text-white'
+                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="text-sm">{s}</div>
+                          <div className="text-[10px] font-mono text-slate-400 mt-1">
+                            {inRoute ? '● Etapa na Rota da OP' : 'Fora da Rota'}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* SELEÇÃO DO OPERADOR */}
+                <div className="bg-[#0E131F] border-2 border-slate-700 rounded-3xl p-6 shadow-2xl">
+                  <div className="text-xs font-bold text-slate-400 uppercase mb-3">
+                    SELECIONE O OPERADOR:
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+                    {OPERATORS.map(op => {
+                      const isSelected = selectedOperator === op.name;
+                      return (
+                        <button
+                          key={op.name}
+                          onClick={() => setSelectedOperator(op.name)}
+                          className={`p-3 rounded-2xl border-2 text-center transition kiosk-btn ${
+                            isSelected
+                              ? 'bg-amber-500/20 border-amber-500 text-white ring-2 ring-amber-500/50'
+                              : 'bg-slate-900 border-slate-800 text-slate-300 hover:border-slate-600'
+                          }`}
+                        >
+                          <div className="w-10 h-10 rounded-xl bg-slate-800 text-amber-400 font-bold mx-auto flex items-center justify-center text-sm mb-1">
+                            {op.initials}
+                          </div>
+                          <div className="font-bold text-xs truncate">{op.name}</div>
+                          <div className="text-[10px] text-slate-500 font-mono">{op.badge}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* BOTÃO DE AÇÃO GIGANTE: INICIAR OU FINALIZAR */}
+                <div className="bg-[#0E131F] border-2 border-slate-700 rounded-3xl p-6 sm:p-8 shadow-2xl">
+                  {!selectedOperator ? (
+                    <div className="text-center py-6 text-amber-400/80 font-bold">
+                      Toque no seu nome acima para liberar a ação da unidade.
+                    </div>
+                  ) : activeUnitForOperator ? (
+                    /* FINALIZAR UNIDADE (VERMELHO GIGANTE) */
+                    <div>
+                      <div className="text-center text-xs font-mono text-rose-400 font-bold uppercase mb-2">
+                        OPERAÇÃO EM ANDAMENTO POR {selectedOperator.toUpperCase()}
+                      </div>
+                      <button
+                        onClick={handleFinishUnit}
+                        className="w-full py-8 bg-rose-600 hover:bg-rose-500 active:scale-[0.98] text-white font-black text-2xl sm:text-4xl rounded-3xl shadow-2xl shadow-rose-600/40 border-2 border-rose-400 flex items-center justify-center gap-4 kiosk-btn cursor-pointer"
+                      >
+                        <span>⏹ FINALIZAR UNIDADE {activeUnitForOperator.unidade_numero}</span>
+                      </button>
+                    </div>
+                  ) : !canStart ? (
+                    /* BLOQUEADO (AGUARDANDO ETAPA ANTERIOR - CINZENTO DESABILITADO) */
+                    <div>
+                      <div className="text-center text-xs font-mono text-slate-400 mb-2">
+                        {blockingMsg}
+                      </div>
+                      <button
+                        disabled
+                        onClick={() => soundBlocked()}
+                        className="w-full py-8 bg-slate-800 border-2 border-slate-700 text-slate-500 font-black text-2xl sm:text-4xl rounded-3xl cursor-not-allowed flex items-center justify-center gap-4 opacity-75"
+                      >
+                        <span>Aguardando etapa anterior</span>
+                      </button>
+                    </div>
+                  ) : (
+                    /* INICIAR UNIDADE (VERDE GIGANTE) */
+                    <div>
+                      <div className="text-center text-xs font-mono text-emerald-400 font-bold mb-2">
+                        ETAPA LIBERADA PARA UNIDADE {nextUnitNum} DE {currentOp.quantidade_total}
+                      </div>
+                      <button
+                        onClick={handleStartUnit}
+                        className="w-full py-8 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.98] text-white font-black text-2xl sm:text-4xl rounded-3xl shadow-2xl shadow-emerald-600/40 border-2 border-emerald-400 flex items-center justify-center gap-4 kiosk-btn cursor-pointer"
+                      >
+                        <span>▶ INICIAR UNIDADE {nextUnitNum}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    // Renderização no root
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

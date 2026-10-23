@@ -1,0 +1,1322 @@
+import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
+import { deducePhysicalUnitsFromM2 } from '../utils/nomusParser';
+import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas } from '../utils/routeEngine';
+
+const STORAGE_ORDERS_KEY = 'mes_pcp_orders';
+const STORAGE_APONTAMENTOS_KEY = 'mes_apontamentos';
+const STORAGE_TERMINAL_KEY = 'mes_selected_terminal';
+const STORAGE_FIREBASE_CONFIG_KEY = 'mes_firebase_config';
+export const STORAGE_OPERATORS_KEY = 'metalrib_operators';
+export const STORAGE_TERMINALS_KEY = 'metalrib_terminals_sectors';
+
+const BROADCAST_CHANNEL_NAME = 'MES_FACTORY_BROADCAST';
+
+// Ordens de Produção Iniciais (vazio por padrão para operar 100% com dados reais do Nomus ERP)
+export const INITIAL_ORDERS: Record<string, ProductionOrder> = {};
+
+// IDs de ordens de teste fictícias que devem ser expurgadas caso ainda persistam no localStorage
+export const TEST_DUMMY_OPS = new Set([
+  '023838-01', '023838-02', '023838-03', '023838-04',
+  '023838-05', '023838-06', '023838-07', '023838-08'
+]);
+
+let broadcastChannel: BroadcastChannel | null = null;
+if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+  try {
+    broadcastChannel = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
+  } catch (e) {
+    console.warn('BroadcastChannel not supported', e);
+  }
+}
+
+type Subscriber = () => void;
+const subscribers = new Set<Subscriber>();
+
+function notifySubscribers() {
+  subscribers.forEach(cb => {
+    try {
+      cb();
+    } catch (e) {
+      console.error('Subscriber error', e);
+    }
+  });
+}
+
+// Escuta mensagens de outros terminais/abas
+if (broadcastChannel) {
+  broadcastChannel.onmessage = (event) => {
+    if (event.data && event.data.type === 'DATA_UPDATED') {
+      notifySubscribers();
+    }
+  };
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (
+      event.key === STORAGE_APONTAMENTOS_KEY ||
+      event.key === STORAGE_ORDERS_KEY ||
+      event.key === STORAGE_OPERATORS_KEY ||
+      event.key === STORAGE_TERMINALS_KEY
+    ) {
+      notifySubscribers();
+    }
+  });
+}
+
+function broadcastUpdate() {
+  notifySubscribers();
+  if (typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('metalrib_data_updated'));
+      window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
+    } catch {
+      // silent
+    }
+  }
+  if (broadcastChannel) {
+    try {
+      broadcastChannel.postMessage({ type: 'DATA_UPDATED', timestamp: Date.now() });
+    } catch {
+      // silent
+    }
+  }
+}
+
+/**
+ * Inicializa dados caso o localStorage esteja vazio e purga ordens de teste fictícias
+ */
+export function ensureInitialData() {
+  if (typeof window === 'undefined') return;
+  const existingOrdersRaw = localStorage.getItem(STORAGE_ORDERS_KEY);
+  if (!existingOrdersRaw) {
+    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(INITIAL_ORDERS));
+  } else {
+    // Purga ordens de teste fictícias antigas (023838-01 a 08) que possam ter ficado no storage
+    try {
+      const parsed = JSON.parse(existingOrdersRaw);
+      let modified = false;
+      for (const dummyKey of TEST_DUMMY_OPS) {
+        if (dummyKey in parsed) {
+          delete parsed[dummyKey];
+          modified = true;
+        }
+      }
+      if (modified) {
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(parsed));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  const existingApt = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  if (!existingApt) {
+    localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
+  }
+
+  // Inicializa equipe de colaboradores
+  const existingOps = localStorage.getItem(STORAGE_OPERATORS_KEY);
+  if (!existingOps) {
+    localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
+  } else {
+    try {
+      const ops: Operator[] = JSON.parse(existingOps);
+      let opsModified = false;
+
+      // Migração EME: Garante que Ademir, Francisco, Denis, Jhonatan, José Aparecido (EME)
+      // pertençam EXCLUSIVAMENTE ao setor "Montagem de Portas Emendadas" (Terminal 3) e NÃO sejam volantes
+      for (const op of ops) {
+        const isEme = (op.badge && op.badge.startsWith('EME')) ||
+                      (op.codigo && op.codigo.startsWith('EME')) ||
+                      ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id) ||
+                      ['ademir', 'francisco', 'denis', 'jhonatan', 'josé aparecido', 'jose aparecido'].some(n => (op.name || '').toLowerCase().includes(n));
+
+        if (isEme) {
+          op.codigo = op.codigo || op.badge || 'EME-01';
+          op.setor = "Montagem de Portas Emendadas";
+          op.setores = ["Montagem de Portas Emendadas"];
+          op.sectors = ["Montagem de Portas Emendadas"];
+          op.role = "Montagem Porta Emendada";
+          op.isRoaming = false;
+          op.especialistaVolante = false;
+          op.ativo = true;
+          opsModified = true;
+        }
+
+        // Garante que a equipa de giro (GIR) tenha estritamente Montagem de Portas Giratórias
+        const isGir = (op.badge && op.badge.startsWith('GIR')) ||
+                      (op.codigo && op.codigo.startsWith('GIR')) ||
+                      ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id);
+        if (isGir) {
+          op.codigo = op.codigo || op.badge || 'GIR-01';
+          op.setor = "Montagem de Portas Giratórias";
+          op.setores = ["Montagem de Portas Giratórias"];
+          op.sectors = ["Montagem de Portas Giratórias"];
+          op.role = "Montagem Porta Giratória";
+          op.isRoaming = false;
+          op.especialistaVolante = false;
+          op.ativo = true;
+          opsModified = true;
+        }
+
+        // Garante compatibilidade de campos
+        op.codigo = op.codigo || op.badge;
+        op.setor = op.setor || (op.sectors && op.sectors[0]) || '';
+        op.setores = op.setores || op.sectors || (op.setor ? [op.setor] : []);
+        op.ativo = op.ativo !== false;
+        if (op.isRoaming || op.especialistaVolante) {
+          if (!isEme && !isGir) {
+            op.isRoaming = true;
+            op.especialistaVolante = true;
+          }
+        }
+      }
+
+      // Garante que novos operadores padrão existam
+      for (const defOp of OPERATORS) {
+        const found = ops.find(o => o.id === defOp.id || o.name.toLowerCase() === defOp.name.toLowerCase());
+        if (!found) {
+          ops.push(defOp);
+          opsModified = true;
+        }
+      }
+      if (opsModified) {
+        localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(ops));
+      }
+    } catch {
+      localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
+    }
+  }
+
+  // Inicializa configuração dos 5 terminais e setores
+  const existingTerms = localStorage.getItem(STORAGE_TERMINALS_KEY);
+  if (!existingTerms) {
+    localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(TERMINALS));
+  } else {
+    try {
+      const terms: TerminalConfig[] = JSON.parse(existingTerms);
+      let termsModified = false;
+      const t3 = terms.find(t => t.id === 3);
+      if (t3) {
+        const hasOld = t3.sectors.some(s => s.toLowerCase().includes('montagem e injeção') || s.toLowerCase().includes('montagem e injecao'));
+        const hasPrep = t3.sectors.some(s => s.toLowerCase().includes('preparação de batentes') || s.toLowerCase().includes('preparacao de batentes'));
+        const hasInj = t3.sectors.some(s => s.toLowerCase().includes('injeção e finalização') || s.toLowerCase().includes('injecao e finalizacao'));
+        if (hasOld || !hasPrep || !hasInj) {
+          const preserved = t3.sectors.filter(s => !s.toLowerCase().includes('montagem e inje'));
+          const target = ['Preparação de Batentes', 'Injeção e Finalização Batentes'];
+          if (preserved.includes('Montagem Office Door')) target.push('Montagem Office Door');
+          if (preserved.includes('Montagem de Portas Emendadas')) target.push('Montagem de Portas Emendadas');
+          preserved.forEach(s => {
+            if (!target.includes(s) && !s.toLowerCase().includes('montagem e inje')) {
+              target.push(s);
+            }
+          });
+          t3.sectors = target;
+          termsModified = true;
+        }
+      }
+
+      const t4 = terms.find(t => t.id === 4);
+      if (t4) {
+        if (!t4.sectors.some(s => s.toLowerCase().includes('finalizacao vai vem') || s.toLowerCase().includes('finalização vai vem'))) {
+          t4.sectors = Array.from(new Set([...t4.sectors, 'Finalização Vai Vem']));
+          termsModified = true;
+        }
+      }
+      const t5 = terms.find(t => t.id === 5);
+      if (t5) {
+        if (!t5.sectors.some(s => s.toLowerCase().includes('preparacao vai vem') || s.toLowerCase().includes('preparação vai vem'))) {
+          t5.sectors = Array.from(new Set([...t5.sectors, 'Preparação Vai Vem']));
+          termsModified = true;
+        }
+      }
+      if (termsModified) {
+        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(terms));
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
+// Inicializa no carregamento
+ensureInitialData();
+
+/**
+ * Funções de Gestão de Operadores / Colaboradores (Chave: metalrib_operators)
+ */
+export function fetchOperators(): Operator[] {
+  if (typeof window === 'undefined') return [...OPERATORS];
+  ensureInitialData();
+  const raw = localStorage.getItem(STORAGE_OPERATORS_KEY);
+  if (!raw) return [...OPERATORS];
+  try {
+    const list: Operator[] = JSON.parse(raw);
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((op) => {
+        const isEme = (op.badge && op.badge.startsWith('EME')) ||
+                      (op.codigo && op.codigo.startsWith('EME')) ||
+                      ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id);
+
+        if (isEme) {
+          return {
+            ...op,
+            codigo: op.codigo || op.badge || 'EME-01',
+            setor: "Montagem de Portas Emendadas",
+            setores: ["Montagem de Portas Emendadas"],
+            sectors: ["Montagem de Portas Emendadas"],
+            role: "Montagem Porta Emendada",
+            isRoaming: false,
+            especialistaVolante: false,
+            ativo: op.ativo !== false
+          };
+        }
+
+        const isBat = (op.badge && op.badge.startsWith('BAT')) ||
+                      (op.codigo && op.codigo.startsWith('BAT')) ||
+                      ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id) ||
+                      (op.setores || []).some(s => s.toLowerCase().includes('montagem e inje')) ||
+                      (op.sectors || []).some(s => s.toLowerCase().includes('montagem e inje'));
+
+        if (isBat) {
+          const batSectors = ["Preparação de Batentes", "Injeção e Finalização Batentes"];
+          return {
+            ...op,
+            codigo: op.codigo || op.badge || 'BAT-01',
+            setor: "Preparação de Batentes",
+            setores: batSectors,
+            sectors: batSectors,
+            role: "Preparação / Injeção Batentes",
+            isRoaming: false,
+            especialistaVolante: false,
+            ativo: op.ativo !== false
+          };
+        }
+
+        const allSectors = Array.from(
+          new Set([...(op.setores || []), ...(op.sectors || []), ...(op.setor ? [op.setor] : [])]
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .flatMap((s) => {
+              if (s.toLowerCase().includes('montagem e inje')) {
+                return ['Preparação de Batentes', 'Injeção e Finalização Batentes'];
+              }
+              return [s];
+            })
+          )
+        );
+
+        return {
+          ...op,
+          codigo: op.codigo || op.badge,
+          setor: op.setor && !op.setor.toLowerCase().includes('montagem e inje') ? op.setor : allSectors[0] || '',
+          setores: allSectors,
+          sectors: allSectors,
+          ativo: op.ativo !== false,
+          especialistaVolante: Boolean(op.especialistaVolante || op.isRoaming),
+          isRoaming: Boolean(op.especialistaVolante || op.isRoaming)
+        };
+      });
+    }
+    return [...OPERATORS];
+  } catch {
+    return [...OPERATORS];
+  }
+}
+
+export function saveOperators(operators: Operator[]): void {
+  if (typeof window === 'undefined') return;
+  const cleaned = operators.map((op) => {
+    const allSectors = Array.from(
+      new Set([...(op.setores || []), ...(op.sectors || []), ...(op.setor ? [op.setor] : [])]
+        .map((s) => s.trim())
+        .filter(Boolean)
+      )
+    );
+    return {
+      ...op,
+      codigo: op.codigo || op.badge,
+      setor: op.setor || allSectors[0] || '',
+      setores: allSectors,
+      sectors: allSectors,
+      ativo: op.ativo !== false,
+      especialistaVolante: Boolean(op.especialistaVolante || op.isRoaming),
+      isRoaming: Boolean(op.especialistaVolante || op.isRoaming)
+    };
+  });
+  localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
+  broadcastUpdate();
+}
+
+export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Operator {
+  const current = fetchOperators();
+  const id = newOp.id || `op_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+  const initials = newOp.initials || newOp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'OP';
+  const operator: Operator = {
+    ...newOp,
+    id,
+    initials
+  };
+  const updated = [operator, ...current];
+  saveOperators(updated);
+  return operator;
+}
+
+export function updateOperator(updatedOp: Operator): void {
+  const current = fetchOperators();
+  let index = current.findIndex((o) => o.id === updatedOp.id);
+  if (index === -1 && updatedOp.badge) {
+    index = current.findIndex((o) => o.badge && o.badge.trim().toUpperCase() === updatedOp.badge.trim().toUpperCase());
+  }
+  if (index === -1) {
+    index = current.findIndex((o) => o.name.trim().toLowerCase() === updatedOp.name.trim().toLowerCase());
+  }
+
+  if (index >= 0) {
+    current[index] = { ...current[index], ...updatedOp };
+  } else {
+    current.unshift(updatedOp);
+  }
+  saveOperators([...current]);
+}
+
+export function deleteOperator(id: string): void {
+  const current = fetchOperators();
+  const filtered = current.filter(o => o.id !== id);
+  saveOperators(filtered);
+}
+
+export function resetOperatorsToDefault(): Operator[] {
+  saveOperators([...OPERATORS]);
+  return [...OPERATORS];
+}
+
+/**
+ * Funções de Gestão Dinâmica de Terminais e Setores (Chave: metalrib_terminals_sectors)
+ */
+export function fetchTerminalsConfig(): TerminalConfig[] {
+  if (typeof window === 'undefined') return [...TERMINALS];
+  ensureInitialData();
+  const raw = localStorage.getItem(STORAGE_TERMINALS_KEY);
+  if (!raw) return [...TERMINALS];
+  try {
+    const list: TerminalConfig[] = JSON.parse(raw);
+    if (Array.isArray(list) && list.length > 0) {
+      return list.map((t) => ({
+        ...t,
+        sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
+      }));
+    }
+    return [...TERMINALS];
+  } catch {
+    return [...TERMINALS];
+  }
+}
+
+export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
+  if (typeof window === 'undefined') return;
+  const cleaned = terminals.map((t) => ({
+    ...t,
+    sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
+  }));
+  localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(cleaned));
+  broadcastUpdate();
+}
+
+export function fetchAllSectors(): string[] {
+  const terminals = fetchTerminalsConfig();
+  const set = new Set<string>();
+  terminals.forEach((t) => {
+    if (Array.isArray(t.sectors)) {
+      t.sectors.forEach((s) => {
+        if (s && s.trim()) set.add(s.trim());
+      });
+    }
+  });
+  return Array.from(set);
+}
+
+export function addSectorToTerminal(terminalId: number, sectorName: string): boolean {
+  const clean = sectorName.trim();
+  if (!clean) return false;
+  const terminals = fetchTerminalsConfig();
+  const term = terminals.find((t) => t.id === terminalId);
+  if (!term) return false;
+  if (!term.sectors) term.sectors = [];
+  if (!term.sectors.some((s) => s.toLowerCase() === clean.toLowerCase())) {
+    term.sectors.push(clean);
+    saveTerminalsConfig(terminals);
+    return true;
+  }
+  return false;
+}
+
+export function renameSectorGlobally(oldName: string, newName: string): void {
+  const oldClean = oldName.trim();
+  const newClean = newName.trim();
+  if (!oldClean || !newClean || oldClean.toLowerCase() === newClean.toLowerCase()) return;
+
+  // 1. Atualiza nos terminais
+  const terminals = fetchTerminalsConfig();
+  let termModified = false;
+  terminals.forEach((term) => {
+    if (term.sectors) {
+      const idx = term.sectors.findIndex((s) => s.trim().toLowerCase() === oldClean.toLowerCase());
+      if (idx >= 0) {
+        term.sectors[idx] = newClean;
+        termModified = true;
+      }
+    }
+  });
+  if (termModified) {
+    saveTerminalsConfig(terminals);
+  }
+
+  // 2. Atualiza nos operadores vinculados
+  const operators = fetchOperators();
+  let opModified = false;
+  operators.forEach((op) => {
+    if (op.sectors && op.sectors.length > 0) {
+      const idx = op.sectors.findIndex((s) => s.trim().toLowerCase() === oldClean.toLowerCase());
+      if (idx >= 0) {
+        op.sectors[idx] = newClean;
+        opModified = true;
+      }
+    }
+  });
+  if (opModified) {
+    saveOperators(operators);
+  }
+}
+
+export function deleteSectorGlobally(sectorName: string): void {
+  const clean = sectorName.trim().toLowerCase();
+  if (!clean) return;
+
+  // 1. Remove dos terminais
+  const terminals = fetchTerminalsConfig();
+  terminals.forEach((term) => {
+    if (term.sectors) {
+      term.sectors = term.sectors.filter((s) => s.trim().toLowerCase() !== clean);
+    }
+  });
+  saveTerminalsConfig(terminals);
+
+  // 2. Remove dos operadores vinculados
+  const operators = fetchOperators();
+  operators.forEach((op) => {
+    if (op.sectors) {
+      op.sectors = op.sectors.filter((s) => s.trim().toLowerCase() !== clean);
+    }
+  });
+  saveOperators(operators);
+}
+
+export function resetTerminalsConfigToDefault(): TerminalConfig[] {
+  if (typeof window === 'undefined') return [...TERMINALS];
+  localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(TERMINALS));
+  broadcastUpdate();
+  return [...TERMINALS];
+}
+
+export interface FactorySystemBackup {
+  version: number;
+  exportedAt: string;
+  operators: Operator[];
+  terminals: TerminalConfig[];
+}
+
+export function exportFactoryConfiguration(): FactorySystemBackup {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    operators: fetchOperators(),
+    terminals: fetchTerminalsConfig()
+  };
+}
+
+export function importFactoryConfiguration(data: any): { success: boolean; message: string } {
+  try {
+    if (!data) return { success: false, message: 'Dados de backup vazios ou inválidos.' };
+    
+    let termsImported = false;
+    let opsImported = false;
+
+    if (Array.isArray(data.terminals) && data.terminals.length > 0) {
+      saveTerminalsConfig(data.terminals);
+      termsImported = true;
+    }
+
+    if (Array.isArray(data.operators) && data.operators.length > 0) {
+      saveOperators(data.operators);
+      opsImported = true;
+    }
+
+    if (!termsImported && !opsImported) {
+      return { success: false, message: 'Nenhum dado válido de operadores ou terminais encontrado no arquivo.' };
+    }
+
+    broadcastUpdate();
+    return { success: true, message: 'Equipe e setores importados e sincronizados com sucesso!' };
+  } catch (err: any) {
+    return { success: false, message: `Erro ao importar: ${err?.message || 'Arquivo corrompido'}` };
+  }
+}
+
+export interface FirebaseConnectionConfig {
+  databaseURL: string;
+  apiKey?: string;
+  projectId?: string;
+  enabled: boolean;
+}
+
+export function getSavedFirebaseConfig(): FirebaseConnectionConfig {
+  if (typeof window === 'undefined') {
+    return { databaseURL: '', enabled: false };
+  }
+  try {
+    const raw = localStorage.getItem(STORAGE_FIREBASE_CONFIG_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {
+    // fallback
+  }
+  return { databaseURL: '', enabled: false };
+}
+
+export function saveFirebaseConfig(config: FirebaseConnectionConfig) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_FIREBASE_CONFIG_KEY, JSON.stringify(config));
+  broadcastUpdate();
+}
+
+/**
+ * Salva e recupera o Terminal Físico ativo para este computador
+ */
+export function getSavedTerminalId(): number | null {
+  if (typeof window === 'undefined') return null;
+  const raw = localStorage.getItem(STORAGE_TERMINAL_KEY);
+  return raw ? parseInt(raw, 10) : null;
+}
+
+export function saveTerminalId(terminalId: number) {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_TERMINAL_KEY, terminalId.toString());
+  broadcastUpdate();
+}
+
+export function clearTerminalSelection() {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(STORAGE_TERMINAL_KEY);
+  broadcastUpdate();
+}
+
+/**
+ * Lê todas as Ordens de Produção (simulação do caminho pcp/orders)
+ */
+export async function fetchProductionOrders(): Promise<Record<string, ProductionOrder>> {
+  ensureInitialData();
+  const raw = localStorage.getItem(STORAGE_ORDERS_KEY);
+  if (!raw) return { ...INITIAL_ORDERS };
+  try {
+    const orders: Record<string, ProductionOrder> = JSON.parse(raw);
+    let modified = false;
+    for (const key of Object.keys(orders)) {
+      const o = orders[key];
+      if (o && typeof o.quantidade_total === 'number') {
+        const isDecimal = Math.abs(o.quantidade_total - Math.round(o.quantidade_total)) > 0.001;
+        if (isDecimal) {
+          o.quantidade_m2 = o.quantidade_m2 || Number(o.quantidade_total.toFixed(2));
+          o.unidade_medida = 'M²';
+          o.quantidade_total = deducePhysicalUnitsFromM2(o.descricao || '', o.quantidade_total);
+          o.quantidade = o.quantidade_total;
+          modified = true;
+        }
+      }
+      if (o) {
+        const synced = initOrSyncOrderEtapas(o);
+        if (JSON.stringify(synced.etapas) !== JSON.stringify(o.etapas)) {
+          o.etapas = synced.etapas;
+          modified = true;
+        }
+      }
+    }
+    if (modified) {
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+    }
+    return orders;
+  } catch {
+    return { ...INITIAL_ORDERS };
+  }
+}
+
+/**
+ * Busca uma OP por número (ex: 023838-01)
+ */
+export async function findOrder(opNumber: string): Promise<ProductionOrder | null> {
+  const clean = opNumber.trim().toUpperCase();
+  const orders = await fetchProductionOrders();
+  if (orders[clean]) return orders[clean];
+
+  // Busca flexível sem traço ou com espaços
+  const keys = Object.keys(orders);
+  for (const k of keys) {
+    if (k.replace(/[-_\s]/g, '') === clean.replace(/[-_\s]/g, '')) {
+      return orders[k];
+    }
+  }
+  return null;
+}
+
+/**
+ * Retorna todos os apontamentos salvos no sistema
+ * Simula a estrutura Firebase apontamentos/<op_numero>/<id_unico>
+ */
+export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[]> {
+  ensureInitialData();
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  if (raw) {
+    try {
+      tree = JSON.parse(raw);
+    } catch {
+      tree = {};
+    }
+  }
+
+  const list: Apontamento[] = [];
+  if (opNumero) {
+    const clean = opNumero.trim().toUpperCase();
+    if (tree[clean]) {
+      Object.values(tree[clean]).forEach(a => list.push(a));
+    }
+  } else {
+    Object.values(tree).forEach(opMap => {
+      Object.values(opMap).forEach(a => list.push(a));
+    });
+  }
+
+  // Ordena por hora de início decrescente
+  return list.sort((a, b) => new Date(b.hora_inicio).getTime() - new Date(a.hora_inicio).getTime());
+}
+
+/**
+ * Inicia uma unidade de produção para a OP e Setor selecionados
+ * Guarda sob a árvore de apontamentos/<op_numero>/<id_unico>
+ */
+export async function startUnit(params: {
+  op_numero: string;
+  unidade_numero: number;
+  setor: string;
+  etapa_rota: string;
+  terminal_id: number;
+  operador: string;
+}): Promise<Apontamento> {
+  ensureInitialData();
+  const cleanOp = params.op_numero.trim().toUpperCase();
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  if (raw) {
+    try {
+      tree = JSON.parse(raw);
+    } catch {
+      tree = {};
+    }
+  }
+
+  if (!tree[cleanOp]) {
+    tree[cleanOp] = {};
+  }
+
+  const uniqueId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const nowIso = new Date().toISOString();
+  const novoApontamento: Apontamento = {
+    id: uniqueId,
+    op_numero: cleanOp,
+    op: cleanOp,
+    unidade_numero: params.unidade_numero,
+    unidade: `Un #${params.unidade_numero}`,
+    modo: 'UNITARIO',
+    setor: params.setor,
+    setorFisico: params.setor,
+    etapa_rota: params.etapa_rota,
+    etapaRota: params.etapa_rota,
+    terminal_id: params.terminal_id,
+    terminal: `T${params.terminal_id}`,
+    operador: params.operador,
+    colaborador: params.operador,
+    hora_inicio: nowIso,
+    horaInicio: nowIso,
+    status: 'EM_ANDAMENTO'
+  };
+
+  tree[cleanOp][uniqueId] = novoApontamento;
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+
+  try {
+    const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+    if (rawOrders) {
+      const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
+      const targetOrder = ordersMap[cleanOp];
+      if (targetOrder) {
+        const { steps } = getRouteForOp(targetOrder);
+        if (!targetOrder.etapas) {
+          targetOrder.etapas = {};
+        }
+        steps.forEach((s) => {
+          if (!targetOrder.etapas![s]) {
+            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+          }
+        });
+        const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
+        targetOrder.etapas[matchedStepKey] = {
+          ...targetOrder.etapas[matchedStepKey],
+          status: 'EM_PRODUCAO',
+          concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
+        };
+        targetOrder.status = 'EM_PRODUCAO';
+        targetOrder.status_fabrica = 'Produzindo Hoje';
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao atualizar status da OP ao iniciar unidade:', err);
+  }
+
+  broadcastUpdate();
+  return novoApontamento;
+}
+
+/**
+ * Finaliza a unidade em andamento
+ * Calcula duracao_minutos e regista hora_fim
+ */
+export async function finishUnit(apontamentoId: string, opNumero: string): Promise<Apontamento> {
+  ensureInitialData();
+  const cleanOp = opNumero.trim().toUpperCase();
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  if (raw) {
+    try {
+      tree = JSON.parse(raw);
+    } catch {
+      tree = {};
+    }
+  }
+
+  const opTree = tree[cleanOp];
+  if (!opTree || !opTree[apontamentoId]) {
+    throw new Error(`Apontamento ${apontamentoId} não encontrado para OP ${opNumero}`);
+  }
+
+  const item = opTree[apontamentoId];
+  const now = new Date();
+  const start = new Date(item.horaInicio || item.hora_inicio);
+  const diffMinutes = Math.max(0.1, Number(((now.getTime() - start.getTime()) / 60000).toFixed(1)));
+  const nowIso = now.toISOString();
+
+  const updated: Apontamento = {
+    ...item,
+    op: item.op || cleanOp,
+    unidade: item.unidade || `Un #${item.unidade_numero}`,
+    modo: 'UNITARIO',
+    setorFisico: item.setorFisico || item.setor,
+    etapaRota: item.etapaRota || item.etapa_rota,
+    colaborador: item.colaborador || item.operador,
+    terminal: item.terminal || `T${item.terminal_id}`,
+    horaInicio: item.horaInicio || item.hora_inicio,
+    hora_fim: nowIso,
+    horaFim: nowIso,
+    duracao_minutos: diffMinutes,
+    duracao: diffMinutes,
+    status: 'FINALIZADO'
+  };
+
+  tree[cleanOp][apontamentoId] = updated;
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+
+  try {
+    const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+    if (rawOrders) {
+      const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
+      const targetOrder = ordersMap[cleanOp];
+      if (targetOrder) {
+        const { steps } = getRouteForOp(targetOrder);
+        if (!targetOrder.etapas) {
+          targetOrder.etapas = {};
+        }
+        steps.forEach((s) => {
+          if (!targetOrder.etapas![s]) {
+            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+          }
+        });
+
+        const currentStepIndex = steps.findIndex(
+          (s) => matchStepName(s, item.etapa_rota) || doesSectorMatchStep(item.setor, s)
+        );
+        const matchedStep = currentStepIndex >= 0 ? steps[currentStepIndex] : item.etapa_rota;
+
+        // Verifica quantas unidades foram finalizadas para esta etapa
+        const stepApts = Object.values(tree[cleanOp] || {}).filter(
+          (a) => a.status === 'FINALIZADO' && (matchStepName(a.etapa_rota, matchedStep) || doesSectorMatchStep(a.setor, matchedStep))
+        );
+        const finishedCount = stepApts.length;
+        const totalUnits = Math.max(1, Math.round(targetOrder.quantidade_total || 1));
+
+        if (finishedCount >= totalUnits) {
+          targetOrder.etapas[matchedStep] = {
+            status: 'CONCLUIDO',
+            concluidas: totalUnits
+          };
+
+          if (currentStepIndex >= 0) {
+            for (let i = currentStepIndex + 1; i < steps.length; i++) {
+              const nextStep = steps[i];
+              if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
+                targetOrder.etapas[nextStep] = {
+                  status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
+                  concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+                };
+              }
+            }
+          }
+
+          const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
+          if (isLastStep) {
+            targetOrder.status = 'FINALIZADA';
+            targetOrder.status_fabrica = 'Embalada';
+            targetOrder.qtde_produzida = totalUnits;
+          }
+        } else {
+          targetOrder.etapas[matchedStep] = {
+            status: 'EM_PRODUCAO',
+            concluidas: finishedCount
+          };
+        }
+
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao atualizar status da OP ao finalizar unidade:', err);
+  }
+
+  broadcastUpdate();
+  return updated;
+}
+
+export interface StartBatchParams {
+  op_numero: string;
+  quantidade_total: number;
+  setor: string;
+  etapa_rota: string;
+  terminal_id: number;
+  operador: string;
+}
+
+/**
+ * Inicia o apontamento do lote completo
+ */
+export async function startBatch(params: StartBatchParams): Promise<Apontamento> {
+  ensureInitialData();
+  const cleanOp = params.op_numero.trim().toUpperCase();
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  if (raw) {
+    try {
+      tree = JSON.parse(raw);
+    } catch {
+      tree = {};
+    }
+  }
+
+  if (!tree[cleanOp]) {
+    tree[cleanOp] = {};
+  }
+
+  const uniqueId = `apt_lote_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+  const nowIso = new Date().toISOString();
+  const totalUnits = Math.max(1, Math.round(params.quantidade_total || 1));
+  const novoApontamento: Apontamento = {
+    id: uniqueId,
+    op_numero: cleanOp,
+    op: cleanOp,
+    unidade_numero: 0,
+    unidade: `Lote (${totalUnits} PC)`,
+    is_lote: true,
+    modo: 'LOTE',
+    quantidade_lote: totalUnits,
+    setor: params.setor,
+    setorFisico: params.setor,
+    etapa_rota: params.etapa_rota,
+    etapaRota: params.etapa_rota,
+    terminal_id: params.terminal_id,
+    terminal: `T${params.terminal_id}`,
+    operador: params.operador,
+    colaborador: params.operador,
+    hora_inicio: nowIso,
+    horaInicio: nowIso,
+    status: 'EM_ANDAMENTO'
+  };
+
+  tree[cleanOp][uniqueId] = novoApontamento;
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+
+  // Atualiza status da OP para EM_PRODUCAO com data/hora e colaborador
+  try {
+    const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+    if (rawOrders) {
+      const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
+      const targetOrder = ordersMap[cleanOp];
+      if (targetOrder) {
+        const { steps } = getRouteForOp(targetOrder);
+        if (!targetOrder.etapas) {
+          targetOrder.etapas = {};
+        }
+        steps.forEach((s) => {
+          if (!targetOrder.etapas![s]) {
+            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+          }
+        });
+        const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
+        targetOrder.etapas[matchedStepKey] = {
+          ...targetOrder.etapas[matchedStepKey],
+          status: 'EM_PRODUCAO',
+          concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
+        };
+        targetOrder.status = 'EM_PRODUCAO';
+        targetOrder.status_fabrica = 'Produzindo Hoje';
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao atualizar status da OP ao iniciar lote:', err);
+  }
+
+  broadcastUpdate();
+  return novoApontamento;
+}
+
+/**
+ * Finaliza o lote completo gravando EXCLUSIVAMENTE 1 único registro consolidado no histórico
+ */
+export async function finishBatch(
+  apontamentoId: string,
+  opNumero: string,
+  options?: { quantidadeRefugo?: number; quantidadeProduzida?: number }
+): Promise<Apontamento> {
+  ensureInitialData();
+  const cleanOp = opNumero.trim().toUpperCase();
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  if (raw) {
+    try {
+      tree = JSON.parse(raw);
+    } catch {
+      tree = {};
+    }
+  }
+
+  const opTree = tree[cleanOp];
+  if (!opTree || !opTree[apontamentoId]) {
+    throw new Error(`Apontamento de lote ${apontamentoId} não encontrado para OP ${opNumero}`);
+  }
+
+  const item = opTree[apontamentoId];
+  const now = new Date();
+  const start = new Date(item.horaInicio || item.hora_inicio);
+  const diffMinutes = Math.max(0.1, Number(((now.getTime() - start.getTime()) / 60000).toFixed(1)));
+  const totalUnits = item.quantidade_lote || Math.max(1, Math.round(options?.quantidadeProduzida || 1));
+  const refugo = options?.quantidadeRefugo || 0;
+  const nowIso = now.toISOString();
+
+  // EXCLUSIVAMENTE 1 único registro consolidado no histórico (sem loop de N unidades)
+  const updated: Apontamento = {
+    ...item,
+    id: apontamentoId,
+    op: cleanOp,
+    op_numero: cleanOp,
+    unidade: `Lote (${totalUnits} PC)`,
+    unidade_numero: 0,
+    modo: 'LOTE',
+    setor: item.setor,
+    setorFisico: item.setorFisico || item.setor,
+    etapa_rota: item.etapa_rota,
+    etapaRota: item.etapaRota || item.etapa_rota,
+    operador: item.operador,
+    colaborador: item.colaborador || item.operador,
+    terminal_id: item.terminal_id,
+    terminal: item.terminal || `T${item.terminal_id}`,
+    hora_inicio: item.hora_inicio,
+    horaInicio: item.horaInicio || item.hora_inicio,
+    hora_fim: nowIso,
+    horaFim: nowIso,
+    duracao_minutos: diffMinutes,
+    duracao: diffMinutes,
+    status: 'FINALIZADO',
+    quantidade_refugo: refugo,
+    quantidade_lote: totalUnits,
+    is_lote: true
+  };
+
+  tree[cleanOp][apontamentoId] = updated;
+
+  // Limpa quaisquer registros legados individuais que tenham sido gerados anteriormente para este lote/etapa
+  const legacyPrefix = `apt_${cleanOp.replace(/[\s\/\\]/g, '_')}_${item.etapa_rota}_u`;
+  Object.keys(tree[cleanOp]).forEach((key) => {
+    if (key.startsWith(legacyPrefix) && key !== apontamentoId) {
+      delete tree[cleanOp][key];
+    }
+  });
+
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+
+  // Avança a OP para a próxima etapa da rota (ou marca 100% concluída se for a última)
+  try {
+    const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+    if (rawOrders) {
+      const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
+      const targetOrder = ordersMap[cleanOp];
+      if (targetOrder) {
+        const { steps } = getRouteForOp(targetOrder);
+        if (!targetOrder.etapas) {
+          targetOrder.etapas = {};
+        }
+        steps.forEach((s) => {
+          if (!targetOrder.etapas![s]) {
+            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+          }
+        });
+
+        const currentStepIndex = steps.findIndex(
+          (s) => matchStepName(s, item.etapa_rota) || doesSectorMatchStep(item.setor, s)
+        );
+        const matchedStep = currentStepIndex >= 0 ? steps[currentStepIndex] : item.etapa_rota;
+
+        // Marca estritamente a etapa atual concluída (concluidas = totalUnits)
+        targetOrder.etapas[matchedStep] = {
+          status: 'CONCLUIDO',
+          concluidas: totalUnits
+        };
+
+        // As etapas subsequentes permanecem rigorosamente PENDENTES com 0 peças feitas
+        if (currentStepIndex >= 0) {
+          for (let i = currentStepIndex + 1; i < steps.length; i++) {
+            const nextStep = steps[i];
+            if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
+              targetOrder.etapas[nextStep] = {
+                status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
+                concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+              };
+            }
+          }
+        }
+
+        const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
+        if (isLastStep) {
+          targetOrder.status = 'FINALIZADA';
+          targetOrder.status_fabrica = 'Embalada';
+          targetOrder.qtde_produzida = totalUnits - refugo;
+        } else {
+          targetOrder.status = 'EM_PRODUCAO';
+          targetOrder.status_fabrica = 'Produzindo Hoje';
+        }
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+      }
+    }
+  } catch (err) {
+    console.error('Erro ao atualizar status da OP ao finalizar lote:', err);
+  }
+
+  broadcastUpdate();
+  return updated;
+}
+
+/**
+ * Remove um apontamento individual por ID
+ */
+export async function deleteApontamento(apontamentoId: string, opNumero?: string): Promise<boolean> {
+  ensureInitialData();
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  if (!raw) return false;
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  try {
+    tree = JSON.parse(raw);
+  } catch {
+    return false;
+  }
+
+  let deleted = false;
+  if (opNumero) {
+    const cleanOp = opNumero.trim().toUpperCase();
+    if (tree[cleanOp] && tree[cleanOp][apontamentoId]) {
+      delete tree[cleanOp][apontamentoId];
+      deleted = true;
+    }
+  } else {
+    for (const opKey of Object.keys(tree)) {
+      if (tree[opKey] && tree[opKey][apontamentoId]) {
+        delete tree[opKey][apontamentoId];
+        deleted = true;
+        break;
+      }
+    }
+  }
+
+  if (deleted) {
+    localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+    broadcastUpdate();
+  }
+  return deleted;
+}
+
+/**
+ * Limpa todo o histórico de apontamentos
+ */
+export async function clearAllApontamentos(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
+  broadcastUpdate();
+}
+
+/**
+ * Adiciona uma nova OP (para supervisão / teste)
+ */
+export async function addProductionOrder(order: ProductionOrder): Promise<void> {
+  ensureInitialData();
+  const orders = await fetchProductionOrders();
+  orders[order.op_numero] = order;
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  broadcastUpdate();
+}
+
+/**
+ * Remove uma OP individual do sistema
+ */
+export async function deleteProductionOrder(opNumero: string): Promise<void> {
+  ensureInitialData();
+  const orders = await fetchProductionOrders();
+  if (orders[opNumero]) {
+    delete orders[opNumero];
+    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+    broadcastUpdate();
+  }
+}
+
+/**
+ * Atualiza campos de uma OP existente (ex: status_fabrica, favorita, pausada)
+ */
+export async function updateProductionOrder(
+  opNumero: string,
+  updates: Partial<ProductionOrder>
+): Promise<ProductionOrder | null> {
+  ensureInitialData();
+  const orders = await fetchProductionOrders();
+  let targetKey = opNumero;
+  if (!orders[targetKey]) {
+    const foundKey = Object.keys(orders).find(
+      k => k.replace(/[-_\s]/g, '').replace(/^OP/i, '') === opNumero.replace(/[-_\s]/g, '').replace(/^OP/i, '')
+    );
+    if (foundKey) targetKey = foundKey;
+  }
+
+  if (!orders[targetKey]) return null;
+
+  const updated: ProductionOrder = {
+    ...orders[targetKey],
+    ...updates
+  };
+  orders[targetKey] = updated;
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  broadcastUpdate();
+  return updated;
+}
+
+/**
+ * Adiciona uma mensagem/recado à conversa de uma OP
+ */
+export async function addOpMessage(
+  opNumero: string,
+  message: { autor: string; texto: string; papel?: string }
+): Promise<void> {
+  ensureInitialData();
+  const orders = await fetchProductionOrders();
+  let targetKey = opNumero;
+  if (!orders[targetKey]) {
+    const foundKey = Object.keys(orders).find(
+      k => k.replace(/[-_\s]/g, '').replace(/^OP/i, '') === opNumero.replace(/[-_\s]/g, '').replace(/^OP/i, '')
+    );
+    if (foundKey) targetKey = foundKey;
+  }
+
+  if (!orders[targetKey]) return;
+
+  const currentOp = orders[targetKey];
+  const nowStr = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const newMsg = {
+    id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+    autor: message.autor,
+    papel: message.papel || 'Produção',
+    texto: message.texto,
+    data_hora: nowStr
+  };
+
+  const existingMsgs = currentOp.mensagens || [];
+  currentOp.mensagens = [...existingMsgs, newMsg];
+  currentOp.ultimo_aviso = {
+    autor: `${message.autor}${message.papel ? ` (${message.papel})` : ''}`,
+    texto: message.texto,
+    data_hora: nowStr
+  };
+
+  orders[targetKey] = currentOp;
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  broadcastUpdate();
+}
+
+/**
+ * Limpa todas as OPs ou apenas as de teste
+ */
+export async function clearAllOrders(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
+  localStorage.removeItem('pcp_orders');
+  broadcastUpdate();
+}
+
+/**
+ * Salva múltiplas OPs importadas em lote (ex: importação do Nomus)
+ */
+export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAll: boolean = false): Promise<number> {
+  ensureInitialData();
+  const orders = replaceAll ? {} : await fetchProductionOrders();
+  let count = 0;
+  for (const o of newOrders) {
+    if (o.op_numero) {
+      orders[o.op_numero] = o;
+      count++;
+    }
+  }
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  broadcastUpdate();
+  return count;
+}
+
+/**
+ * Reseta os dados de apontamento para os dados de fábrica padrão
+ */
+export function resetFactoryData(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(INITIAL_ORDERS));
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
+  broadcastUpdate();
+}
+
+/**
+ * Inscreve-se para mudanças em tempo real (mesmo de outros terminais/abas)
+ */
+export function subscribeToMesUpdates(callback: () => void): () => void {
+  subscribers.add(callback);
+  return () => {
+    subscribers.delete(callback);
+  };
+}
