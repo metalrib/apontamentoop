@@ -247,10 +247,14 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     }, 1500);
   };
 
-  // Limpa lista de OPs: aciona o modal in-app (sem window.confirm)
-  const handleClearOrdersList = () => {
+  // Limpa lista de OPs: aciona confirmação via window.confirm
+  const handleClearOrdersList = async () => {
     playClick();
-    setShowClearConfirmModal(true);
+    const confirmed = window.confirm(
+      'Deseja realmente apagar todas as Ordens de Produção carregadas no sistema e no Firebase? Esta ação deixará o painel zerado para receber os dados reais importados.'
+    );
+    if (!confirmed) return;
+    await executeClearAllOrders();
   };
 
   const executeClearAllOrders = async () => {
@@ -716,24 +720,33 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
             {/* Listagem de OPs */}
             {filteredOrders.length === 0 ? (
-              <div className="border border-blue-900/60 rounded-2xl p-12 text-center bg-[#0c142b] shadow-2xl flex flex-col items-center justify-center gap-3">
+              <div className="border border-blue-900/60 rounded-2xl p-12 text-center bg-[#0c142b] shadow-2xl flex flex-col items-center justify-center gap-4">
                 <Factory className="w-12 h-12 text-slate-600" />
-                <span className="text-base font-semibold text-slate-200">
-                  Nenhuma Ordem de Produção ativa no momento.
+                <span className="text-base font-semibold text-slate-200 max-w-lg">
+                  Nenhuma ordem de produção em andamento. Importe o arquivo HTML do Nomus ou cadastre uma nova OP.
                 </span>
-                <span className="text-xs text-slate-400 max-w-md">
-                  Clique em <strong className="text-emerald-400">"Importar HTML Nomus"</strong> acima para carregar instantaneamente todas as ordens de produção abertas na fábrica.
-                </span>
-                <button
-                  onClick={() => {
-                    playClick();
-                    setShowNomusImportModal(true);
-                  }}
-                  className="mt-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Importar Ordens do Nomus ERP</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3 mt-1">
+                  <button
+                    onClick={() => {
+                      playClick();
+                      setShowNomusImportModal(true);
+                    }}
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
+                  >
+                    <Upload className="w-4 h-4" />
+                    <span>Importar HTML do Nomus</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      playClick();
+                      setShowNewOpModal(true);
+                    }}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Nova OP Manual</span>
+                  </button>
+                </div>
               </div>
             ) : orderViewMode === 'cards' ? (
               /* MODO CARDS DE PRODUÇÃO IDENTICOS AO SISTEMA DE CHÃO DE FÁBRICA */
@@ -1262,7 +1275,14 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
               </div>
 
               {/* Grid Respirada de Cards */}
-              {filteredAndonOrders.length === 0 ? (
+              {orderList.length === 0 ? (
+                <div className="bg-[#0c142b] border border-blue-900/60 rounded-2xl p-12 text-center text-slate-400 space-y-3">
+                  <Factory className="w-12 h-12 text-slate-600 mx-auto" />
+                  <h4 className="text-base font-semibold text-slate-200 max-w-lg mx-auto">
+                    Nenhuma ordem de produção em andamento. Importe o arquivo HTML do Nomus ou cadastre uma nova OP.
+                  </h4>
+                </div>
+              ) : filteredAndonOrders.length === 0 ? (
                 <div className="bg-[#0c142b] border border-blue-900/60 rounded-2xl p-12 text-center text-slate-400 font-mono space-y-2">
                   <Search className="w-10 h-10 text-slate-600 mx-auto mb-2" />
                   <h4 className="text-base font-bold text-white">Nenhuma Ordem de Produção Encontrada</h4>

@@ -75,7 +75,7 @@ export default function App() {
       setPinError(null);
     } else {
       playBlockedError();
-      setPinError('PIN incorreto. Use 1234.');
+      setPinError('Senha ou PIN incorreto. Tente novamente.');
     }
   };
 
@@ -530,16 +530,17 @@ export default function App() {
 
               <h3 className="text-lg font-bold text-white">Acesso PCP & Coordenação</h3>
               <p className="text-xs text-slate-400 mt-1">
-                Digite a senha/PIN de coordenação para acessar o portal de gestão (Padrão: <span className="font-mono text-blue-300">1234</span>).
+                Digite a senha/PIN de coordenação para acessar o portal de gestão.
               </p>
 
               <form onSubmit={handleUnlockPcp} className="mt-5 space-y-4">
                 <input
                   type="password"
+                  autoComplete="off"
                   value={pinInput}
                   onChange={(e) => setPinInput(e.target.value)}
-                  placeholder="PIN"
-                  maxLength={6}
+                  placeholder="••••"
+                  maxLength={8}
                   autoFocus
                   className="w-full text-center tracking-widest text-2xl font-mono py-3 bg-slate-950 border border-slate-700 rounded-xl text-white focus:outline-none focus:border-blue-400"
                 />
@@ -694,17 +695,18 @@ export default function App() {
 
             <h3 className="text-lg font-bold text-white">Acesso PCP & Coordenação</h3>
             <p className="text-xs text-slate-400 mt-1">
-              Digite a senha/PIN de coordenação para acessar o portal de gestão (Padrão: <span className="font-mono text-blue-300">1234</span>).
+              Digite a senha/PIN de coordenação para acessar o portal de gestão.
             </p>
 
             <form onSubmit={handleUnlockPcp} className="mt-5 space-y-4">
               <input
                 type="password"
+                autoComplete="off"
                 maxLength={8}
                 autoFocus
                 value={pinInput}
                 onChange={(e) => setPinInput(e.target.value)}
-                placeholder="PIN (1234)"
+                placeholder="••••"
                 className="w-full text-center py-3 bg-slate-950 border border-blue-900 rounded-xl text-xl font-mono tracking-widest text-white focus:outline-none focus:border-blue-400"
               />
 

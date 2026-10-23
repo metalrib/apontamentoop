@@ -18,83 +18,15 @@ export const STORAGE_TERMINALS_KEY = 'metalrib_terminals_sectors';
 
 const BROADCAST_CHANNEL_NAME = 'MES_FACTORY_BROADCAST';
 
-export const INITIAL_ORDERS_MOCK: Record<string, ProductionOrder> = {
-  '023838-09': {
-    op_numero: '023838-09',
-    codigo_peca: 'FOLHA-PADRAO-01',
-    descricao: 'Porta Folha Padrão Metalrib',
-    cliente: 'Metalrib Indústria',
-    quantidade_total: 20,
-    qtde_produzida: 0,
-    status: 'LIBERADA',
-    status_fabrica: 'Liberada PCP',
-    prioridade: 'NORMAL',
-    data_entrega: '2026-10-30',
-    data_criacao: new Date().toISOString(),
-    favorita: false,
-    pausada: false,
-    requer_laser: false,
-    etapas: {
-      'Corte': { status: 'PENDENTE', concluidas: 0 },
-      'Dobra': { status: 'PENDENTE', concluidas: 0 },
-      'Preparação': { status: 'PENDENTE', concluidas: 0 },
-      'Injetora': { status: 'PENDENTE', concluidas: 0 }
-    }
-  },
-  '023838-10': {
-    op_numero: '023838-10',
-    codigo_peca: '020-0015',
-    descricao: 'Folha Padrão (Rota com Laser)',
-    cliente: 'Metalrib Clientes Especiais',
-    quantidade_total: 20,
-    qtde_produzida: 0,
-    status: 'LIBERADA',
-    status_fabrica: 'Liberada PCP',
-    prioridade: 'ALTA',
-    data_entrega: '2026-10-28',
-    data_criacao: new Date().toISOString(),
-    favorita: true,
-    pausada: false,
-    requer_laser: true,
-    etapas: {
-      'Corte': { status: 'PENDENTE', concluidas: 0 },
-      'Laser': { status: 'PENDENTE', concluidas: 0 },
-      'Dobra': { status: 'PENDENTE', concluidas: 0 },
-      'Preparação': { status: 'PENDENTE', concluidas: 0 },
-      'Injetora': { status: 'PENDENTE', concluidas: 0 }
-    }
-  },
-  '023838-11': {
-    op_numero: '023838-11',
-    codigo_peca: 'BAT-01',
-    descricao: 'Conjunto Batentes Standard',
-    cliente: 'Metalrib Estruturas',
-    quantidade_total: 15,
-    qtde_produzida: 0,
-    status: 'LIBERADA',
-    status_fabrica: 'Liberada PCP',
-    prioridade: 'NORMAL',
-    data_entrega: '2026-10-31',
-    data_criacao: new Date().toISOString(),
-    favorita: false,
-    pausada: false,
-    requer_laser: false,
-    etapas: {
-      'Corte': { status: 'PENDENTE', concluidas: 0 },
-      'Dobra': { status: 'PENDENTE', concluidas: 0 },
-      'Preparação de Batentes': { status: 'PENDENTE', concluidas: 0 },
-      'Injeção e Finalização Batentes': { status: 'PENDENTE', concluidas: 0 }
-    }
-  }
-};
-
 // Ordens de Produção Iniciais (vazio por padrão para operar 100% com dados reais do Nomus ERP / Firebase)
-export const INITIAL_ORDERS: Record<string, ProductionOrder> = INITIAL_ORDERS_MOCK;
+export const INITIAL_ORDERS: Record<string, ProductionOrder> = {};
+export const INITIAL_ORDERS_MOCK: Record<string, ProductionOrder> = {};
 
-// IDs de ordens de teste fictícias que devem ser expurgadas caso ainda persistam no localStorage
+// IDs de ordens de teste fictícias que devem ser expurgadas caso ainda persistam no localStorage ou Firebase
 export const TEST_DUMMY_OPS = new Set([
   '023838-01', '023838-02', '023838-03', '023838-04',
-  '023838-05', '023838-06', '023838-07', '023838-08'
+  '023838-05', '023838-06', '023838-07', '023838-08',
+  '023838-09', '023838-10', '023838-11'
 ]);
 
 let broadcastChannel: BroadcastChannel | null = null;
@@ -699,13 +631,7 @@ export function initFirebaseRealtimeListeners(): void {
       try {
         const val = snapshot.val();
         if (!val || Object.keys(val).length === 0) {
-          console.log('[Firebase] Nó ordens_producao vazio. Enviando lista de OPs padrão...');
-          const initialMap: Record<string, ProductionOrder> = {};
-          Object.values(INITIAL_ORDERS_MOCK).forEach((o) => {
-            initialMap[toFirebaseKey(o.op_numero)] = o;
-          });
-          set(ref(db, 'ordens_producao'), initialMap);
-          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(INITIAL_ORDERS_MOCK));
+          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
           broadcastUpdate();
           return;
         }
@@ -713,16 +639,14 @@ export function initFirebaseRealtimeListeners(): void {
         const ordersMap: Record<string, ProductionOrder> = {};
         if (typeof val === 'object') {
           Object.values(val).forEach((item: any) => {
-            if (item && item.op_numero) {
+            if (item && item.op_numero && !TEST_DUMMY_OPS.has(item.op_numero)) {
               ordersMap[item.op_numero] = item;
             }
           });
         }
 
-        if (Object.keys(ordersMap).length > 0) {
-          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-          broadcastUpdate();
-        }
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        broadcastUpdate();
       } catch (err) {
         console.error('[Firebase] Erro no listener de ordens_producao:', err);
       }
@@ -910,22 +834,17 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
       if (snapshot.exists()) {
         const val = snapshot.val();
         const ordersMap: Record<string, ProductionOrder> = {};
-        if (typeof val === 'object') {
+        if (typeof val === 'object' && val !== null) {
           Object.values(val).forEach((item: any) => {
-            if (item && item.op_numero) ordersMap[item.op_numero] = item;
+            if (item && item.op_numero && !TEST_DUMMY_OPS.has(item.op_numero)) {
+              ordersMap[item.op_numero] = item;
+            }
           });
         }
-        if (Object.keys(ordersMap).length > 0) {
-          raw = JSON.stringify(ordersMap);
-          localStorage.setItem(STORAGE_ORDERS_KEY, raw);
-        }
+        raw = JSON.stringify(ordersMap);
+        localStorage.setItem(STORAGE_ORDERS_KEY, raw);
       } else {
-        const initialMap: Record<string, ProductionOrder> = {};
-        Object.values(INITIAL_ORDERS_MOCK).forEach((o) => {
-          initialMap[toFirebaseKey(o.op_numero)] = o;
-        });
-        await set(ref(db, 'ordens_producao'), initialMap);
-        raw = JSON.stringify(INITIAL_ORDERS_MOCK);
+        raw = '{}';
         localStorage.setItem(STORAGE_ORDERS_KEY, raw);
       }
     } catch (err) {
@@ -933,11 +852,16 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
     }
   }
 
-  if (!raw) return { ...INITIAL_ORDERS_MOCK };
+  if (!raw) return {};
   try {
     const orders: Record<string, ProductionOrder> = JSON.parse(raw);
     let modified = false;
     for (const key of Object.keys(orders)) {
+      if (TEST_DUMMY_OPS.has(key)) {
+        delete orders[key];
+        modified = true;
+        continue;
+      }
       const o = orders[key];
       if (o && typeof o.quantidade_total === 'number') {
         const isDecimal = Math.abs(o.quantidade_total - Math.round(o.quantidade_total)) > 0.001;
@@ -962,7 +886,7 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
     }
     return orders;
   } catch {
-    return { ...INITIAL_ORDERS_MOCK };
+    return {};
   }
 }
 
@@ -1751,16 +1675,12 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
  */
 export function resetFactoryData(): void {
   if (typeof window === 'undefined') return;
-  const initialMap: Record<string, ProductionOrder> = {};
-  Object.values(INITIAL_ORDERS_MOCK).forEach((o) => {
-    initialMap[toFirebaseKey(o.op_numero)] = o;
-  });
-  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(INITIAL_ORDERS_MOCK));
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
-  firebasePut('pcp/orders', INITIAL_ORDERS_MOCK);
+  firebasePut('pcp/orders', {});
   firebaseDelete('apontamentos');
   try {
-    set(ref(db, 'ordens_producao'), initialMap);
+    set(ref(db, 'ordens_producao'), null);
     set(ref(db, 'historico_apontamentos'), null);
   } catch {}
   broadcastUpdate();
