@@ -241,6 +241,7 @@ export function ensureInitialData() {
 
 // Inicializa no carregamento
 ensureInitialData();
+startFirebaseBackgroundSync();
 
 /**
  * Funções de Gestão de Operadores / Colaboradores (Chave: metalrib_operators)
@@ -345,6 +346,7 @@ export function saveOperators(operators: Operator[]): void {
     };
   });
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
+  firebasePut('config/operators', cleaned);
   broadcastUpdate();
 }
 
@@ -420,6 +422,7 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
     sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
   }));
   localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(cleaned));
+  firebasePut('config/terminals', cleaned);
   broadcastUpdate();
 }
 
@@ -576,10 +579,27 @@ export function getSavedFirebaseConfig(): FirebaseConnectionConfig {
   }
   try {
     const raw = localStorage.getItem(STORAGE_FIREBASE_CONFIG_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed.databaseURL) return parsed;
+    }
   } catch {
     // fallback
   }
+
+  // Fallback para variáveis de ambiente VITE_
+  const envUrl = (import.meta as any).env?.VITE_FIREBASE_DATABASE_URL || '';
+  const envKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || '';
+  const envProject = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || '';
+  if (envUrl) {
+    return {
+      databaseURL: envUrl,
+      apiKey: envKey,
+      projectId: envProject,
+      enabled: true
+    };
+  }
+
   return { databaseURL: '', enabled: false };
 }
 
@@ -587,6 +607,114 @@ export function saveFirebaseConfig(config: FirebaseConnectionConfig) {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_FIREBASE_CONFIG_KEY, JSON.stringify(config));
   broadcastUpdate();
+}
+
+/**
+ * Funções utilitárias de comunicação REST com Firebase Realtime Database
+ */
+function getFirebaseUrl(path: string): string | null {
+  const cfg = getSavedFirebaseConfig();
+  if (!cfg.enabled || !cfg.databaseURL) return null;
+  let base = cfg.databaseURL.trim().replace(/\/+$/, '');
+  if (!base.startsWith('http://') && !base.startsWith('https://')) {
+    base = `https://${base}`;
+  }
+  const cleanPath = path.replace(/^\/+/, '');
+  const authQuery = cfg.apiKey ? `?auth=${encodeURIComponent(cfg.apiKey.trim())}` : '';
+  return `${base}/${cleanPath}.json${authQuery}`;
+}
+
+let bgSyncTimer: any = null;
+export function startFirebaseBackgroundSync(): void {
+  if (typeof window === 'undefined' || bgSyncTimer) return;
+  bgSyncTimer = setInterval(async () => {
+    const cfg = getSavedFirebaseConfig();
+    if (!cfg.enabled || !cfg.databaseURL) return;
+    try {
+      const cloudOrders = await firebaseGet<Record<string, ProductionOrder>>('pcp/orders');
+      if (cloudOrders && typeof cloudOrders === 'object' && Object.keys(cloudOrders).length > 0) {
+        const local = localStorage.getItem(STORAGE_ORDERS_KEY);
+        const serialized = JSON.stringify(cloudOrders);
+        if (local !== serialized) {
+          localStorage.setItem(STORAGE_ORDERS_KEY, serialized);
+          broadcastUpdate();
+        }
+      }
+    } catch {
+      // silent network retry
+    }
+
+    try {
+      const cloudApts = await firebaseGet<Record<string, Record<string, Apontamento>>>('apontamentos');
+      if (cloudApts && typeof cloudApts === 'object') {
+        const local = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+        const serialized = JSON.stringify(cloudApts);
+        if (local !== serialized) {
+          localStorage.setItem(STORAGE_APONTAMENTOS_KEY, serialized);
+          broadcastUpdate();
+        }
+      }
+    } catch {
+      // silent network retry
+    }
+  }, 5000);
+}
+
+export async function firebaseGet<T>(path: string): Promise<T | null> {
+  const url = getFirebaseUrl(path);
+  if (!url) return null;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (err) {
+    console.warn(`[Firebase] Falha ao ler ${path}:`, err);
+    return null;
+  }
+}
+
+export async function firebasePut(path: string, data: any): Promise<boolean> {
+  const url = getFirebaseUrl(path);
+  if (!url) return false;
+  try {
+    const res = await fetch(url, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn(`[Firebase] Falha ao gravar ${path}:`, err);
+    return false;
+  }
+}
+
+export async function firebasePatch(path: string, data: any): Promise<boolean> {
+  const url = getFirebaseUrl(path);
+  if (!url) return false;
+  try {
+    const res = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return res.ok;
+  } catch (err) {
+    console.warn(`[Firebase] Falha ao atualizar ${path}:`, err);
+    return false;
+  }
+}
+
+export async function firebaseDelete(path: string): Promise<boolean> {
+  const url = getFirebaseUrl(path);
+  if (!url) return false;
+  try {
+    const res = await fetch(url, { method: 'DELETE' });
+    return res.ok;
+  } catch (err) {
+    console.warn(`[Firebase] Falha ao deletar ${path}:`, err);
+    return false;
+  }
 }
 
 /**
@@ -611,10 +739,21 @@ export function clearTerminalSelection() {
 }
 
 /**
- * Lê todas as Ordens de Produção (simulação do caminho pcp/orders)
+ * Lê todas as Ordens de Produção (com suporte a sincronização direta com Firebase Realtime Database)
  */
 export async function fetchProductionOrders(): Promise<Record<string, ProductionOrder>> {
   ensureInitialData();
+
+  // Sincroniza em tempo real com Firebase se ativado
+  try {
+    const cloudOrders = await firebaseGet<Record<string, ProductionOrder>>('pcp/orders');
+    if (cloudOrders && typeof cloudOrders === 'object' && Object.keys(cloudOrders).length > 0) {
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(cloudOrders));
+    }
+  } catch {
+    // fallback para localStorage
+  }
+
   const raw = localStorage.getItem(STORAGE_ORDERS_KEY);
   if (!raw) return { ...INITIAL_ORDERS };
   try {
@@ -669,10 +808,21 @@ export async function findOrder(opNumber: string): Promise<ProductionOrder | nul
 
 /**
  * Retorna todos os apontamentos salvos no sistema
- * Simula a estrutura Firebase apontamentos/<op_numero>/<id_unico>
+ * Sincronizado automaticamente com Firebase apontamentos/<op_numero>/<id_unico>
  */
 export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[]> {
   ensureInitialData();
+
+  // Sincroniza em tempo real com Firebase se ativado
+  try {
+    const cloudApts = await firebaseGet<Record<string, Record<string, Apontamento>>>('apontamentos');
+    if (cloudApts && typeof cloudApts === 'object' && Object.keys(cloudApts).length > 0) {
+      localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(cloudApts));
+    }
+  } catch {
+    // fallback para localStorage
+  }
+
   const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
   let tree: Record<string, Record<string, Apontamento>> = {};
   if (raw) {
@@ -751,6 +901,7 @@ export async function startUnit(params: {
 
   tree[cleanOp][uniqueId] = novoApontamento;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+  firebasePut(`apontamentos/${cleanOp}/${uniqueId}`, novoApontamento);
 
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
@@ -776,6 +927,7 @@ export async function startUnit(params: {
         targetOrder.status = 'EM_PRODUCAO';
         targetOrder.status_fabrica = 'Produzindo Hoje';
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        firebasePut('pcp/orders', ordersMap);
       }
     }
   } catch (err) {
@@ -833,6 +985,7 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
 
   tree[cleanOp][apontamentoId] = updated;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+  firebasePut(`apontamentos/${cleanOp}/${apontamentoId}`, updated);
 
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
@@ -894,6 +1047,7 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
         }
 
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        firebasePut('pcp/orders', ordersMap);
       }
     }
   } catch (err) {
@@ -960,6 +1114,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
   tree[cleanOp][uniqueId] = novoApontamento;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+  firebasePut(`apontamentos/${cleanOp}/${uniqueId}`, novoApontamento);
 
   // Atualiza status da OP para EM_PRODUCAO com data/hora e colaborador
   try {
@@ -986,6 +1141,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
         targetOrder.status = 'EM_PRODUCAO';
         targetOrder.status_fabrica = 'Produzindo Hoje';
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        firebasePut('pcp/orders', ordersMap);
       }
     }
   } catch (err) {
@@ -1069,8 +1225,7 @@ export async function finishBatch(
   });
 
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-
-  // Avança a OP para a próxima etapa da rota (ou marca 100% concluída se for a última)
+  firebasePut(`apontamentos/${cleanOp}/${apontamentoId}`, updated);
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
     if (rawOrders) {
@@ -1121,6 +1276,7 @@ export async function finishBatch(
           targetOrder.status_fabrica = 'Produzindo Hoje';
         }
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        firebasePut('pcp/orders', ordersMap);
       }
     }
   } catch (err) {
@@ -1164,6 +1320,12 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
 
   if (deleted) {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+    if (opNumero) {
+      const cleanOp = opNumero.trim().toUpperCase();
+      firebaseDelete(`apontamentos/${cleanOp}/${apontamentoId}`);
+    } else {
+      firebasePut('apontamentos', tree);
+    }
     broadcastUpdate();
   }
   return deleted;
@@ -1175,6 +1337,7 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
 export async function clearAllApontamentos(): Promise<void> {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
+  firebaseDelete('apontamentos');
   broadcastUpdate();
 }
 
@@ -1186,6 +1349,7 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
   const orders = await fetchProductionOrders();
   orders[order.op_numero] = order;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  firebasePut('pcp/orders', orders);
   broadcastUpdate();
 }
 
@@ -1198,6 +1362,7 @@ export async function deleteProductionOrder(opNumero: string): Promise<void> {
   if (orders[opNumero]) {
     delete orders[opNumero];
     localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+    firebasePut('pcp/orders', orders);
     broadcastUpdate();
   }
 }
@@ -1227,6 +1392,7 @@ export async function updateProductionOrder(
   };
   orders[targetKey] = updated;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  firebasePut('pcp/orders', orders);
   broadcastUpdate();
   return updated;
 }
@@ -1270,6 +1436,7 @@ export async function addOpMessage(
 
   orders[targetKey] = currentOp;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  firebasePut('pcp/orders', orders);
   broadcastUpdate();
 }
 
@@ -1280,6 +1447,7 @@ export async function clearAllOrders(): Promise<void> {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
   localStorage.removeItem('pcp_orders');
+  firebaseDelete('pcp/orders');
   broadcastUpdate();
 }
 
@@ -1297,6 +1465,7 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
     }
   }
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+  firebasePut('pcp/orders', orders);
   broadcastUpdate();
   return count;
 }
@@ -1308,6 +1477,8 @@ export function resetFactoryData(): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(INITIAL_ORDERS));
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
+  firebasePut('pcp/orders', INITIAL_ORDERS);
+  firebaseDelete('apontamentos');
   broadcastUpdate();
 }
 
