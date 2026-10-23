@@ -123,75 +123,13 @@ export function ensureInitialData() {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
   }
 
-  // Inicializa equipe de colaboradores
+  // Inicializa equipe de colaboradores (caso vazio no storage)
   const existingOps = localStorage.getItem(STORAGE_OPERATORS_KEY);
   if (!existingOps) {
     localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
   } else {
     try {
-      const ops: Operator[] = JSON.parse(existingOps);
-      let opsModified = false;
-
-      // Migração EME: Garante que Ademir, Francisco, Denis, Jhonatan, José Aparecido (EME)
-      // pertençam EXCLUSIVAMENTE ao setor "Montagem de Portas Emendadas" (Terminal 3) e NÃO sejam volantes
-      for (const op of ops) {
-        const isEme = (op.badge && op.badge.startsWith('EME')) ||
-                      (op.codigo && op.codigo.startsWith('EME')) ||
-                      ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id) ||
-                      ['ademir', 'francisco', 'denis', 'jhonatan', 'josé aparecido', 'jose aparecido'].some(n => (op.name || '').toLowerCase().includes(n));
-
-        if (isEme) {
-          op.codigo = op.codigo || op.badge || 'EME-01';
-          op.setor = "Montagem de Portas Emendadas";
-          op.setores = ["Montagem de Portas Emendadas"];
-          op.sectors = ["Montagem de Portas Emendadas"];
-          op.role = "Montagem Porta Emendada";
-          op.isRoaming = false;
-          op.especialistaVolante = false;
-          op.ativo = true;
-          opsModified = true;
-        }
-
-        // Garante que a equipa de giro (GIR) tenha estritamente Montagem de Portas Giratórias
-        const isGir = (op.badge && op.badge.startsWith('GIR')) ||
-                      (op.codigo && op.codigo.startsWith('GIR')) ||
-                      ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id);
-        if (isGir) {
-          op.codigo = op.codigo || op.badge || 'GIR-01';
-          op.setor = "Montagem de Portas Giratórias";
-          op.setores = ["Montagem de Portas Giratórias"];
-          op.sectors = ["Montagem de Portas Giratórias"];
-          op.role = "Montagem Porta Giratória";
-          op.isRoaming = false;
-          op.especialistaVolante = false;
-          op.ativo = true;
-          opsModified = true;
-        }
-
-        // Garante compatibilidade de campos
-        op.codigo = op.codigo || op.badge;
-        op.setor = op.setor || (op.sectors && op.sectors[0]) || '';
-        op.setores = op.setores || op.sectors || (op.setor ? [op.setor] : []);
-        op.ativo = op.ativo !== false;
-        if (op.isRoaming || op.especialistaVolante) {
-          if (!isEme && !isGir) {
-            op.isRoaming = true;
-            op.especialistaVolante = true;
-          }
-        }
-      }
-
-      // Garante que novos operadores padrão existam
-      for (const defOp of OPERATORS) {
-        const found = ops.find(o => o.id === defOp.id || o.name.toLowerCase() === defOp.name.toLowerCase());
-        if (!found) {
-          ops.push(defOp);
-          opsModified = true;
-        }
-      }
-      if (opsModified) {
-        localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(ops));
-      }
+      JSON.parse(existingOps);
     } catch {
       localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
     }
@@ -265,67 +203,26 @@ export function fetchOperators(): Operator[] {
     const list: Operator[] = JSON.parse(raw);
     if (Array.isArray(list) && list.length > 0) {
       return list.map((op) => {
-        const isEme = (op.badge && op.badge.startsWith('EME')) ||
-                      (op.codigo && op.codigo.startsWith('EME')) ||
-                      ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id);
+        const rawSectors = Array.isArray(op.sectors)
+          ? op.sectors
+          : Array.isArray(op.setores)
+          ? op.setores
+          : op.setor ? [op.setor] : [];
 
-        if (isEme) {
-          return {
-            ...op,
-            codigo: op.codigo || op.badge || 'EME-01',
-            setor: "Montagem de Portas Emendadas",
-            setores: ["Montagem de Portas Emendadas"],
-            sectors: ["Montagem de Portas Emendadas"],
-            role: "Montagem Porta Emendada",
-            isRoaming: false,
-            especialistaVolante: false,
-            ativo: op.ativo !== false
-          };
-        }
-
-        const isBat = (op.badge && op.badge.startsWith('BAT')) ||
-                      (op.codigo && op.codigo.startsWith('BAT')) ||
-                      ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id) ||
-                      (op.setores || []).some(s => s.toLowerCase().includes('montagem e inje')) ||
-                      (op.sectors || []).some(s => s.toLowerCase().includes('montagem e inje'));
-
-        if (isBat) {
-          const batSectors = ["Preparação de Batentes", "Injeção e Finalização Batentes"];
-          return {
-            ...op,
-            codigo: op.codigo || op.badge || 'BAT-01',
-            setor: "Preparação de Batentes",
-            setores: batSectors,
-            sectors: batSectors,
-            role: "Preparação / Injeção Batentes",
-            isRoaming: false,
-            especialistaVolante: false,
-            ativo: op.ativo !== false
-          };
-        }
-
-        const allSectors = Array.from(
-          new Set([...(op.setores || []), ...(op.sectors || []), ...(op.setor ? [op.setor] : [])]
-            .map((s) => s.trim())
-            .filter(Boolean)
-            .flatMap((s) => {
-              if (s.toLowerCase().includes('montagem e inje')) {
-                return ['Preparação de Batentes', 'Injeção e Finalização Batentes'];
-              }
-              return [s];
-            })
-          )
-        );
+        const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
+        const badge = (op.badge || op.codigo || '').trim().toUpperCase();
+        const primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
 
         return {
           ...op,
-          codigo: op.codigo || op.badge,
-          setor: op.setor && !op.setor.toLowerCase().includes('montagem e inje') ? op.setor : allSectors[0] || '',
-          setores: allSectors,
-          sectors: allSectors,
+          badge,
+          codigo: badge,
+          setor: primarySetor,
+          setores: uniqueSectors,
+          sectors: uniqueSectors,
           ativo: op.ativo !== false,
-          especialistaVolante: Boolean(op.especialistaVolante || op.isRoaming),
-          isRoaming: Boolean(op.especialistaVolante || op.isRoaming)
+          especialistaVolante: Boolean(op.especialistaVolante ?? op.isRoaming),
+          isRoaming: Boolean(op.isRoaming ?? op.especialistaVolante)
         };
       });
     }
@@ -337,26 +234,34 @@ export function fetchOperators(): Operator[] {
 
 export function saveOperators(operators: Operator[]): void {
   if (typeof window === 'undefined') return;
-  const cleaned = operators.map((op) => {
-    const allSectors = Array.from(
-      new Set([...(op.setores || []), ...(op.sectors || []), ...(op.setor ? [op.setor] : [])]
-        .map((s) => s.trim())
-        .filter(Boolean)
-      )
-    );
+  const cleaned: Operator[] = operators.map((op) => {
+    const rawSectors = Array.isArray(op.sectors)
+      ? op.sectors
+      : Array.isArray(op.setores)
+      ? op.setores
+      : op.setor ? [op.setor] : [];
+
+    const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
+    const badge = (op.badge || op.codigo || '').trim().toUpperCase();
+    const primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
+
     return {
       ...op,
-      codigo: op.codigo || op.badge,
-      setor: op.setor || allSectors[0] || '',
-      setores: allSectors,
-      sectors: allSectors,
+      badge,
+      codigo: badge,
+      setor: primarySetor,
+      setores: uniqueSectors,
+      sectors: uniqueSectors,
       ativo: op.ativo !== false,
-      especialistaVolante: Boolean(op.especialistaVolante || op.isRoaming),
-      isRoaming: Boolean(op.especialistaVolante || op.isRoaming)
+      especialistaVolante: Boolean(op.especialistaVolante ?? op.isRoaming),
+      isRoaming: Boolean(op.isRoaming ?? op.especialistaVolante)
     };
   });
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
   firebasePut('config/operators', cleaned);
+  try {
+    set(ref(db, 'config_operadores'), cleaned);
+  } catch {}
   broadcastUpdate();
 }
 
@@ -364,10 +269,22 @@ export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Oper
   const current = fetchOperators();
   const id = newOp.id || `op_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   const initials = newOp.initials || newOp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'OP';
+  const rawSectors = Array.isArray(newOp.sectors) ? newOp.sectors : (newOp.setores || []);
+  const uniqueSectors = Array.from(new Set(rawSectors.map(s => s.trim()).filter(Boolean)));
+  const badge = (newOp.badge || newOp.codigo || '').trim().toUpperCase();
+
   const operator: Operator = {
     ...newOp,
     id,
-    initials
+    badge,
+    codigo: badge,
+    initials,
+    setor: uniqueSectors[0] || '',
+    setores: uniqueSectors,
+    sectors: uniqueSectors,
+    isRoaming: Boolean(newOp.isRoaming ?? newOp.especialistaVolante),
+    especialistaVolante: Boolean(newOp.especialistaVolante ?? newOp.isRoaming),
+    ativo: newOp.ativo !== false
   };
   const updated = [operator, ...current];
   saveOperators(updated);
@@ -384,10 +301,34 @@ export function updateOperator(updatedOp: Operator): void {
     index = current.findIndex((o) => o.name.trim().toLowerCase() === updatedOp.name.trim().toLowerCase());
   }
 
+  const rawSectors = Array.isArray(updatedOp.sectors) && updatedOp.sectors.length > 0
+    ? updatedOp.sectors
+    : Array.isArray(updatedOp.setores) && updatedOp.setores.length > 0
+    ? updatedOp.setores
+    : updatedOp.setor ? [updatedOp.setor] : [];
+  const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
+  const badge = (updatedOp.badge || updatedOp.codigo || '').trim().toUpperCase();
+
+  const normalized: Operator = {
+    ...(index >= 0 ? current[index] : {}),
+    ...updatedOp,
+    id: updatedOp.id || (index >= 0 ? current[index].id : `op_${Date.now()}`),
+    name: updatedOp.name.trim(),
+    badge,
+    codigo: badge,
+    role: updatedOp.role || 'Operador',
+    setor: uniqueSectors[0] || '',
+    setores: [...uniqueSectors],
+    sectors: [...uniqueSectors],
+    isRoaming: Boolean(updatedOp.isRoaming ?? updatedOp.especialistaVolante),
+    especialistaVolante: Boolean(updatedOp.especialistaVolante ?? updatedOp.isRoaming),
+    ativo: updatedOp.ativo !== false
+  };
+
   if (index >= 0) {
-    current[index] = { ...current[index], ...updatedOp };
+    current[index] = normalized;
   } else {
-    current.unshift(updatedOp);
+    current.unshift(normalized);
   }
   saveOperators([...current]);
 }
@@ -433,6 +374,9 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
   }));
   localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(cleaned));
   firebasePut('config/terminals', cleaned);
+  try {
+    set(ref(db, 'config_terminais'), cleaned);
+  } catch {}
   broadcastUpdate();
 }
 
@@ -679,6 +623,40 @@ export function initFirebaseRealtimeListeners(): void {
         }
       } catch (err) {
         console.error('[Firebase] Erro no listener de historico_apontamentos:', err);
+      }
+    });
+
+    const colabRef = ref(db, 'config_operadores');
+    onValue(colabRef, (snapshot) => {
+      try {
+        const val = snapshot.val();
+        if (Array.isArray(val) && val.length > 0) {
+          const rawLocal = localStorage.getItem(STORAGE_OPERATORS_KEY);
+          const serialized = JSON.stringify(val);
+          if (rawLocal !== serialized) {
+            localStorage.setItem(STORAGE_OPERATORS_KEY, serialized);
+            broadcastUpdate();
+          }
+        }
+      } catch (err) {
+        console.error('[Firebase] Erro no listener de config_operadores:', err);
+      }
+    });
+
+    const termRef = ref(db, 'config_terminais');
+    onValue(termRef, (snapshot) => {
+      try {
+        const val = snapshot.val();
+        if (Array.isArray(val) && val.length > 0) {
+          const rawLocal = localStorage.getItem(STORAGE_TERMINALS_KEY);
+          const serialized = JSON.stringify(val);
+          if (rawLocal !== serialized) {
+            localStorage.setItem(STORAGE_TERMINALS_KEY, serialized);
+            broadcastUpdate();
+          }
+        }
+      } catch (err) {
+        console.error('[Firebase] Erro no listener de config_terminais:', err);
       }
     });
   } catch (err) {

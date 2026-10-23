@@ -265,9 +265,14 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         name: formName.trim(),
         initials,
         badge,
+        codigo: badge,
         role: defaultRole,
-        sectors: formSectors,
-        isRoaming: formIsRoaming
+        setor: formSectors[0] || '',
+        setores: [...formSectors],
+        sectors: [...formSectors],
+        isRoaming: formIsRoaming,
+        especialistaVolante: formIsRoaming,
+        ativo: true
       };
       updateOperator(updated);
       showNotification(`Colaborador "${updated.name}" atualizado com sucesso!`);
@@ -276,10 +281,15 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       const newOp = addOperator({
         name: formName.trim(),
         badge,
+        codigo: badge,
         role: defaultRole,
-        sectors: formSectors,
+        setor: formSectors[0] || '',
+        setores: [...formSectors],
+        sectors: [...formSectors],
         isRoaming: formIsRoaming,
-        initials
+        especialistaVolante: formIsRoaming,
+        initials,
+        ativo: true
       });
       showNotification(`Colaborador "${newOp.name}" cadastrado com sucesso!`);
     }

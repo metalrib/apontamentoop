@@ -42,292 +42,223 @@ function getTerminalIdForSector(sectorName: string): number | null {
  * Identifica rigorosamente a qual terminal físico o colaborador pertence
  */
 function getOperatorTerminals(op: Operator): number[] {
-  const allSectors = Array.from(
-    new Set([...(op.setores || []), ...(op.sectors || []), op.setor || ''])
-  ).map(normalizarTexto).filter(Boolean);
+  // 1. Especialistas volantes têm acesso a todos os terminais
+  if (op.isRoaming || op.especialistaVolante) {
+    return [1, 2, 3, 4, 5];
+  }
+
+  // 2. Coleta os setores explicitamente cadastrados para o operador
+  const operatorSectors = Array.isArray(op.sectors) && op.sectors.length > 0
+    ? op.sectors
+    : Array.isArray(op.setores) && op.setores.length > 0
+    ? op.setores
+    : op.setor ? [op.setor] : [];
 
   const terminals = new Set<number>();
 
+  // Se o colaborador possui setores configurados, seus terminais são derivados DIRETAMENTE deles
+  if (operatorSectors.length > 0) {
+    for (const sec of operatorSectors) {
+      const termId = getTerminalIdForSector(sec);
+      if (termId) {
+        terminals.add(termId);
+      }
+    }
+    if (terminals.size > 0) {
+      return Array.from(terminals);
+    }
+  }
+
+  // 3. Fallback heurístico por crachá/código apenas se nenhum setor foi associado
   const isEme = (op.codigo && op.codigo.startsWith('EME')) ||
                 (op.badge && op.badge.startsWith('EME')) ||
                 ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id);
-  if (isEme) {
-    return [3]; // EME é estritamente Terminal 3
-  }
+  if (isEme) return [3];
 
   const isGir = (op.codigo && op.codigo.startsWith('GIR')) ||
                 (op.badge && op.badge.startsWith('GIR')) ||
                 ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id);
-  if (isGir) {
-    return [4]; // Giratória é estritamente Terminal 4
-  }
+  if (isGir) return [4];
 
   const isVvFinal = (op.codigo && op.codigo.startsWith('VV')) ||
                    (op.badge && op.badge.startsWith('VV')) ||
                    ['joao_paulo', 'alessandra'].includes(op.id);
-  if (isVvFinal) {
-    return [4]; // Finalização Vai Vem é estritamente Terminal 4
-  }
+  if (isVvFinal) return [4];
 
   const isBat = (op.codigo && op.codigo.startsWith('BAT')) ||
                 (op.badge && op.badge.startsWith('BAT')) ||
                 ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id);
-  if (isBat) {
-    return [3]; // Batentes é estritamente Terminal 3
-  }
+  if (isBat) return [3];
 
   const isOff = (op.codigo && op.codigo.startsWith('OFF')) ||
                 (op.badge && op.badge.startsWith('OFF')) ||
                 ['lucas'].includes(op.id);
-  if (isOff) {
-    return [3]; // Office Door é Terminal 3
-  }
+  if (isOff) return [3];
 
   const isInj = (op.codigo && op.codigo.startsWith('INJ')) ||
                 (op.badge && op.badge.startsWith('INJ')) ||
                 ['magna', 'donizete'].includes(op.id);
-  if (isInj) {
-    return [2]; // Injetora de Folhas é estritamente Terminal 2
-  }
+  if (isInj) return [2];
 
   const isPrep = (op.codigo && op.codigo.startsWith('PREP')) ||
                  (op.badge && op.badge.startsWith('PREP')) ||
                  ['paulo_henrique'].includes(op.id);
-  if (isPrep) {
-    return [2]; // Preparação de Folhas é estritamente Terminal 2
-  }
+  if (isPrep) return [2];
 
   const isCorte = (op.codigo && op.codigo.startsWith('CORTE')) ||
                   (op.badge && op.badge.startsWith('CORTE')) ||
                   ['eliel'].includes(op.id);
-  if (isCorte) {
-    return [1]; // Corte é estritamente Terminal 1
-  }
+  if (isCorte) return [1];
 
   const isDob = (op.codigo && op.codigo.startsWith('DOB')) ||
                 (op.badge && op.badge.startsWith('DOB')) ||
                 ['leonardo', 'danielson'].includes(op.id);
-  if (isDob) {
-    return [1]; // Dobra é estritamente Terminal 1
-  }
+  if (isDob) return [1];
 
   const isSol = (op.codigo && op.codigo.startsWith('SOL')) ||
                 (op.badge && op.badge.startsWith('SOL')) ||
                 op.badge === 'ESP-PL' ||
                 ['fabio', 'nathan'].includes(op.id);
-  if (isSol) {
-    return [5]; // Solda e Montagem é estritamente Terminal 5
-  }
+  if (isSol) return [5];
 
   const isPvv = (op.codigo && op.codigo.startsWith('PVV')) ||
                 (op.badge && op.badge.startsWith('PVV')) ||
                 ['yasmin'].includes(op.id);
-  if (isPvv) {
-    return [5]; // Preparação Vai Vem é estritamente Terminal 5
-  }
+  if (isPvv) return [5];
 
   const isRou = (op.codigo && op.codigo.startsWith('ROU')) ||
                 (op.badge && op.badge.startsWith('ROU')) ||
                 ['victor'].includes(op.id);
-  if (isRou) {
-    return [5]; // Router é Terminal 5
-  }
+  if (isRou) return [5];
 
   const isEle = (op.codigo && op.codigo.startsWith('ELE')) ||
                 (op.badge && op.badge.startsWith('ELE')) ||
                 ['marcio', 'cristiane'].includes(op.id);
-  if (isEle) {
-    return [5]; // Elétrica é Terminal 5
-  }
+  if (isEle) return [5];
 
   const isCor = (op.codigo && op.codigo.startsWith('COR-')) ||
                 (op.badge && op.badge.startsWith('COR-')) ||
                 ['gabriele'].includes(op.id);
-  if (isCor) {
-    return [5]; // Cortina é Terminal 5
-  }
+  if (isCor) return [5];
 
-  // Setores adicionais cadastrados no PCP
-  for (const s of allSectors) {
-    if (s.includes('corte') || s.includes('guilhotina') || s.includes('dobra') || s.includes('laser')) terminals.add(1);
-    if ((s.includes('preparacao') && !s.includes('vai vem') && !s.includes('batente')) || s.includes('injetora') || s.includes('injecao')) terminals.add(2);
-    if (s.includes('batente') || s.includes('office') || s.includes('emendad')) terminals.add(3);
-    if (s.includes('gaxeta') || s.includes('girat') || (s.includes('finalizacao') && s.includes('vai vem'))) terminals.add(4);
-    if (s.includes('solda') || (s.includes('preparacao') && s.includes('vai vem')) || s.includes('router') || s.includes('eletrica') || s.includes('cortina')) terminals.add(5);
-  }
-
-  return Array.from(terminals);
+  return [];
 }
 
 /**
  * Validação estrita entre o colaborador e a operação específica selecionada
  */
 function matchOperatorToSector(op: Operator, selectedSector: string, targetTerminalId: number): boolean {
-  const secNorm = normalizarTexto(selectedSector);
-  const allSectors = Array.from(
-    new Set([...(op.setores || []), ...(op.sectors || []), op.setor || ''])
-  ).map(normalizarTexto).filter(Boolean);
+  if (op.isRoaming || op.especialistaVolante) {
+    return true;
+  }
 
-  // 1. TERMINAL 1 (Corte, Dobra, Laser)
+  const secNorm = normalizarTexto(selectedSector);
+  const operatorSectors = Array.isArray(op.sectors) && op.sectors.length > 0
+    ? op.sectors
+    : Array.isArray(op.setores) && op.setores.length > 0
+    ? op.setores
+    : op.setor ? [op.setor] : [];
+
+  // Se o colaborador possui setores configurados, valida estritamente contra a lista dele
+  if (operatorSectors.length > 0) {
+    return operatorSectors.some((s) => {
+      const sNorm = normalizarTexto(s);
+      if (!sNorm) return false;
+      if (sNorm === secNorm || sNorm.includes(secNorm) || secNorm.includes(sNorm)) return true;
+
+      // Equivalências fabris comuns
+      if (secNorm.includes('dobra') && sNorm.includes('dobra')) return true;
+      if (secNorm.includes('corte') && (sNorm.includes('corte') || sNorm.includes('guilhotina'))) return true;
+      if (secNorm.includes('laser') && sNorm.includes('laser')) return true;
+      if (
+        (secNorm.includes('prep') && !secNorm.includes('vai vem') && !secNorm.includes('batente')) &&
+        (sNorm.includes('prep') && !sNorm.includes('vai vem') && !sNorm.includes('batente'))
+      ) return true;
+      if (
+        (secNorm.includes('inj') || secNorm.includes('injetora')) &&
+        (sNorm.includes('inj') || sNorm.includes('injetora')) &&
+        !secNorm.includes('batente') && !sNorm.includes('batente')
+      ) return true;
+      if (secNorm.includes('batente') && sNorm.includes('batente')) return true;
+      if (secNorm.includes('emendad') && sNorm.includes('emendad')) return true;
+      if (secNorm.includes('office') && sNorm.includes('office')) return true;
+      if (secNorm.includes('gaxeta') && (sNorm.includes('gaxeta') || sNorm.includes('girat'))) return true;
+      if (secNorm.includes('girat') && sNorm.includes('girat')) return true;
+      if (secNorm.includes('solda') && sNorm.includes('solda')) return true;
+      if (secNorm.includes('router') && sNorm.includes('router')) return true;
+      if (secNorm.includes('eletrica') && sNorm.includes('eletrica')) return true;
+      if (secNorm.includes('cortina') && sNorm.includes('cortina')) return true;
+      if (
+        (secNorm.includes('vai vem') && secNorm.includes('prep')) &&
+        (sNorm.includes('vai vem') && sNorm.includes('prep'))
+      ) return true;
+      if (
+        (secNorm.includes('vai vem') && !secNorm.includes('prep')) &&
+        (sNorm.includes('vai vem') && !sNorm.includes('prep'))
+      ) return true;
+
+      return false;
+    });
+  }
+
+  // Fallback heurístico apenas se não houver setores configurados
   if (targetTerminalId === 1) {
     if (secNorm.includes('corte') || secNorm.includes('guilhotina')) {
-      return (
-        allSectors.some(s => s.includes('corte') || s.includes('guilhotina')) ||
-        Boolean(op.codigo && op.codigo.startsWith('CORTE')) ||
-        Boolean(op.badge && op.badge.startsWith('CORTE')) ||
-        op.id === 'eliel'
-      );
+      return Boolean(op.codigo?.startsWith('CORTE') || op.badge?.startsWith('CORTE') || op.id === 'eliel');
     }
     if (secNorm.includes('dobra')) {
-      return (
-        allSectors.some(s => s.includes('dobra')) ||
-        Boolean(op.codigo && op.codigo.startsWith('DOB')) ||
-        Boolean(op.badge && op.badge.startsWith('DOB')) ||
-        ['leonardo', 'danielson'].includes(op.id)
-      );
+      return Boolean(op.codigo?.startsWith('DOB') || op.badge?.startsWith('DOB') || ['leonardo', 'danielson'].includes(op.id));
     }
     if (secNorm.includes('laser')) {
-      return (
-        allSectors.some(s => s.includes('laser')) ||
-        Boolean(op.badge && op.badge.startsWith('ESP-JR')) ||
-        ['afonso', 'bruno'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('ESP-JR') || ['afonso', 'bruno'].includes(op.id));
     }
-    return false;
   }
-
-  // 2. TERMINAL 2 (Preparação de Folhas, Injetora de Folhas)
   if (targetTerminalId === 2) {
     if (secNorm.includes('prep') || secNorm.includes('preparacao')) {
-      return (
-        allSectors.some(s => s.includes('prep') && !s.includes('vai vem')) ||
-        Boolean(op.badge && op.badge.startsWith('PREP')) ||
-        op.id === 'paulo_henrique'
-      );
+      return Boolean(op.badge?.startsWith('PREP') || op.id === 'paulo_henrique');
     }
     if (secNorm.includes('inj') || secNorm.includes('injetora')) {
-      return (
-        allSectors.some(s => s.includes('inj')) ||
-        Boolean(op.badge && op.badge.startsWith('INJ')) ||
-        ['magna', 'donizete'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('INJ') || ['magna', 'donizete'].includes(op.id));
     }
-    return false;
   }
-
-  // 3. TERMINAL 3 (Batentes, Portas Emendadas, Office Door)
   if (targetTerminalId === 3) {
-    // Preparação de Batentes
-    if (secNorm.includes('preparacao') && secNorm.includes('batente')) {
-      return (
-        allSectors.some(s => s.includes('preparacao') && s.includes('batente')) ||
-        Boolean(op.badge && op.badge.startsWith('BAT')) ||
-        Boolean(op.codigo && op.codigo.startsWith('BAT')) ||
-        ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id)
-      );
-    }
-    // Injeção e Finalização Batentes
-    if ((secNorm.includes('injecao') || secNorm.includes('finalizacao')) && secNorm.includes('batente')) {
-      return (
-        allSectors.some(s => (s.includes('injecao') || s.includes('finalizacao')) && s.includes('batente')) ||
-        Boolean(op.badge && op.badge.startsWith('BAT')) ||
-        Boolean(op.codigo && op.codigo.startsWith('BAT')) ||
-        ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id)
-      );
-    }
     if (secNorm.includes('batente')) {
-      return (
-        allSectors.some(s => s.includes('batente')) ||
-        Boolean(op.badge && op.badge.startsWith('BAT')) ||
-        Boolean(op.codigo && op.codigo.startsWith('BAT')) ||
-        ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('BAT') || ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id));
     }
     if (secNorm.includes('emendad') || secNorm.includes('correr')) {
-      return (
-        allSectors.some(s => s.includes('emendad')) ||
-        Boolean(op.badge && op.badge.startsWith('EME')) ||
-        Boolean(op.codigo && op.codigo.startsWith('EME')) ||
-        ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('EME') || ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id));
     }
     if (secNorm.includes('office')) {
-      return (
-        allSectors.some(s => s.includes('office')) ||
-        Boolean(op.badge && op.badge.startsWith('OFF')) ||
-        op.id === 'lucas'
-      );
+      return Boolean(op.badge?.startsWith('OFF') || op.id === 'lucas');
     }
-    return false;
   }
-
-  // 4. TERMINAL 4 (Gaxeta, Montagem Giratória, Finalização Vai-Vem)
   if (targetTerminalId === 4) {
-    if (secNorm.includes('gaxeta')) {
-      return (
-        allSectors.some(s => s.includes('gaxeta') || s.includes('girat')) ||
-        Boolean(op.badge && op.badge.startsWith('GIR')) ||
-        ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id)
-      );
-    }
-    if (secNorm.includes('girat')) {
-      return (
-        allSectors.some(s => s.includes('girat')) ||
-        Boolean(op.badge && op.badge.startsWith('GIR')) ||
-        ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id)
-      );
+    if (secNorm.includes('gaxeta') || secNorm.includes('girat')) {
+      return Boolean(op.badge?.startsWith('GIR') || ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id));
     }
     if (secNorm.includes('vai vem') || secNorm.includes('finalizacao')) {
-      return (
-        allSectors.some(s => s.includes('vai vem') && !s.includes('prep')) ||
-        Boolean(op.badge && op.badge.startsWith('VV')) ||
-        ['joao_paulo', 'alessandra'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('VV') || ['joao_paulo', 'alessandra'].includes(op.id));
     }
-    return false;
   }
-
-  // 5. TERMINAL 5 (Solda e Montagem, Preparação Vai-Vem, Router, Elétrica, Cortina)
   if (targetTerminalId === 5) {
     if (secNorm.includes('solda')) {
-      return (
-        allSectors.some(s => s.includes('solda')) ||
-        Boolean(op.badge && (op.badge.startsWith('SOL') || op.badge === 'ESP-PL')) ||
-        ['fabio', 'nathan'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('SOL') || op.badge === 'ESP-PL' || ['fabio', 'nathan'].includes(op.id));
     }
     if (secNorm.includes('vai vem') || secNorm.includes('preparacao')) {
-      return (
-        allSectors.some(s => s.includes('vai vem') && s.includes('prep')) ||
-        Boolean(op.badge && op.badge.startsWith('PVV')) ||
-        op.id === 'yasmin'
-      );
+      return Boolean(op.badge?.startsWith('PVV') || op.id === 'yasmin');
     }
     if (secNorm.includes('router')) {
-      return (
-        allSectors.some(s => s.includes('router')) ||
-        Boolean(op.badge && op.badge.startsWith('ROU')) ||
-        op.id === 'victor'
-      );
+      return Boolean(op.badge?.startsWith('ROU') || op.id === 'victor');
     }
     if (secNorm.includes('eletrica')) {
-      return (
-        allSectors.some(s => s.includes('eletrica')) ||
-        Boolean(op.badge && op.badge.startsWith('ELE')) ||
-        ['marcio', 'cristiane'].includes(op.id)
-      );
+      return Boolean(op.badge?.startsWith('ELE') || ['marcio', 'cristiane'].includes(op.id));
     }
     if (secNorm.includes('cortina')) {
-      return (
-        allSectors.some(s => s.includes('cortina')) ||
-        Boolean(op.badge && op.badge.startsWith('COR')) ||
-        op.id === 'gabriele'
-      );
+      return Boolean(op.badge?.startsWith('COR') || op.id === 'gabriele');
     }
-    return false;
   }
 
-  return allSectors.some(s => s === secNorm || s.includes(secNorm) || secNorm.includes(s));
+  return false;
 }
 
 export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
