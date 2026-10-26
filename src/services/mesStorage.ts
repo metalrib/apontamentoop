@@ -189,6 +189,7 @@ export function fetchOperators(): Operator[] {
           setor: primarySetor,
           setores: uniqueSectors,
           sectors: uniqueSectors,
+          setoresPorTerminal: op.setoresPorTerminal || undefined,
           terminais,
           especialista,
           ativo: op.ativo !== false,
@@ -230,6 +231,7 @@ export function saveOperators(operators: Operator[]): void {
       setor: primarySetor,
       setores: uniqueSectors,
       sectors: uniqueSectors,
+      setoresPorTerminal: op.setoresPorTerminal || undefined,
       terminais,
       postos,
       familias,
@@ -276,18 +278,22 @@ export async function updateColaboradorFirebase(id: string, dados: Partial<Opera
     ? `Operador ${terminais[0]}`
     : 'Operador';
 
+  const initials = existing?.initials || dados.initials || nome.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'OP';
+
   const payload: Operator = {
     ...(existing || {}),
     ...dados,
     id,
     name: nome,
     nome,
+    initials,
     badge,
     codigo: badge,
     role,
     setor: setores[0] || '',
     setores: [...setores],
     sectors: [...setores],
+    setoresPorTerminal: dados.setoresPorTerminal || existing?.setoresPorTerminal || undefined,
     terminais: [...terminais],
     especialista,
     ativo: dados.ativo !== undefined ? dados.ativo : (existing?.ativo !== false)
@@ -314,6 +320,7 @@ export async function updateColaboradorFirebase(id: string, dados: Partial<Opera
       setor: setores[0] || '',
       setores: [...setores],
       sectors: [...setores],
+      setoresPorTerminal: payload.setoresPorTerminal || null,
       terminais: [...terminais],
       especialista,
       ativo: payload.ativo
@@ -345,6 +352,7 @@ export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Oper
     setor: uniqueSectors[0] || '',
     setores: uniqueSectors,
     sectors: uniqueSectors,
+    setoresPorTerminal: newOp.setoresPorTerminal || undefined,
     terminais,
     postos: Array.isArray(newOp.postos) ? newOp.postos : [],
     familias: Array.isArray(newOp.familias) ? newOp.familias : ['TODAS'],
@@ -405,6 +413,7 @@ export function updateOperator(updatedOp: Operator): void {
     setor: uniqueSectors[0] || '',
     setores: [...uniqueSectors],
     sectors: [...uniqueSectors],
+    setoresPorTerminal: updatedOp.setoresPorTerminal || (index >= 0 ? current[index].setoresPorTerminal : undefined),
     terminais,
     postos,
     familias,
@@ -529,6 +538,25 @@ export function renameSectorGlobally(oldName: string, newName: string): void {
         opModified = true;
       }
     }
+    if (op.setores && op.setores.length > 0) {
+      const idx = op.setores.findIndex((s) => s.trim().toLowerCase() === oldClean.toLowerCase());
+      if (idx >= 0) {
+        op.setores[idx] = newClean;
+        opModified = true;
+      }
+    }
+    if (op.setoresPorTerminal) {
+      Object.keys(op.setoresPorTerminal).forEach((tKey) => {
+        const arr = op.setoresPorTerminal![tKey];
+        if (Array.isArray(arr)) {
+          const idx = arr.findIndex((s) => s.trim().toLowerCase() === oldClean.toLowerCase());
+          if (idx >= 0) {
+            arr[idx] = newClean;
+            opModified = true;
+          }
+        }
+      });
+    }
   });
   if (opModified) {
     saveOperators(operators);
@@ -553,6 +581,17 @@ export function deleteSectorGlobally(sectorName: string): void {
   operators.forEach((op) => {
     if (op.sectors) {
       op.sectors = op.sectors.filter((s) => s.trim().toLowerCase() !== clean);
+    }
+    if (op.setores) {
+      op.setores = op.setores.filter((s) => s.trim().toLowerCase() !== clean);
+    }
+    if (op.setoresPorTerminal) {
+      Object.keys(op.setoresPorTerminal).forEach((tKey) => {
+        const arr = op.setoresPorTerminal![tKey];
+        if (Array.isArray(arr)) {
+          op.setoresPorTerminal![tKey] = arr.filter((s) => s.trim().toLowerCase() !== clean);
+        }
+      });
     }
   });
   saveOperators(operators);

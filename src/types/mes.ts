@@ -278,6 +278,7 @@ export interface Operator {
   setor?: string;
   setores?: string[];
   sectors: string[];
+  setoresPorTerminal?: Record<string, string[]>;
   terminais?: string[];
   especialista?: boolean;
   postos?: string[];
@@ -325,6 +326,26 @@ export const OPERATORS: Operator[] = colaboradores.map((colab) => {
     ? `Operador Volante (${colab.terminais.join('/')})`
     : `Operador ${colab.terminais[0]}`;
 
+  const setoresPorTerminal: Record<string, string[]> = {
+    T1: [],
+    T2: [],
+    T3: [],
+    T4: [],
+    T5: []
+  };
+
+  colab.terminais.forEach((t) => {
+    const tKey = t.toUpperCase().trim();
+    const termSectors = POSTOS_POR_TERMINAL[tKey] || [];
+    if (colab.setores.includes('TODOS')) {
+      setoresPorTerminal[tKey] = [...termSectors];
+    } else {
+      setoresPorTerminal[tKey] = colab.setores.filter((s) =>
+        termSectors.some((ts) => ts.toLowerCase() === s.toLowerCase())
+      );
+    }
+  });
+
   return {
     id: colab.id,
     name: colab.nome,
@@ -336,6 +357,7 @@ export const OPERATORS: Operator[] = colaboradores.map((colab) => {
     setor: colab.setores[0] || '',
     setores: [...colab.setores],
     sectors: [...colab.setores],
+    setoresPorTerminal,
     terminais: [...colab.terminais],
     especialista: colab.especialista,
     isRoaming: colab.especialista && colab.terminais.length > 2,

@@ -95,14 +95,26 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       if (!hasTerminal) return false;
 
       // 3. Regra oficial: Especialista OU Setor exato OU 'TODOS'
+      const isEspecialista = Boolean(colab.especialista || colab.isRoaming || colab.especialistaVolante);
+      if (isEspecialista) return true;
+
+      // Validação isolada por terminal se setoresPorTerminal estiver cadastrado
+      if (colab.setoresPorTerminal && Array.isArray(colab.setoresPorTerminal[termKey])) {
+        const termSectors = colab.setoresPorTerminal[termKey];
+        return termSectors.some(
+          (s) => s.trim().toLowerCase() === selectedSector.trim().toLowerCase() || s.trim().toUpperCase() === 'TODOS'
+        );
+      }
+
       const colabSetores = Array.isArray(colab.setores)
         ? colab.setores
         : Array.isArray(colab.sectors)
         ? colab.sectors
         : colab.setor ? [colab.setor] : [];
 
-      const isEspecialista = Boolean(colab.especialista || colab.isRoaming || colab.especialistaVolante);
-      const hasSector = isEspecialista || colabSetores.includes(selectedSector) || colabSetores.includes('TODOS');
+      const hasSector = colabSetores.some(
+        (s) => s.trim().toLowerCase() === selectedSector.trim().toLowerCase() || s.trim().toUpperCase() === 'TODOS'
+      );
 
       return hasSector;
     });

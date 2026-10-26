@@ -82,7 +82,34 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   const [formBadge, setFormBadge] = useState<string>('');
   const [formRole, setFormRole] = useState<string>('');
   const [formTerminais, setFormTerminais] = useState<string[]>(['T1']);
-  const [formSectors, setFormSectors] = useState<string[]>([]);
+  const [formSetoresPorTerminal, setFormSetoresPorTerminal] = useState<Record<string, string[]>>({
+    T1: [],
+    T2: [],
+    T3: [],
+    T4: [],
+    T5: []
+  });
+
+  // Setores ativos consolidados (derivados estritamente dos terminais autorizados)
+  const formSectors = useMemo(() => {
+    const list: string[] = [];
+    formTerminais.forEach((tKey) => {
+      const termSectors = formSetoresPorTerminal[tKey] || [];
+      termSectors.forEach((s) => {
+        if (!list.includes(s)) list.push(s);
+      });
+    });
+    return list;
+  }, [formSetoresPorTerminal, formTerminais]);
+
+  // Total de setores vinculados contando ocorrências nos terminais autorizados
+  const totalLinkedCount = useMemo(() => {
+    return ALL_TERMINAIS.reduce((acc, tKey) => {
+      if (!formTerminais.includes(tKey)) return acc;
+      return acc + (formSetoresPorTerminal[tKey]?.length || 0);
+    }, 0);
+  }, [formSetoresPorTerminal, formTerminais]);
+
   const [formEspecialista, setFormEspecialista] = useState<boolean>(false);
   const [formIsRoaming, setFormIsRoaming] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -173,7 +200,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     setFormBadge('');
     setFormRole('');
     setFormTerminais(['T1']);
-    setFormSectors([]);
+    setFormSetoresPorTerminal({ T1: [], T2: [], T3: [], T4: [], T5: [] });
     setFormEspecialista(false);
     setFormIsRoaming(false);
     setFormError(null);
@@ -193,14 +220,48 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       : ['T1'];
     setFormTerminais(opTerminais);
 
-    // Setores vinculados
-    const rawSectors = Array.isArray(op.setores) && op.setores.length > 0
-      ? op.setores
-      : Array.isArray(op.sectors) && op.sectors.length > 0
-      ? op.sectors
-      : op.setor ? [op.setor] : [];
-    const cleanSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
-    setFormSectors(cleanSectors);
+    // Setores vinculados por terminal isolado
+    const newSetoresPorTerminal: Record<string, string[]> = {
+      T1: [],
+      T2: [],
+      T3: [],
+      T4: [],
+      T5: []
+    };
+
+    if (op.setoresPorTerminal && typeof op.setoresPorTerminal === 'object') {
+      ALL_TERMINAIS.forEach((tKey) => {
+        if (opTerminais.includes(tKey)) {
+          const list = op.setoresPorTerminal?.[tKey];
+          newSetoresPorTerminal[tKey] = Array.isArray(list) ? [...list] : [];
+        } else {
+          newSetoresPorTerminal[tKey] = [];
+        }
+      });
+    } else {
+      // Migração/compatibilidade de dados legados
+      const rawSectors = Array.isArray(op.setores) && op.setores.length > 0
+        ? op.setores
+        : Array.isArray(op.sectors) && op.sectors.length > 0
+        ? op.sectors
+        : op.setor ? [op.setor] : [];
+      const cleanSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
+
+      ALL_TERMINAIS.forEach((tKey) => {
+        if (!opTerminais.includes(tKey)) {
+          newSetoresPorTerminal[tKey] = [];
+        } else if (cleanSectors.includes('TODOS')) {
+          newSetoresPorTerminal[tKey] = [...(POSTOS_POR_TERMINAL[tKey] || [])];
+        } else {
+          const terminalOfficialSectors = POSTOS_POR_TERMINAL[tKey] || [];
+          newSetoresPorTerminal[tKey] = cleanSectors.filter((s) =>
+            terminalOfficialSectors.some((ts) => ts.toLowerCase() === s.toLowerCase())
+          );
+        }
+      });
+    }
+
+    setFormSetoresPorTerminal(newSetoresPorTerminal);
 
     // Especialista / Curinga
     setFormEspecialista(Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming));
@@ -220,7 +281,14 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   const handleToggleTerminal = (termKey: string) => {
     playClick();
     setFormTerminais((prev) => {
-      if (prev.includes(termKey)) {
+      const isCurrentlySelected = prev.includes(termKey);
+      if (isCurrentlySelected) {
+        // REGRA 1: Se o usuário desmarcar um terminal lá em cima,
+        // desmarque automaticamente todos os setores vinculados àquele terminal.
+        setFormSetoresPorTerminal((prevSetores) => ({
+          ...prevSetores,
+          [termKey]: []
+        }));
         return prev.filter((t) => t !== termKey);
       } else {
         return [...prev, termKey];
@@ -228,60 +296,64 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     });
   };
 
-  // Alterna setor de atuação
-  const handleToggleSector = (sector: string, terminalKey?: string) => {
+  // Alterna setor de atuação com chave isolada por terminal
+  const handleToggleSector = (terminalKey: string, sector: string) => {
+    // REGRA 1: Nenhum checkbox de um terminal desmarcado pode ser clicado
+    if (!formTerminais.includes(terminalKey)) {
+      return;
+    }
     playClick();
     const clean = sector.trim();
-    setFormSectors((prev) => {
-      const exists = prev.some((s) => s.trim().toLowerCase() === clean.toLowerCase());
-      if (exists) {
-        return prev.filter((s) => s.trim().toLowerCase() !== clean.toLowerCase());
-      } else {
-        return [...prev, clean];
-      }
+    setFormSetoresPorTerminal((prev) => {
+      const currentList = prev[terminalKey] || [];
+      const exists = currentList.some((s) => s.trim().toLowerCase() === clean.toLowerCase());
+      const nextList = exists
+        ? currentList.filter((s) => s.trim().toLowerCase() !== clean.toLowerCase())
+        : [...currentList, clean];
+      return {
+        ...prev,
+        [terminalKey]: nextList
+      };
     });
-
-    // Se o setor pertencer a um terminal que ainda não está ativo, inclui o terminal automaticamente
-    if (terminalKey && !formTerminais.includes(terminalKey)) {
-      setFormTerminais((prev) => [...prev, terminalKey]);
-    }
   };
 
-  const handleRemoveFormSector = (sector: string) => {
+  const handleRemoveSpecificSector = (tKey: string, sector: string) => {
     playClick();
     const clean = sector.trim().toLowerCase();
-    setFormSectors((prev) => prev.filter((s) => s.trim().toLowerCase() !== clean));
+    setFormSetoresPorTerminal((prev) => ({
+      ...prev,
+      [tKey]: (prev[tKey] || []).filter((s) => s.trim().toLowerCase() !== clean)
+    }));
   };
 
   // Marcar/Desmarcar todos os setores de um terminal específico
   const handleToggleAllInTerminal = (tKey: string, check: boolean) => {
+    if (!formTerminais.includes(tKey)) {
+      return;
+    }
     playClick();
     const sectorsOfTerm = POSTOS_POR_TERMINAL[tKey] || [];
-    if (check) {
-      setFormSectors((prev) => {
-        const next = new Set(prev);
-        sectorsOfTerm.forEach((s) => next.add(s));
-        return Array.from(next);
-      });
-      if (!formTerminais.includes(tKey)) {
-        setFormTerminais((prev) => [...prev, tKey]);
-      }
-    } else {
-      setFormSectors((prev) =>
-        prev.filter((s) => !sectorsOfTerm.some((termSec) => termSec.toLowerCase() === s.toLowerCase()))
-      );
-    }
+    setFormSetoresPorTerminal((prev) => ({
+      ...prev,
+      [tKey]: check ? [...sectorsOfTerm] : []
+    }));
   };
 
   // Marcar todos os setores da fábrica
   const handleSelectAllFactorySectors = () => {
     playClick();
-    if (formSectors.length === allFactorySectors.length) {
-      setFormSectors([]);
-    } else {
-      setFormSectors([...allFactorySectors]);
-      setFormTerminais([...ALL_TERMINAIS]);
-    }
+    setFormTerminais([...ALL_TERMINAIS]);
+    const fullMap: Record<string, string[]> = {};
+    ALL_TERMINAIS.forEach((tKey) => {
+      fullMap[tKey] = [...(POSTOS_POR_TERMINAL[tKey] || [])];
+    });
+    setFormSetoresPorTerminal(fullMap);
+  };
+
+  // Limpar todos os setores de todos os terminais
+  const handleClearAllSectors = () => {
+    playClick();
+    setFormSetoresPorTerminal({ T1: [], T2: [], T3: [], T4: [], T5: [] });
   };
 
   // Exportar Backup Completo da Configuração da Fábrica
@@ -377,6 +449,22 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
       const existing = editingId ? operators.find((o) => o.id === editingId) : null;
 
+      // Sanitiza setoresPorTerminal para garantir que terminais não autorizados fiquem vazios
+      const cleanedSetoresPorTerminal: Record<string, string[]> = {
+        T1: [],
+        T2: [],
+        T3: [],
+        T4: [],
+        T5: []
+      };
+      ALL_TERMINAIS.forEach((tKey) => {
+        if (formTerminais.includes(tKey)) {
+          cleanedSetoresPorTerminal[tKey] = Array.from(
+            new Set((formSetoresPorTerminal[tKey] || []).map((s) => s.trim()).filter(Boolean))
+          );
+        }
+      });
+
       const payload: Operator = {
         ...(existing || {}),
         id: targetId,
@@ -389,6 +477,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         setor: formSectors[0] || '',
         setores: [...formSectors],
         sectors: [...formSectors],
+        setoresPorTerminal: cleanedSetoresPorTerminal,
         postos: [...formSectors],
         familias: Array.isArray(existing?.familias) ? existing.familias : ['TODAS'],
         terminais: [...formTerminais],
@@ -774,6 +863,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                           onClick={() => {
                             playClick();
                             setFormTerminais([]);
+                            setFormSetoresPorTerminal({ T1: [], T2: [], T3: [], T4: [], T5: [] });
                           }}
                           className="text-[10px] font-mono text-slate-400 hover:text-white underline cursor-pointer"
                         >
@@ -880,16 +970,13 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                         >
                           Marcar Todos da Fábrica
                         </button>
-                        {formSectors.length > 0 && (
+                        {totalLinkedCount > 0 && (
                           <button
                             type="button"
-                            onClick={() => {
-                              playClick();
-                              setFormSectors([]);
-                            }}
+                            onClick={handleClearAllSectors}
                             className="text-[11px] font-mono text-rose-400 hover:text-rose-300 underline cursor-pointer"
                           >
-                            Limpar Todos ({formSectors.length})
+                            Limpar Todos ({totalLinkedCount})
                           </button>
                         )}
                       </div>
@@ -901,13 +988,17 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                         const sectorsOfTerminal = POSTOS_POR_TERMINAL[tKey] || [];
                         const terminalInfo = TERMINAL_DETAILS[tKey];
                         const isTerminalActive = formTerminais.includes(tKey);
+                        const selectedInThisTerm = isTerminalActive
+                          ? formSetoresPorTerminal[tKey] || []
+                          : [];
 
-                        const allCheckedInThisTerm = sectorsOfTerminal.every((sec) =>
-                          formSectors.some((s) => s.trim().toLowerCase() === sec.trim().toLowerCase())
-                        );
-                        const checkedCountInTerm = sectorsOfTerminal.filter((sec) =>
-                          formSectors.some((s) => s.trim().toLowerCase() === sec.trim().toLowerCase())
-                        ).length;
+                        const allCheckedInThisTerm =
+                          isTerminalActive &&
+                          sectorsOfTerminal.length > 0 &&
+                          sectorsOfTerminal.every((sec) =>
+                            selectedInThisTerm.some((s) => s.trim().toLowerCase() === sec.trim().toLowerCase())
+                          );
+                        const checkedCountInTerm = selectedInThisTerm.length;
 
                         return (
                           <div
@@ -915,10 +1006,10 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                             className={`rounded-xl border p-3 transition-all ${
                               isTerminalActive
                                 ? 'bg-[#0a1224] border-blue-900/80 shadow-sm'
-                                : 'bg-slate-950/40 border-slate-900 opacity-80'
+                                : 'bg-slate-950/40 border-slate-900/80 opacity-50 select-none grayscale'
                             }`}
                           >
-                            <div className="flex items-center justify-between border-b border-slate-800/80 pb-2 mb-2">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800/80 pb-2 mb-2 gap-2">
                               <div className="flex items-center gap-2">
                                 <span
                                   className={`px-2 py-0.5 rounded-md text-xs font-mono font-bold border ${
@@ -930,47 +1021,64 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                                   {tKey}
                                 </span>
                                 <div>
-                                  <h4 className="text-xs font-bold text-white">
+                                  <h4 className={`text-xs font-bold ${isTerminalActive ? 'text-white' : 'text-slate-400'}`}>
                                     {terminalInfo.label} · {terminalInfo.desc}
                                   </h4>
                                 </div>
                               </div>
 
                               <div className="flex items-center gap-2.5">
-                                <span className="text-[10px] text-slate-400 font-mono">
-                                  {checkedCountInTerm} de {sectorsOfTerminal.length}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleAllInTerminal(tKey, !allCheckedInThisTerm)}
-                                  className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
-                                >
-                                  {allCheckedInThisTerm ? 'Desmarcar todos' : 'Marcar todos'}
-                                </button>
+                                {isTerminalActive ? (
+                                  <>
+                                    <span className="text-[10px] text-slate-400 font-mono">
+                                      {checkedCountInTerm} de {sectorsOfTerminal.length}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleAllInTerminal(tKey, !allCheckedInThisTerm)}
+                                      className="text-[10px] font-mono text-cyan-400 hover:text-cyan-300 underline cursor-pointer"
+                                    >
+                                      {allCheckedInThisTerm ? 'Desmarcar todos' : 'Marcar todos'}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <span className="text-[10px] font-mono text-amber-400/90 flex items-center gap-1 bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded">
+                                    <AlertTriangle className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                                    Terminal não autorizado para este colaborador
+                                  </span>
+                                )}
                               </div>
                             </div>
 
                             {/* Grid de Botões dos Setores */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5">
                               {sectorsOfTerminal.map((sectorName) => {
-                                const isChecked = formSectors.some(
-                                  (s) => s.trim().toLowerCase() === sectorName.trim().toLowerCase()
-                                );
+                                const compositeKey = `${tKey}_${sectorName}`;
+                                const isChecked =
+                                  isTerminalActive &&
+                                  selectedInThisTerm.some(
+                                    (s) => s.trim().toLowerCase() === sectorName.trim().toLowerCase()
+                                  );
 
                                 return (
                                   <button
                                     type="button"
-                                    key={`btn_sec_${tKey}_${sectorName}`}
-                                    onClick={() => handleToggleSector(sectorName, tKey)}
-                                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition select-none text-left ${
-                                      isChecked
-                                        ? 'bg-blue-600/35 border-blue-400 text-white font-bold ring-1 ring-blue-400/40 shadow-sm'
-                                        : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                                    key={`btn_sec_${compositeKey}`}
+                                    disabled={!isTerminalActive}
+                                    onClick={() => handleToggleSector(tKey, sectorName)}
+                                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs transition select-none text-left ${
+                                      !isTerminalActive
+                                        ? 'bg-slate-950/30 border-slate-900 text-slate-600 cursor-not-allowed opacity-40'
+                                        : isChecked
+                                        ? 'bg-blue-600/35 border-blue-400 text-white font-bold ring-1 ring-blue-400/40 shadow-sm cursor-pointer'
+                                        : 'bg-slate-900/70 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200 cursor-pointer'
                                     }`}
                                   >
                                     <div
                                       className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 transition ${
-                                        isChecked
+                                        !isTerminalActive
+                                          ? 'border-slate-800 bg-slate-950 text-transparent'
+                                          : isChecked
                                           ? 'bg-blue-500 border-blue-400 text-white'
                                           : 'border-slate-700 bg-slate-950'
                                       }`}
@@ -989,40 +1097,44 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                   </div>
 
                   {/* Resumo dos Setores Atualmente Vinculados com Remoção Rápida */}
-                  {formSectors.length > 0 && (
+                  {totalLinkedCount > 0 && (
                     <div className="p-3 bg-blue-950/30 border border-blue-900/60 rounded-xl">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-[11px] font-mono font-bold text-blue-300 uppercase">
-                          Setores Vinculados ({formSectors.length}) - Clique no "X" para remover qualquer posto:
+                          Setores Vinculados ({totalLinkedCount}) - Clique no "X" para remover qualquer posto:
                         </span>
                         <button
                           type="button"
-                          onClick={() => {
-                            playClick();
-                            setFormSectors([]);
-                          }}
+                          onClick={handleClearAllSectors}
                           className="text-[10px] font-mono text-rose-400 hover:text-rose-300 underline cursor-pointer"
                         >
                           Limpar Todos
                         </button>
                       </div>
-                      <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
-                        {formSectors.map((secName, sIdx) => (
-                          <span
-                            key={`chip_selected_${secName}_${sIdx}`}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-600/25 text-blue-100 border border-blue-400/50 rounded-lg text-xs font-mono font-bold shadow-sm"
-                          >
-                            <span>{secName}</span>
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveFormSector(secName)}
-                              title={`Remover ${secName}`}
-                              className="w-3.5 h-3.5 rounded-full bg-blue-950 hover:bg-rose-900 text-blue-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+                      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto">
+                        {ALL_TERMINAIS.flatMap((tKey) => {
+                          if (!formTerminais.includes(tKey)) return [];
+                          const termSectors = formSetoresPorTerminal[tKey] || [];
+                          return termSectors.map((secName, sIdx) => (
+                            <span
+                              key={`chip_selected_${tKey}_${secName}_${sIdx}`}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-600/25 text-blue-100 border border-blue-400/50 rounded-lg text-xs font-mono font-bold shadow-sm"
                             >
-                              <X className="w-2.5 h-2.5 stroke-[2.5]" />
-                            </button>
-                          </span>
-                        ))}
+                              <span className="px-1.5 py-0.2 bg-cyan-950/90 text-cyan-300 border border-cyan-800 rounded text-[10px] font-bold">
+                                {tKey}
+                              </span>
+                              <span>{secName}</span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSpecificSector(tKey, secName)}
+                                title={`Remover ${secName} do ${tKey}`}
+                                className="w-3.5 h-3.5 rounded-full bg-blue-950 hover:bg-rose-900 text-blue-300 hover:text-white flex items-center justify-center transition cursor-pointer"
+                              >
+                                <X className="w-2.5 h-2.5 stroke-[2.5]" />
+                              </button>
+                            </span>
+                          ));
+                        })}
                       </div>
                     </div>
                   )}
@@ -1227,20 +1339,43 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                                     <span className="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">
                                       Todos os setores da fábrica
                                     </span>
-                                  ) : opSectors.length > 0 ? (
-                                    Array.from(new Set(opSectors)).map((sec, sIdx) => (
-                                      <span
-                                        key={`op_${op.id}_sec_${sec}_${sIdx}`}
-                                        className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800"
-                                      >
-                                        {sec}
+                                  ) : (() => {
+                                    const chips: React.ReactNode[] = [];
+                                    if (op.setoresPorTerminal && typeof op.setoresPorTerminal === 'object') {
+                                      ALL_TERMINAIS.forEach((tKey) => {
+                                        const list = op.setoresPorTerminal?.[tKey] || [];
+                                        list.forEach((sec, sIdx) => {
+                                          chips.push(
+                                            <span
+                                              key={`table_op_${op.id}_${tKey}_${sec}_${sIdx}`}
+                                              className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1"
+                                            >
+                                              <span className="text-cyan-400 font-mono font-bold text-[9px]">{tKey}</span>
+                                              <span>{sec}</span>
+                                            </span>
+                                          );
+                                        });
+                                      });
+                                    }
+                                    if (chips.length > 0) {
+                                      return chips;
+                                    }
+                                    if (opSectors.length > 0) {
+                                      return Array.from(new Set(opSectors)).map((sec, sIdx) => (
+                                        <span
+                                          key={`op_${op.id}_sec_${sec}_${sIdx}`}
+                                          className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800"
+                                        >
+                                          {sec}
+                                        </span>
+                                      ));
+                                    }
+                                    return (
+                                      <span className="text-[10px] text-slate-600 italic">
+                                        Sem setores vinculados
                                       </span>
-                                    ))
-                                  ) : (
-                                    <span className="text-[10px] text-slate-600 italic">
-                                      Sem setores vinculados
-                                    </span>
-                                  )}
+                                    );
+                                  })()}
                                 </div>
                               </td>
 
