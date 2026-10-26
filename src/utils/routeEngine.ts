@@ -338,12 +338,16 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return true;
   }
 
-  if (normStep.includes('EMENDADA') && normSector.includes('EMENDADA')) {
+  if (normStep.includes('EMENDADA') && (normSector.includes('EMENDADA') || normSector.includes('PORTAS DE CORRER'))) {
     return true;
   }
 
-  if (normStep === 'FINALIZACAO VAI VEM' || normStep.includes('FINALIZACAO VAI VEM')) {
-    return (normSector.includes('FINALIZACAO') || normSector.includes('ACABAMENTO')) && normSector.includes('VAI VEM') && !normSector.includes('PREPARACAO');
+  if ((normStep.includes('CORRER') || normStep.includes('EMENDADA')) && (normSector.includes('PORTAS DE CORRER') || normSector.includes('TRILHO'))) {
+    return true;
+  }
+
+  if (normStep === 'FINALIZACAO VAI VEM' || normStep.includes('FINALIZACAO VAI VEM') || normStep.includes('VAI VEM')) {
+    if (normSector.includes('VAI VEM') && !normSector.includes('PREPARACAO')) return true;
   }
 
   if (normStep.includes('SOLDA') && normSector.includes('SOLDA')) {

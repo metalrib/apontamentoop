@@ -123,77 +123,27 @@ export function ensureInitialData() {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
   }
 
-  // Inicializa equipe de colaboradores (caso vazio no storage ou se estiver com versão legada)
+  // Inicializa equipe de colaboradores e terminais com a padronização definitiva
+  const STORAGE_PADRONIZACAO_KEY = 'metalrib_padronizacao_oficial_v3';
+  const hasPadronizacao = localStorage.getItem(STORAGE_PADRONIZACAO_KEY) === 'true';
+
   const existingOps = localStorage.getItem(STORAGE_OPERATORS_KEY);
-  if (!existingOps) {
+  if (!existingOps || !hasPadronizacao) {
     localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
-  } else {
     try {
-      const parsed: Operator[] = JSON.parse(existingOps);
-      const hasElionai = Array.isArray(parsed) && parsed.some(o => o.id === 'elionai');
-      const hasOldPaulo = Array.isArray(parsed) && parsed.some(o => o.id === 'paulo_henrique');
-      const hasPostos = Array.isArray(parsed) && parsed.some(o => Array.isArray(o.postos) && o.postos.length > 0);
-      const hasFamilias = Array.isArray(parsed) && parsed.some(o => Array.isArray(o.familias) && o.familias.length > 0);
-      if (!hasElionai || hasOldPaulo || !hasPostos || !hasFamilias) {
-        localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
-        try {
-          set(ref(db, 'config_operadores'), OPERATORS);
-        } catch {}
-      }
-    } catch {
-      localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
-    }
+      set(ref(db, 'config_operadores'), OPERATORS);
+    } catch {}
   }
 
-  // Inicializa configuração dos 5 terminais e setores
   const existingTerms = localStorage.getItem(STORAGE_TERMINALS_KEY);
-  if (!existingTerms) {
+  if (!existingTerms || !hasPadronizacao) {
     localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(TERMINALS));
-  } else {
     try {
-      const terms: TerminalConfig[] = JSON.parse(existingTerms);
-      let termsModified = false;
-      const t3 = terms.find(t => t.id === 3);
-      if (t3) {
-        const hasOld = t3.sectors.some(s => s.toLowerCase().includes('montagem e injeção') || s.toLowerCase().includes('montagem e injecao'));
-        const hasPrep = t3.sectors.some(s => s.toLowerCase().includes('preparação de batentes') || s.toLowerCase().includes('preparacao de batentes'));
-        const hasInj = t3.sectors.some(s => s.toLowerCase().includes('injeção e finalização') || s.toLowerCase().includes('injecao e finalizacao'));
-        if (hasOld || !hasPrep || !hasInj) {
-          const preserved = t3.sectors.filter(s => !s.toLowerCase().includes('montagem e inje'));
-          const target = ['Preparação de Batentes', 'Injeção e Finalização Batentes'];
-          if (preserved.includes('Montagem Office Door')) target.push('Montagem Office Door');
-          if (preserved.includes('Montagem de Portas Emendadas')) target.push('Montagem de Portas Emendadas');
-          preserved.forEach(s => {
-            if (!target.includes(s) && !s.toLowerCase().includes('montagem e inje')) {
-              target.push(s);
-            }
-          });
-          t3.sectors = target;
-          termsModified = true;
-        }
-      }
-
-      const t4 = terms.find(t => t.id === 4);
-      if (t4) {
-        if (!t4.sectors.some(s => s.toLowerCase().includes('finalizacao vai vem') || s.toLowerCase().includes('finalização vai vem'))) {
-          t4.sectors = Array.from(new Set([...t4.sectors, 'Finalização Vai Vem']));
-          termsModified = true;
-        }
-      }
-      const t5 = terms.find(t => t.id === 5);
-      if (t5) {
-        if (!t5.sectors.some(s => s.toLowerCase().includes('preparacao vai vem') || s.toLowerCase().includes('preparação vai vem'))) {
-          t5.sectors = Array.from(new Set([...t5.sectors, 'Preparação Vai Vem']));
-          termsModified = true;
-        }
-      }
-      if (termsModified) {
-        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(terms));
-      }
-    } catch {
-      // ignore
-    }
+      set(ref(db, 'config_terminais'), TERMINALS);
+    } catch {}
   }
+
+  localStorage.setItem(STORAGE_PADRONIZACAO_KEY, 'true');
 }
 
 // Inicializa no carregamento

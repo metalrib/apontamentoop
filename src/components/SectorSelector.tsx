@@ -1,9 +1,10 @@
 import React, { useEffect } from 'react';
 import { TerminalConfig, ProductionOrder, Apontamento } from '../types/mes';
+import { POSTOS_POR_TERMINAL } from '../data/terminais';
 import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
-import { Check, AlertCircle, Ban, Sparkles } from 'lucide-react';
+import { Check } from 'lucide-react';
 
 interface SectorSelectorProps {
   terminal: TerminalConfig;
@@ -26,9 +27,10 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isAncora = isAncoraOrder(order);
   const isTerminal5 = terminal.id === 5;
 
-  const availableSectors = Array.from(new Set(terminal.sectors || []));
+  const termKey = `T${terminal.id}` as keyof typeof POSTOS_POR_TERMINAL;
+  const availableSectors = POSTOS_POR_TERMINAL[termKey] || terminal.sectors || [];
   const validSectors = availableSectors.filter(s => {
-    if (isAncora && isTerminal5 && s === 'Solda e Montagem') return true;
+    if (isAncora && isTerminal5 && s.includes('Solda')) return true;
     return findStepForSector(s, steps) !== null;
   });
 
@@ -36,7 +38,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   // (Caso seja âncora sob demanda ainda não ativada, não força seleção para respeitar escolha do operador)
   useEffect(() => {
     if (validSectors.length === 1 && selectedSector !== validSectors[0]) {
-      const isPendingSobDemanda = isAncora && isTerminal5 && validSectors[0] === 'Solda e Montagem' && !order.requer_solda;
+      const isPendingSobDemanda = isAncora && isTerminal5 && validSectors[0].includes('Solda') && !order.requer_solda;
       if (!isPendingSobDemanda) {
         onSelectSector(validSectors[0]);
       }
@@ -57,7 +59,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
         {availableSectors.map((sector, idx) => {
           const matchedStep = findStepForSector(sector, steps);
-          const isSobDemanda = isAncora && isTerminal5 && sector === 'Solda e Montagem';
+          const isSobDemanda = isAncora && isTerminal5 && sector.includes('Solda');
           const isPartOfRoute = matchedStep !== null || isSobDemanda;
           const stepEval = matchedStep ? evaluation[matchedStep] : null;
           const isSelected = selectedSector === sector;
@@ -67,25 +69,23 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
           return (
             <button
               key={`${terminal.id}_${sector}_${idx}`}
-              disabled={!isPartOfRoute}
               onClick={async () => {
-                if (!isPartOfRoute) return;
                 playClick();
                 if (isSobDemanda && !order.requer_solda) {
                   await updateProductionOrder(order.op_numero, { requer_solda: true });
                 }
                 onSelectSector(sector);
               }}
-              className={`py-1.5 px-3 text-xs md:text-sm rounded-lg border text-left transition-all flex items-center justify-between gap-2 kiosk-btn ${
-                !isPartOfRoute
-                  ? 'bg-slate-950/30 border-slate-900/70 opacity-30 cursor-not-allowed grayscale pointer-events-none'
-                  : isSelected
-                  ? 'bg-[#1C2F8A]/50 border-blue-400 ring-2 ring-blue-500/50 shadow-md text-white font-bold cursor-pointer'
+              className={`py-1.5 px-3 text-xs md:text-sm rounded-lg border text-left transition-all flex items-center justify-between gap-2 kiosk-btn cursor-pointer ${
+                isSelected
+                  ? 'bg-[#1C2F8A]/50 border-blue-400 ring-2 ring-blue-500/50 shadow-md text-white font-bold'
                   : isSobDemanda && !order.requer_solda
-                  ? 'bg-amber-950/20 border-amber-500/50 hover:border-amber-400 text-amber-200 cursor-pointer'
+                  ? 'bg-amber-950/20 border-amber-500/50 hover:border-amber-400 text-amber-200'
                   : isLaserPending
-                  ? 'bg-orange-950/25 border-orange-500/60 hover:border-orange-400 text-orange-200 cursor-pointer'
-                  : 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200 cursor-pointer'
+                  ? 'bg-orange-950/25 border-orange-500/60 hover:border-orange-400 text-orange-200'
+                  : isPartOfRoute
+                  ? 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200'
+                  : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
               }`}
             >
               <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -125,4 +125,3 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     </div>
   );
 };
-

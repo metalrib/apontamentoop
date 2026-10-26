@@ -1,295 +1,50 @@
 export const colaboradores = [
   // TERMINAL 1
-  {
-    id: 'eliel',
-    nome: 'Eliel',
-    terminais: ['T1'],
-    especialista: false,
-    postos: ['Corte - Guilhotina', 'Corte'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'elionai',
-    nome: 'Elionai',
-    terminais: ['T1'],
-    especialista: false,
-    postos: ['Corte - Guilhotina', 'Corte'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'bruno_c',
-    nome: 'Bruno Constancio',
-    terminais: ['T1'],
-    especialista: true,
-    postos: ['TODOS'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'leonardo_c',
-    nome: 'Leonardo Constancio',
-    terminais: ['T1'],
-    especialista: false,
-    postos: ['Dobra e Preparação', 'Dobra'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'danielson',
-    nome: 'Danielson',
-    terminais: ['T1'],
-    especialista: false,
-    postos: ['Dobra e Preparação', 'Dobra'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'leonardo_h',
-    nome: 'Leonardo Henrique',
-    terminais: ['T1', 'T2'],
-    especialista: false,
-    postos: ['Dobra e Preparação', 'Dobra', 'Preparação', 'Preparação de folhas'],
-    familias: ['TODAS']
-  },
+  { id: 'eliel', nome: 'Eliel', terminais: ['T1'], setores: ['Corte', 'Dobra'], especialista: false },
+  { id: 'elionai', nome: 'Elionai', terminais: ['T1'], setores: ['Corte', 'Dobra'], especialista: false },
+  { id: 'bruno_c', nome: 'Bruno Constancio', terminais: ['T1'], setores: ['Corte', 'Dobra', 'Laser'], especialista: true },
+  { id: 'leonardo_c', nome: 'Leonardo Constancio', terminais: ['T1'], setores: ['Dobra'], especialista: false },
+  { id: 'danielson', nome: 'Danielson', terminais: ['T1'], setores: ['Corte'], especialista: false },
+  { id: 'leonardo_h', nome: 'Leonardo Henrique', terminais: ['T1', 'T2'], setores: ['Dobra', 'Preparação de Folhas'], especialista: false },
 
   // TERMINAL 2
-  {
-    id: 'magna',
-    nome: 'Magna',
-    terminais: ['T2'],
-    especialista: false,
-    postos: ['Injetora de folhas', 'Injeção'],
-    familias: ['FOLHA', 'PORTA_GIRATORIA', 'PORTA_CORRER', 'PORTA_EMENDADA', 'TODAS']
-  },
-  {
-    id: 'donizete',
-    nome: 'Donizete',
-    terminais: ['T2'],
-    especialista: false,
-    postos: ['Injetora de folhas', 'Injeção'],
-    familias: ['FOLHA', 'PORTA_GIRATORIA', 'PORTA_CORRER', 'PORTA_EMENDADA', 'TODAS']
-  },
+  { id: 'magna', nome: 'Magna', terminais: ['T2'], setores: ['Preparação de Folhas', 'Injeção de Folhas'], especialista: false },
+  { id: 'donizete', nome: 'Donizete', terminais: ['T2'], setores: ['Preparação de Folhas', 'Injeção de Folhas'], especialista: false },
 
   // TERMINAL 3
-  {
-    id: 'aparecido',
-    nome: 'Aparecido',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
-    familias: ['BATENTE']
-  },
-  {
-    id: 'antonio_m',
-    nome: 'Antonio Massena',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
-    familias: ['BATENTE']
-  },
-  {
-    id: 'salatiel',
-    nome: 'Salatiel',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
-    familias: ['BATENTE']
-  },
-  {
-    id: 'yuri',
-    nome: 'Yuri',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
-    familias: ['BATENTE']
-  },
-  {
-    id: 'sergio',
-    nome: 'Sergio',
-    terminais: ['T3'],
-    especialista: true,
-    postos: ['TODOS'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'jose_lucas',
-    nome: 'Jose Lucas',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Montagem Office Door', 'Preparação de Batentes', 'Injeção e Finalização Batentes'],
-    familias: ['BATENTE']
-  },
-  {
-    id: 'ademir',
-    nome: 'Ademir',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Montagem de Portas Emendadas'],
-    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
-  },
-  {
-    id: 'francisco_h',
-    nome: 'Francisco Henrique',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Montagem de Portas Emendadas'],
-    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
-  },
-  {
-    id: 'denis',
-    nome: 'Denis',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Montagem de Portas Emendadas'],
-    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
-  },
-  {
-    id: 'jonathan',
-    nome: 'Jonathan',
-    terminais: ['T3'],
-    especialista: false,
-    postos: ['Montagem de Portas Emendadas'],
-    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
-  },
-  {
-    id: 'jose_aparecido',
-    nome: 'José Aparecido',
-    terminais: ['T3', 'T4'],
-    especialista: false,
-    postos: ['Montagem de Portas Emendadas', 'Montagem de Portas Giratórias'],
-    familias: ['BATENTE', 'PORTA_GIRATORIA']
-  },
-  {
-    id: 'deilson',
-    nome: 'Deilson',
-    terminais: ['T3', 'T4'],
-    especialista: false,
-    postos: ['Montagem de Portas Emendadas', 'Montagem de Portas Giratórias'],
-    familias: ['BATENTE', 'PORTA_GIRATORIA']
-  },
+  { id: 'aparecido', nome: 'Aparecido', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
+  { id: 'antonio_m', nome: 'Antonio Massena', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
+  { id: 'salatiel', nome: 'Salatiel', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
+  { id: 'yuri', nome: 'Yuri', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
+  { id: 'sergio', nome: 'Sergio', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas'], especialista: true },
+  { id: 'jose_lucas', nome: 'Jose Lucas', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
+  { id: 'ademir', nome: 'Ademir', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
+  { id: 'francisco_h', nome: 'Francisco Henrique', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
+  { id: 'denis', nome: 'Denis', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
+  { id: 'jonathan', nome: 'Jonathan', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
+  { id: 'jose_aparecido', nome: 'José Aparecido', terminais: ['T3', 'T4'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
+  { id: 'deilson', nome: 'Deilson', terminais: ['T3', 'T4'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
 
   // TERMINAL 4
-  {
-    id: 'joao_p',
-    nome: 'João Paulo',
-    terminais: ['T4'],
-    especialista: false,
-    postos: ['Finalização Vai Vem'],
-    familias: ['VAI_VEM']
-  },
-  {
-    id: 'alessandra',
-    nome: 'Alessandra',
-    terminais: ['T4'],
-    especialista: false,
-    postos: ['Finalização Vai Vem'],
-    familias: ['VAI_VEM']
-  },
-  {
-    id: 'gustavo_n',
-    nome: 'Gustavo Naves',
-    terminais: ['T4'],
-    especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
-    familias: ['PORTA_GIRATORIA']
-  },
-  {
-    id: 'fabiano',
-    nome: 'Fabiano',
-    terminais: ['T4'],
-    especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
-    familias: ['PORTA_GIRATORIA']
-  },
-  {
-    id: 'vinicius',
-    nome: 'Vinicius',
-    terminais: ['T4'],
-    especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
-    familias: ['PORTA_GIRATORIA']
-  },
-  {
-    id: 'nalysson',
-    nome: 'Nalysson',
-    terminais: ['T4'],
-    especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
-    familias: ['PORTA_GIRATORIA']
-  },
+  { id: 'joao_p', nome: 'João Paulo', terminais: ['T4'], setores: ['Montagem Vai Vem'], especialista: false },
+  { id: 'alessandra', nome: 'Alessandra', terminais: ['T4'], setores: ['Montagem Vai Vem'], especialista: false },
+  { id: 'gustavo_n', nome: 'Gustavo Naves', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
+  { id: 'fabiano', nome: 'Fabiano', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
+  { id: 'vinicius', nome: 'Vinicius', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
+  { id: 'nalysson', nome: 'Nalysson', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
 
   // TERMINAL 5
-  {
-    id: 'victor',
-    nome: 'Victor',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Router'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'cristiane',
-    nome: 'Cristiane',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Elétrica'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'marcio',
-    nome: 'Marcio',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Elétrica'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'gabriele',
-    nome: 'Gabriele',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Cortina'],
-    familias: ['ACESSORIOS', 'TODAS']
-  },
-  {
-    id: 'yasmin',
-    nome: 'Yasmin',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Preparação Vai Vem'],
-    familias: ['VAI_VEM']
-  },
-  {
-    id: 'carol',
-    nome: 'Carol',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Preparação Vai Vem', 'Elétrica'],
-    familias: ['VAI_VEM', 'TODAS']
-  },
-  {
-    id: 'fabio',
-    nome: 'Fabio',
-    terminais: ['T5'],
-    especialista: true,
-    postos: ['TODOS'],
-    familias: ['TODAS']
-  },
-  {
-    id: 'nathan',
-    nome: 'Nathan',
-    terminais: ['T5'],
-    especialista: false,
-    postos: ['Solda e Montagem'],
-    familias: ['ACESSORIOS', 'TODAS']
-  },
+  { id: 'victor', nome: 'Victor', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'fabio', nome: 'Fabio', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial', 'Solda'], especialista: true },
 
   // ESPECIALISTA MULTI-TERMINAL
-  {
-    id: 'afonso',
-    nome: 'Afonso',
-    terminais: ['T1', 'T3', 'T4', 'T5'],
-    especialista: true,
-    postos: ['TODOS'],
-    familias: ['TODAS']
-  }
+  { id: 'afonso', nome: 'Afonso', terminais: ['T1', 'T3', 'T4', 'T5'], setores: ['TODOS'], especialista: true }
 ];
 
 export const BADGES_MAP = {

@@ -9,41 +9,40 @@ export interface TerminalConfig {
   sectors: string[];
 }
 
+import { POSTOS_POR_TERMINAL } from '../data/terminais';
+
+export { POSTOS_POR_TERMINAL };
+
 export const TERMINALS: TerminalConfig[] = [
   {
     id: 1,
     name: "Terminal 1",
     label: "Corte, Dobra e Laser",
-    sectors: ["Corte - Guilhotina", "Dobra e Preparação", "Laser"]
+    sectors: POSTOS_POR_TERMINAL.T1
   },
   {
     id: 2,
     name: "Terminal 2",
     label: "Preparação e Injetora de folhas",
-    sectors: ["Preparação", "Injetora de folhas"]
+    sectors: POSTOS_POR_TERMINAL.T2
   },
   {
     id: 3,
     name: "Terminal 3",
     label: "Batentes e Portas Office/Emendadas",
-    sectors: [
-      "Preparação de Batentes",
-      "Injeção e Finalização Batentes",
-      "Montagem Office Door",
-      "Montagem de Portas Emendadas"
-    ]
+    sectors: POSTOS_POR_TERMINAL.T3
   },
   {
     id: 4,
     name: "Terminal 4",
     label: "Portas Giratórias e Finalização Vai Vem",
-    sectors: ["Instalação de Gaxeta", "Montagem de Portas Giratórias", "Finalização Vai Vem"]
+    sectors: POSTOS_POR_TERMINAL.T4
   },
   {
     id: 5,
     name: "Terminal 5",
     label: "Elétrica, Router, Solda e Acabamentos",
-    sectors: ["Elétrica", "Router", "Solda e Montagem", "Preparação Vai Vem", "Cortina"]
+    sectors: POSTOS_POR_TERMINAL.T5
   }
 ];
 
@@ -320,7 +319,6 @@ function resolveSectorsForTerminais(terminais: string[]): string[] {
 export const OPERATORS: Operator[] = colaboradores.map((colab) => {
   const initials = extractInitials(colab.nome);
   const badge = BADGES_MAP[colab.id] || colab.id.toUpperCase();
-  const sectors = resolveSectorsForTerminais(colab.terminais);
   const role = colab.especialista
     ? `Especialista (${colab.terminais.join('/')})`
     : colab.terminais.length > 1
@@ -335,13 +333,11 @@ export const OPERATORS: Operator[] = colaboradores.map((colab) => {
     badge,
     codigo: badge,
     role,
-    setor: sectors[0] || '',
-    setores: sectors,
-    sectors,
+    setor: colab.setores[0] || '',
+    setores: [...colab.setores],
+    sectors: [...colab.setores],
     terminais: [...colab.terminais],
     especialista: colab.especialista,
-    postos: Array.isArray(colab.postos) ? [...colab.postos] : [],
-    familias: Array.isArray(colab.familias) ? [...colab.familias] : ['TODAS'],
     isRoaming: colab.especialista && colab.terminais.length > 2,
     especialistaVolante: colab.especialista,
     ativo: true
