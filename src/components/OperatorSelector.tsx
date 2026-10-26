@@ -242,7 +242,7 @@ function matchOperatorToSector(
   // 3. Validação por Família de Produto da OP aberta (se houver OP informada):
   if (order) {
     const familiaOP: FamiliaProduto = identificarFamiliaProduto(order);
-    if (familiaOP && familiaOP !== 'OUTROS') {
+    if (familiaOP && familiaOP !== 'OUTROS' && familiaOP !== 'GERAL') {
       const colabFamilias = Array.isArray(op.familias) && op.familias.length > 0
         ? op.familias
         : ['TODAS'];
@@ -335,7 +335,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
   const familiaAtiva = useMemo(() => {
     if (!order) return null;
     const f = identificarFamiliaProduto(order);
-    return f && f !== 'OUTROS' ? f : null;
+    return f && f !== 'OUTROS' && f !== 'GERAL' ? f : null;
   }, [order]);
 
   return (
