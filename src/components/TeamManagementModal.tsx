@@ -128,24 +128,32 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   const [operatorToDelete, setOperatorToDelete] = useState<Operator | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState<boolean>(false);
 
+  // Setores oficiais por terminal extraídos dinamicamente da fonte única da verdade (Firebase/Storage)
+  const dynamicTerminalSectors = useMemo<Record<string, string[]>>(() => {
+    const map: Record<string, string[]> = { T1: [], T2: [], T3: [], T4: [], T5: [] };
+    ALL_TERMINAIS.forEach((tKey) => {
+      const termId = parseInt(tKey.replace('T', ''), 10);
+      const term = terminals.find((t) => t.id === termId);
+      if (term && Array.isArray(term.sectors) && term.sectors.length > 0) {
+        map[tKey] = Array.from(new Set(term.sectors.map((s) => s.trim()).filter(Boolean)));
+      } else {
+        map[tKey] = POSTOS_POR_TERMINAL[tKey] || [];
+      }
+    });
+    return map;
+  }, [terminals]);
+
   // Lista dinâmica consolidada de setores de todos os terminais
   const allFactorySectors = useMemo(() => {
     const set = new Set<string>();
     ALL_TERMINAIS.forEach((tKey) => {
-      const list = POSTOS_POR_TERMINAL[tKey] || [];
+      const list = dynamicTerminalSectors[tKey] || [];
       list.forEach((s) => {
         if (s && s.trim()) set.add(s.trim());
       });
     });
-    terminals.forEach((t) => {
-      if (Array.isArray(t.sectors)) {
-        t.sectors.forEach((s) => {
-          if (s && s.trim()) set.add(s.trim());
-        });
-      }
-    });
     return Array.from(set);
-  }, [terminals]);
+  }, [dynamicTerminalSectors]);
 
   // Carrega operadores e terminais salvos
   const loadData = () => {
@@ -174,9 +182,55 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
             }
           }
         } catch (err) {
-          console.error('[TeamManagementModal] Erro ao sincronizar Firebase:', err);
+          console.error('[TeamManagementModal] Erro ao sincronizar colaboradores Firebase:', err);
         }
       });
+
+      // Sincronização reativa de terminais e setores (config_terminais)
+      const termRef = ref(db, 'config_terminais');
+      const unsubFbTerm = onValue(termRef, (snapshot) => {
+        try {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            if (Array.isArray(val) && val.length > 0) {
+              setTerminals(val);
+            }
+          }
+        } catch (err) {
+          console.error('[TeamManagementModal] Erro ao sincronizar terminais Firebase:', err);
+        }
+      });
+
+      // Sincronização reativa de setores por terminal (config_setores)
+      const setoresRef = ref(db, 'config_setores');
+      const unsubFbSetores = onValue(setoresRef, (snapshot) => {
+        try {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            if (val && typeof val === 'object') {
+              setTerminals((prev) => {
+                const base = prev.length > 0 ? prev : fetchTerminalsConfig();
+                return base.map((t) => {
+                  const key = `T${t.id}`;
+                  if (Array.isArray(val[key])) {
+                    return { ...t, sectors: [...val[key]] };
+                  }
+                  return t;
+                });
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[TeamManagementModal] Erro ao sincronizar config_setores Firebase:', err);
+        }
+      });
+
+      const handleDataUpdate = () => {
+        loadData();
+      };
+      window.addEventListener('metalrib_sectors_updated', handleDataUpdate);
+      window.addEventListener('metalrib_data_updated', handleDataUpdate);
+      window.addEventListener('metalrib_operators_updated', handleDataUpdate);
 
       const unsubMes = subscribeToMesUpdates(() => {
         loadData();
@@ -184,6 +238,11 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
       return () => {
         unsubFb();
+        unsubFbTerm();
+        unsubFbSetores();
+        window.removeEventListener('metalrib_sectors_updated', handleDataUpdate);
+        window.removeEventListener('metalrib_data_updated', handleDataUpdate);
+        window.removeEventListener('metalrib_operators_updated', handleDataUpdate);
         unsubMes();
       };
     }
@@ -251,9 +310,9 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         if (!opTerminais.includes(tKey)) {
           newSetoresPorTerminal[tKey] = [];
         } else if (cleanSectors.includes('TODOS')) {
-          newSetoresPorTerminal[tKey] = [...(POSTOS_POR_TERMINAL[tKey] || [])];
+          newSetoresPorTerminal[tKey] = [...(dynamicTerminalSectors[tKey] || [])];
         } else {
-          const terminalOfficialSectors = POSTOS_POR_TERMINAL[tKey] || [];
+          const terminalOfficialSectors = dynamicTerminalSectors[tKey] || [];
           newSetoresPorTerminal[tKey] = cleanSectors.filter((s) =>
             terminalOfficialSectors.some((ts) => ts.toLowerCase() === s.toLowerCase())
           );
@@ -332,7 +391,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       return;
     }
     playClick();
-    const sectorsOfTerm = POSTOS_POR_TERMINAL[tKey] || [];
+    const sectorsOfTerm = dynamicTerminalSectors[tKey] || [];
     setFormSetoresPorTerminal((prev) => ({
       ...prev,
       [tKey]: check ? [...sectorsOfTerm] : []
@@ -345,7 +404,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     setFormTerminais([...ALL_TERMINAIS]);
     const fullMap: Record<string, string[]> = {};
     ALL_TERMINAIS.forEach((tKey) => {
-      fullMap[tKey] = [...(POSTOS_POR_TERMINAL[tKey] || [])];
+      fullMap[tKey] = [...(dynamicTerminalSectors[tKey] || [])];
     });
     setFormSetoresPorTerminal(fullMap);
   };
@@ -985,7 +1044,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                     {/* Cards de Terminais com seus respectivos Setores */}
                     <div className="space-y-2.5">
                       {ALL_TERMINAIS.map((tKey) => {
-                        const sectorsOfTerminal = POSTOS_POR_TERMINAL[tKey] || [];
+                        const sectorsOfTerminal = dynamicTerminalSectors[tKey] || [];
                         const terminalInfo = TERMINAL_DETAILS[tKey];
                         const isTerminalActive = formTerminais.includes(tKey);
                         const selectedInThisTerm = isTerminalActive

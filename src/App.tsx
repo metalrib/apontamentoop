@@ -104,10 +104,22 @@ export default function App() {
   // Executa carga inicial e escuta atualizações de outras abas ou terminais
   useEffect(() => {
     loadData();
+    const handleSectorsUpdated = () => {
+      const dynamicTerms = fetchTerminalsConfig();
+      setCurrentTerminal((prev) => {
+        if (!prev) return dynamicTerms[0] || TERMINALS[0];
+        const match = dynamicTerms.find((t) => t.id === prev.id);
+        return match || dynamicTerms[0] || TERMINALS[0];
+      });
+    };
+    window.addEventListener('metalrib_sectors_updated', handleSectorsUpdated);
     const unsubscribe = subscribeToMesUpdates(() => {
       loadData();
     });
-    return () => unsubscribe();
+    return () => {
+      window.removeEventListener('metalrib_sectors_updated', handleSectorsUpdated);
+      unsubscribe();
+    };
   }, [loadData]);
 
   // OP atual derivada diretamente do dicionário de ordens (sem criar loops de estado)

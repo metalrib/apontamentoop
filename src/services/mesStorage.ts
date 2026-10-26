@@ -445,6 +445,15 @@ export function resetOperatorsToDefault(): Operator[] {
 /**
  * Funções de Gestão Dinâmica de Terminais e Setores (Chave: metalrib_terminals_sectors)
  */
+export function buildSetoresMap(terminals: TerminalConfig[]): Record<string, string[]> {
+  const map: Record<string, string[]> = { T1: [], T2: [], T3: [], T4: [], T5: [] };
+  terminals.forEach((t) => {
+    const key = `T${t.id}`;
+    map[key] = Array.from(new Set((t.sectors || []).map((s) => s.trim()).filter(Boolean)));
+  });
+  return map;
+}
+
 export function fetchTerminalsConfig(): TerminalConfig[] {
   if (typeof window === 'undefined') return [...TERMINALS];
   ensureInitialData();
@@ -471,11 +480,17 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
     sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
   }));
   localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(cleaned));
+  const setoresMap = buildSetoresMap(cleaned);
+  localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
   firebasePut('config/terminals', cleaned);
   try {
     set(ref(db, 'config_terminais'), cleaned);
-  } catch {}
+    set(ref(db, 'config_setores'), setoresMap);
+  } catch (err) {
+    console.error('[mesStorage] Erro ao sincronizar terminais/setores no Firebase:', err);
+  }
   broadcastUpdate();
+  window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
 }
 
 export function fetchAllSectors(): string[] {
@@ -599,8 +614,7 @@ export function deleteSectorGlobally(sectorName: string): void {
 
 export function resetTerminalsConfigToDefault(): TerminalConfig[] {
   if (typeof window === 'undefined') return [...TERMINALS];
-  localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(TERMINALS));
-  broadcastUpdate();
+  saveTerminalsConfig([...TERMINALS]);
   return [...TERMINALS];
 }
 
@@ -795,11 +809,44 @@ export function initFirebaseRealtimeListeners(): void {
           const serialized = JSON.stringify(val);
           if (rawLocal !== serialized) {
             localStorage.setItem(STORAGE_TERMINALS_KEY, serialized);
+            const setoresMap = buildSetoresMap(val);
+            localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
             broadcastUpdate();
+            window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
           }
         }
       } catch (err) {
         console.error('[Firebase] Erro no listener de config_terminais:', err);
+      }
+    });
+
+    const setoresRef = ref(db, 'config_setores');
+    onValue(setoresRef, (snapshot) => {
+      try {
+        const val = snapshot.val();
+        if (val && typeof val === 'object') {
+          const currentTerms = fetchTerminalsConfig();
+          let changed = false;
+          const updated = currentTerms.map((t) => {
+            const key = `T${t.id}`;
+            if (Array.isArray(val[key])) {
+              const newSectors = val[key];
+              if (JSON.stringify(t.sectors) !== JSON.stringify(newSectors)) {
+                changed = true;
+                return { ...t, sectors: [...newSectors] };
+              }
+            }
+            return t;
+          });
+          if (changed) {
+            localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(updated));
+            localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(val));
+            broadcastUpdate();
+            window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
+          }
+        }
+      } catch (err) {
+        console.error('[Firebase] Erro no listener de config_setores:', err);
       }
     });
   } catch (err) {

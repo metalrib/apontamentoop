@@ -28,7 +28,9 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isTerminal5 = terminal.id === 5;
 
   const termKey = `T${terminal.id}` as keyof typeof POSTOS_POR_TERMINAL;
-  const availableSectors = POSTOS_POR_TERMINAL[termKey] || terminal.sectors || [];
+  const availableSectors = Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
+    ? terminal.sectors
+    : (POSTOS_POR_TERMINAL[termKey] || []);
   const validSectors = availableSectors.filter(s => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
     return findStepForSector(s, steps) !== null;
