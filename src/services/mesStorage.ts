@@ -124,14 +124,18 @@ export function ensureInitialData() {
   }
 
   // Inicializa equipe de colaboradores e terminais com a padronização definitiva
-  const STORAGE_PADRONIZACAO_KEY = 'metalrib_padronizacao_oficial_v3';
+  const STORAGE_PADRONIZACAO_KEY = 'metalrib_padronizacao_oficial_v4';
   const hasPadronizacao = localStorage.getItem(STORAGE_PADRONIZACAO_KEY) === 'true';
 
   const existingOps = localStorage.getItem(STORAGE_OPERATORS_KEY);
   if (!existingOps || !hasPadronizacao) {
     localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
     try {
-      set(ref(db, 'config_operadores'), OPERATORS);
+      const initialMap: Record<string, any> = {};
+      OPERATORS.forEach((op) => {
+        initialMap[op.id] = op;
+      });
+      set(ref(db, 'config_colaboradores'), initialMap);
     } catch {}
   }
 
@@ -238,9 +242,85 @@ export function saveOperators(operators: Operator[]): void {
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
   firebasePut('config/operators', cleaned);
   try {
+    const fbMap: Record<string, any> = {};
+    cleaned.forEach((op) => {
+      fbMap[op.id] = op;
+    });
+    set(ref(db, 'config_colaboradores'), fbMap);
     set(ref(db, 'config_operadores'), cleaned);
   } catch {}
   broadcastUpdate();
+  window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
+}
+
+export async function updateColaboradorFirebase(id: string, dados: Partial<Operator>): Promise<void> {
+  const current = fetchOperators();
+  const index = current.findIndex(o => o.id === id);
+  const existing = index >= 0 ? current[index] : null;
+
+  const nome = (dados.nome || dados.name || existing?.nome || existing?.name || id).trim();
+  const terminais = Array.isArray(dados.terminais) ? dados.terminais : (existing?.terminais || []);
+  const setores = Array.isArray(dados.setores)
+    ? dados.setores
+    : Array.isArray(dados.sectors)
+    ? dados.sectors
+    : (existing?.setores || existing?.sectors || []);
+  const especialista = Boolean(dados.especialista ?? existing?.especialista);
+  const badge = (dados.badge || dados.codigo || existing?.badge || id.toUpperCase()).trim();
+
+  const role = especialista
+    ? `Especialista (${terminais.join('/') || 'Geral'})`
+    : terminais.length > 1
+    ? `Operador Volante (${terminais.join('/')})`
+    : terminais.length === 1
+    ? `Operador ${terminais[0]}`
+    : 'Operador';
+
+  const payload: Operator = {
+    ...(existing || {}),
+    ...dados,
+    id,
+    name: nome,
+    nome,
+    badge,
+    codigo: badge,
+    role,
+    setor: setores[0] || '',
+    setores: [...setores],
+    sectors: [...setores],
+    terminais: [...terminais],
+    especialista,
+    ativo: dados.ativo !== undefined ? dados.ativo : (existing?.ativo !== false)
+  };
+
+  if (index >= 0) {
+    current[index] = payload;
+  } else {
+    current.push(payload);
+  }
+
+  localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(current));
+  broadcastUpdate();
+  window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
+
+  try {
+    await update(ref(db, `config_colaboradores/${id}`), {
+      id,
+      name: nome,
+      nome,
+      badge,
+      codigo: badge,
+      role,
+      setor: setores[0] || '',
+      setores: [...setores],
+      sectors: [...setores],
+      terminais: [...terminais],
+      especialista,
+      ativo: payload.ativo
+    });
+  } catch (err) {
+    console.error(`[Firebase] Erro ao atualizar config_colaboradores/${id}:`, err);
+  }
 }
 
 export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Operator {
@@ -635,20 +715,35 @@ export function initFirebaseRealtimeListeners(): void {
       }
     });
 
-    const colabRef = ref(db, 'config_operadores');
+    const colabRef = ref(db, 'config_colaboradores');
     onValue(colabRef, (snapshot) => {
       try {
         const val = snapshot.val();
-        if (Array.isArray(val) && val.length > 0) {
+        if (!val || (typeof val === 'object' && Object.keys(val).length === 0)) {
+          // Se o nó estiver vazio na primeira leitura, sobe a lista padrão
+          const initialMap: Record<string, any> = {};
+          OPERATORS.forEach((op) => {
+            initialMap[op.id] = op;
+          });
+          set(ref(db, 'config_colaboradores'), initialMap);
+          return;
+        }
+
+        const list: Operator[] = Array.isArray(val)
+          ? val.filter(Boolean)
+          : Object.values(val || {});
+
+        if (list.length > 0) {
           const rawLocal = localStorage.getItem(STORAGE_OPERATORS_KEY);
-          const serialized = JSON.stringify(val);
+          const serialized = JSON.stringify(list);
           if (rawLocal !== serialized) {
             localStorage.setItem(STORAGE_OPERATORS_KEY, serialized);
             broadcastUpdate();
+            window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
           }
         }
       } catch (err) {
-        console.error('[Firebase] Erro no listener de config_operadores:', err);
+        console.error('[Firebase] Erro no listener de config_colaboradores:', err);
       }
     });
 

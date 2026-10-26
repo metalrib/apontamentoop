@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Operator, TerminalConfig, ProductionOrder } from '../types/mes';
 import { fetchOperators, subscribeToMesUpdates } from '../services/mesStorage';
+import { db, ref, onValue } from '../services/firebase';
 import { Check, User } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
@@ -28,7 +29,26 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
 
   useEffect(() => {
     loadOps();
-    const unsub = subscribeToMesUpdates(() => {
+
+    // Listener reativo direto no Firebase (/config_colaboradores)
+    const colabRef = ref(db, 'config_colaboradores');
+    const unsubFirebase = onValue(colabRef, (snapshot) => {
+      try {
+        if (snapshot.exists()) {
+          const val = snapshot.val();
+          const list: Operator[] = Array.isArray(val)
+            ? val.filter(Boolean)
+            : Object.values(val || {});
+          if (list.length > 0) {
+            setOperators(list);
+          }
+        }
+      } catch (err) {
+        console.error('[Totem] Erro na sincronização reativa de colaboradores:', err);
+      }
+    });
+
+    const unsubStorage = subscribeToMesUpdates(() => {
       loadOps();
     });
 
@@ -43,7 +63,8 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     document.addEventListener('visibilitychange', handleLocalUpdate);
 
     return () => {
-      unsub();
+      unsubFirebase();
+      unsubStorage();
       window.removeEventListener('storage', handleLocalUpdate);
       window.removeEventListener('metalrib_data_updated', handleLocalUpdate);
       window.removeEventListener('metalrib_operators_updated', handleLocalUpdate);
