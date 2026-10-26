@@ -25,7 +25,7 @@ function normalizarTexto(txt?: string | null): string {
 }
 
 /**
- * Retorna o ID do terminal (1 a 5) associado a um setor
+ * Retorna o ID do terminal (1 a 5) associado a um setor/posto
  */
 function getTerminalIdForSector(sectorName: string): number | null {
   const norm = normalizarTexto(sectorName);
@@ -39,13 +39,13 @@ function getTerminalIdForSector(sectorName: string): number | null {
 }
 
 /**
- * Identifica rigorosamente a qual terminal físico o colaborador pertence
+ * Identifica rigorosamente a quais terminais físicos o colaborador tem acesso
  */
 function getOperatorTerminals(op: Operator): number[] {
   // 1. Terminais explicitamente configurados no colaborador (prioridade máxima)
   if (Array.isArray(op.terminais) && op.terminais.length > 0) {
     const list = op.terminais
-      .map((t) => parseInt(t.replace(/[^\d]/g, ''), 10))
+      .map((t) => parseInt(String(t).replace(/[^\d]/g, ''), 10))
       .filter((n) => !isNaN(n) && n >= 1 && n <= 5);
     if (list.length > 0) {
       return list;
@@ -58,15 +58,15 @@ function getOperatorTerminals(op: Operator): number[] {
   }
 
   // 3. Coleta os setores explicitamente cadastrados para o operador
-  const operatorSectors = Array.isArray(op.sectors) && op.sectors.length > 0
+  const operatorSectors = Array.isArray(op.postos) && op.postos.length > 0
+    ? op.postos
+    : Array.isArray(op.sectors) && op.sectors.length > 0
     ? op.sectors
     : Array.isArray(op.setores) && op.setores.length > 0
     ? op.setores
     : op.setor ? [op.setor] : [];
 
   const terminals = new Set<number>();
-
-  // Se o colaborador possui setores configurados, seus terminais são derivados DIRETAMENTE deles
   if (operatorSectors.length > 0) {
     for (const sec of operatorSectors) {
       const termId = getTerminalIdForSector(sec);
@@ -83,80 +83,165 @@ function getOperatorTerminals(op: Operator): number[] {
 }
 
 /**
- * Validação estrita entre o colaborador e a operação específica selecionada
+ * Verifica se o colaborador tem acesso ao terminal especificado
+ */
+function hasTerminalAccess(op: Operator, targetTerminalId: number): boolean {
+  if (Array.isArray(op.terminais) && op.terminais.length > 0) {
+    return op.terminais.some((t: string | number) => {
+      const num = typeof t === 'number' ? t : parseInt(String(t).replace(/[^\d]/g, ''), 10);
+      return num === targetTerminalId;
+    });
+  }
+  if (op.isRoaming || op.especialistaVolante) {
+    return true;
+  }
+  const derived = getOperatorTerminals(op);
+  return derived.includes(targetTerminalId);
+}
+
+/**
+ * Compara os postos habilitados do colaborador com o posto/setor selecionado
+ */
+function matchPosto(postos: string[] | undefined, selectedSector: string): boolean {
+  if (!postos || postos.length === 0) return false;
+  if (postos.includes('TODOS')) return true;
+
+  const secNorm = normalizarTexto(selectedSector);
+  if (!secNorm) return false;
+
+  return postos.some((p) => {
+    const pNorm = normalizarTexto(p);
+    if (!pNorm) return false;
+    if (pNorm === 'todos') return true;
+
+    // Correspondência exata direta
+    if (pNorm === secNorm) return true;
+
+    // Regras específicas de postos da fábrica Metalrib:
+    // 1. Finalização Vai Vem (Terminal 4)
+    if (secNorm.includes('vai vem') && (secNorm.includes('finalizacao') || !secNorm.includes('prep'))) {
+      return pNorm.includes('vai vem') && (pNorm.includes('finalizacao') || !pNorm.includes('prep'));
+    }
+
+    // 2. Preparação Vai Vem (Terminal 5)
+    if (secNorm.includes('vai vem') && secNorm.includes('prep')) {
+      return pNorm.includes('vai vem') && pNorm.includes('prep');
+    }
+
+    // 3. Instalação de Gaxeta (Terminal 4)
+    if (secNorm.includes('gaxeta')) {
+      return pNorm.includes('gaxeta');
+    }
+
+    // 4. Montagem de Portas Giratórias (Terminal 4)
+    if (secNorm.includes('girat')) {
+      return pNorm.includes('girat');
+    }
+
+    // 5. Montagem de Portas Emendadas (Terminal 3)
+    if (secNorm.includes('emendad')) {
+      return pNorm.includes('emendad');
+    }
+
+    // 6. Montagem Office Door (Terminal 3)
+    if (secNorm.includes('office')) {
+      return pNorm.includes('office');
+    }
+
+    // 7. Preparação de Batentes (Terminal 3)
+    if (secNorm.includes('batente') && secNorm.includes('prep')) {
+      return pNorm.includes('batente') && pNorm.includes('prep');
+    }
+
+    // 8. Injeção e Finalização Batentes (Terminal 3)
+    if (secNorm.includes('batente') && (secNorm.includes('inj') || secNorm.includes('finalizacao'))) {
+      return pNorm.includes('batente') && (pNorm.includes('inj') || pNorm.includes('finalizacao'));
+    }
+
+    // 9. Injetora de folhas (Terminal 2)
+    if ((secNorm.includes('injetora') || secNorm.includes('injecao')) && !secNorm.includes('batente')) {
+      return (pNorm.includes('injetora') || pNorm.includes('injecao')) && !pNorm.includes('batente');
+    }
+
+    // 10. Preparação (Terminal 2)
+    if (
+      secNorm.includes('prep') &&
+      !secNorm.includes('vai vem') &&
+      !secNorm.includes('batente') &&
+      !secNorm.includes('dobra')
+    ) {
+      return (
+        pNorm.includes('prep') &&
+        !pNorm.includes('vai vem') &&
+        !pNorm.includes('batente') &&
+        !pNorm.includes('dobra')
+      );
+    }
+
+    // 11. Corte - Guilhotina (Terminal 1)
+    if (secNorm.includes('corte') || secNorm.includes('guilhotina')) {
+      return pNorm.includes('corte') || pNorm.includes('guilhotina');
+    }
+
+    // 12. Dobra e Preparação (Terminal 1)
+    if (secNorm.includes('dobra')) {
+      return pNorm.includes('dobra');
+    }
+
+    // 13. Laser (Terminal 1)
+    if (secNorm.includes('laser')) {
+      return pNorm.includes('laser');
+    }
+
+    // 14. Elétrica (Terminal 5)
+    if (secNorm.includes('eletrica')) {
+      return pNorm.includes('eletrica');
+    }
+
+    // 15. Router (Terminal 5)
+    if (secNorm.includes('router')) {
+      return pNorm.includes('router');
+    }
+
+    // 16. Cortina (Terminal 5)
+    if (secNorm.includes('cortina')) {
+      return pNorm.includes('cortina');
+    }
+
+    // 17. Solda e Montagem (Terminal 5)
+    if (secNorm.includes('solda')) {
+      return pNorm.includes('solda');
+    }
+
+    // Contenção direta se não caiu nas regras exclusivas
+    return pNorm.includes(secNorm) || secNorm.includes(pNorm);
+  });
+}
+
+/**
+ * Validação estrita entre o colaborador, terminal ativo e o posto de trabalho selecionado
  */
 function matchOperatorToSector(op: Operator, selectedSector: string, targetTerminalId: number): boolean {
-  // 1. Especialistas (especialista: true, isRoaming, especialistaVolante) têm acesso a todos os setores de seus terminais autorizados
+  // 1. Trava estrita de terminal: colaborador deve estar autorizado no terminal ativo
+  if (!hasTerminalAccess(op, targetTerminalId)) {
+    return false;
+  }
+
+  // 2. Especialistas com acesso ao terminal têm acesso irrestrito a todos os postos
   if (op.especialista || op.isRoaming || op.especialistaVolante) {
     return true;
   }
 
-  // 2. Se o colaborador possui vínculo explícito com o terminal em questão:
-  if (Array.isArray(op.terminais) && op.terminais.length > 0) {
-    const isAuthorized = op.terminais.some(
-      (t) => t.toUpperCase() === `T${targetTerminalId}` || parseInt(t.replace(/[^\d]/g, ''), 10) === targetTerminalId
-    );
-    if (isAuthorized) {
-      // Se não houver setores explicitamente restritos, ele está habilitado para o terminal
-      const opSectors = Array.isArray(op.sectors) ? op.sectors : [];
-      if (opSectors.length === 0) {
-        return true;
-      }
-    }
-  }
-
-  const secNorm = normalizarTexto(selectedSector);
-  const operatorSectors = Array.isArray(op.sectors) && op.sectors.length > 0
+  // 3. Cruzamento estrito com os postos cadastrados do colaborador
+  const postos = Array.isArray(op.postos) && op.postos.length > 0
+    ? op.postos
+    : Array.isArray(op.sectors) && op.sectors.length > 0
     ? op.sectors
     : Array.isArray(op.setores) && op.setores.length > 0
     ? op.setores
     : op.setor ? [op.setor] : [];
 
-  // Se o colaborador possui setores configurados, valida estritamente contra a lista dele
-  if (operatorSectors.length > 0) {
-    return operatorSectors.some((s) => {
-      const sNorm = normalizarTexto(s);
-      if (!sNorm) return false;
-      if (sNorm === secNorm || sNorm.includes(secNorm) || secNorm.includes(sNorm)) return true;
-
-      // Equivalências fabris comuns
-      if (secNorm.includes('dobra') && sNorm.includes('dobra')) return true;
-      if (secNorm.includes('corte') && (sNorm.includes('corte') || sNorm.includes('guilhotina'))) return true;
-      if (secNorm.includes('laser') && sNorm.includes('laser')) return true;
-      if (
-        (secNorm.includes('prep') && !secNorm.includes('vai vem') && !secNorm.includes('batente')) &&
-        (sNorm.includes('prep') && !sNorm.includes('vai vem') && !sNorm.includes('batente'))
-      ) return true;
-      if (
-        (secNorm.includes('inj') || secNorm.includes('injetora')) &&
-        (sNorm.includes('inj') || sNorm.includes('injetora')) &&
-        !secNorm.includes('batente') && !sNorm.includes('batente')
-      ) return true;
-      if (secNorm.includes('batente') && sNorm.includes('batente')) return true;
-      if (secNorm.includes('emendad') && sNorm.includes('emendad')) return true;
-      if (secNorm.includes('office') && sNorm.includes('office')) return true;
-      if (secNorm.includes('gaxeta') && (sNorm.includes('gaxeta') || sNorm.includes('girat'))) return true;
-      if (secNorm.includes('girat') && sNorm.includes('girat')) return true;
-      if (secNorm.includes('solda') && sNorm.includes('solda')) return true;
-      if (secNorm.includes('router') && sNorm.includes('router')) return true;
-      if (secNorm.includes('eletrica') && sNorm.includes('eletrica')) return true;
-      if (secNorm.includes('cortina') && sNorm.includes('cortina')) return true;
-      if (
-        (secNorm.includes('vai vem') && secNorm.includes('prep')) &&
-        (sNorm.includes('vai vem') && sNorm.includes('prep'))
-      ) return true;
-      if (
-        (secNorm.includes('vai vem') && !secNorm.includes('prep')) &&
-        (sNorm.includes('vai vem') && !sNorm.includes('prep'))
-      ) return true;
-
-      return false;
-    });
-  }
-
-  // 3. Se o colaborador pertence ao terminal e não tem restrições adicionais, está liberado
-  const colabTerminals = getOperatorTerminals(op);
-  return colabTerminals.includes(targetTerminalId);
+  return matchPosto(postos, selectedSector);
 }
 
 export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
@@ -199,11 +284,9 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     };
   }, [loadOps]);
 
-  // Filtro Rigoroso por Setor e Terminal (NUNCA faz fallback global para a fábrica)
+  // Filtro Rigoroso por Posto e Terminal Selecionado
   const filteredOperators = useMemo(() => {
-    // 1. OCULTAÇÃO TOTAL DO PASSO 2 SEM SETOR SELECIONADO:
-    // Se selectedSector for nulo, indefinido ou vazio:
-    // A lista filtrada DEVE ser estritamente um array vazio [].
+    // 1. OCULTAÇÃO DO PASSO 2 SEM POSTO/SETOR SELECIONADO:
     if (!selectedSector || selectedSector.trim() === '') {
       return [];
     }
@@ -217,14 +300,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       // 1. Status ativo
       if (colab.ativo === false) return false;
 
-      // 2. Trava estrita de terminais (Isolamento entre áreas):
-      // Colaboradores de um terminal NUNCA podem aparecer na listagem de outro terminal
-      const colabTerminals = getOperatorTerminals(colab);
-      if (colabTerminals.length > 0 && !colabTerminals.includes(targetTerminalId)) {
-        return false;
-      }
-
-      // 3. Filtragem estrita pelo setor selecionado
+      // 2. Trava estrita de terminais e posto selecionado
       return matchOperatorToSector(colab, selectedSector, targetTerminalId);
     });
   }, [operators, selectedSector, currentTerminal?.id]);
@@ -256,7 +332,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         <div className="py-3 px-4 text-center bg-slate-950/60 rounded-lg border border-slate-800 flex items-center justify-center gap-2">
           <span className="text-base select-none">👆</span>
           <p className="text-xs font-mono text-amber-300 font-bold">
-            Selecione o setor acima para identificar quem vai executar a operação.
+            Selecione um posto de trabalho no Passo 1 para identificar os colaboradores disponíveis.
           </p>
         </div>
       ) : filteredOperators.length === 0 ? (

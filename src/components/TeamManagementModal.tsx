@@ -260,7 +260,9 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
     if (editingId) {
       // Atualizar colaborador existente
+      const existing = operators.find(o => o.id === editingId);
       const updated: Operator = {
+        ...(existing || {}),
         id: editingId,
         name: formName.trim(),
         initials,
@@ -270,6 +272,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         setor: formSectors[0] || '',
         setores: [...formSectors],
         sectors: [...formSectors],
+        postos: formSectors.length > 0 ? [...formSectors] : (existing?.postos || []),
         isRoaming: formIsRoaming,
         especialistaVolante: formIsRoaming,
         ativo: true
@@ -286,6 +289,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         setor: formSectors[0] || '',
         setores: [...formSectors],
         sectors: [...formSectors],
+        postos: [...formSectors],
         isRoaming: formIsRoaming,
         especialistaVolante: formIsRoaming,
         initials,

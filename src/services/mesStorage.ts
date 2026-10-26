@@ -132,7 +132,8 @@ export function ensureInitialData() {
       const parsed: Operator[] = JSON.parse(existingOps);
       const hasElionai = Array.isArray(parsed) && parsed.some(o => o.id === 'elionai');
       const hasOldPaulo = Array.isArray(parsed) && parsed.some(o => o.id === 'paulo_henrique');
-      if (!hasElionai || hasOldPaulo) {
+      const hasPostos = Array.isArray(parsed) && parsed.some(o => Array.isArray(o.postos) && o.postos.length > 0);
+      if (!hasElionai || hasOldPaulo || !hasPostos) {
         localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
         try {
           set(ref(db, 'config_operadores'), OPERATORS);
@@ -262,6 +263,7 @@ export function saveOperators(operators: Operator[]): void {
     const nome = op.nome || op.name || '';
     const especialista = Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming);
     const terminais = Array.isArray(op.terminais) ? op.terminais : [];
+    const postos = Array.isArray(op.postos) ? op.postos : [];
 
     return {
       ...op,
@@ -273,6 +275,7 @@ export function saveOperators(operators: Operator[]): void {
       setores: uniqueSectors,
       sectors: uniqueSectors,
       terminais,
+      postos,
       especialista,
       ativo: op.ativo !== false,
       especialistaVolante: especialista,
@@ -310,6 +313,7 @@ export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Oper
     setores: uniqueSectors,
     sectors: uniqueSectors,
     terminais,
+    postos: Array.isArray(newOp.postos) ? newOp.postos : [],
     especialista,
     isRoaming: especialista && (terminais.length > 2 || terminais.length === 0),
     especialistaVolante: especialista,
@@ -344,6 +348,11 @@ export function updateOperator(updatedOp: Operator): void {
     : index >= 0 && Array.isArray(current[index].terminais)
     ? current[index].terminais!
     : [];
+  const postos = Array.isArray(updatedOp.postos)
+    ? updatedOp.postos
+    : index >= 0 && Array.isArray(current[index].postos)
+    ? current[index].postos!
+    : [];
 
   const normalized: Operator = {
     ...(index >= 0 ? current[index] : {}),
@@ -358,6 +367,7 @@ export function updateOperator(updatedOp: Operator): void {
     setores: [...uniqueSectors],
     sectors: [...uniqueSectors],
     terminais,
+    postos,
     especialista,
     isRoaming: especialista && (terminais.length > 2 || terminais.length === 0),
     especialistaVolante: especialista,

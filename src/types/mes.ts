@@ -281,6 +281,7 @@ export interface Operator {
   sectors: string[];
   terminais?: string[];
   especialista?: boolean;
+  postos?: string[];
   isRoaming?: boolean; // Especialistas sem setor fixo que podem passar por todos
   especialistaVolante?: boolean;
   ativo?: boolean;
@@ -338,6 +339,7 @@ export const OPERATORS: Operator[] = colaboradores.map((colab) => {
     sectors,
     terminais: [...colab.terminais],
     especialista: colab.especialista,
+    postos: Array.isArray(colab.postos) ? [...colab.postos] : [],
     isRoaming: colab.especialista && colab.terminais.length > 2,
     especialistaVolante: colab.especialista,
     ativo: true
