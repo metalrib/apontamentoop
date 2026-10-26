@@ -42,12 +42,22 @@ function getTerminalIdForSector(sectorName: string): number | null {
  * Identifica rigorosamente a qual terminal físico o colaborador pertence
  */
 function getOperatorTerminals(op: Operator): number[] {
-  // 1. Especialistas volantes têm acesso a todos os terminais
+  // 1. Terminais explicitamente configurados no colaborador (prioridade máxima)
+  if (Array.isArray(op.terminais) && op.terminais.length > 0) {
+    const list = op.terminais
+      .map((t) => parseInt(t.replace(/[^\d]/g, ''), 10))
+      .filter((n) => !isNaN(n) && n >= 1 && n <= 5);
+    if (list.length > 0) {
+      return list;
+    }
+  }
+
+  // 2. Especialistas volantes sem terminal fixo têm acesso a todos os terminais
   if (op.isRoaming || op.especialistaVolante) {
     return [1, 2, 3, 4, 5];
   }
 
-  // 2. Coleta os setores explicitamente cadastrados para o operador
+  // 3. Coleta os setores explicitamente cadastrados para o operador
   const operatorSectors = Array.isArray(op.sectors) && op.sectors.length > 0
     ? op.sectors
     : Array.isArray(op.setores) && op.setores.length > 0
@@ -69,78 +79,6 @@ function getOperatorTerminals(op: Operator): number[] {
     }
   }
 
-  // 3. Fallback heurístico por crachá/código apenas se nenhum setor foi associado
-  const isEme = (op.codigo && op.codigo.startsWith('EME')) ||
-                (op.badge && op.badge.startsWith('EME')) ||
-                ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id);
-  if (isEme) return [3];
-
-  const isGir = (op.codigo && op.codigo.startsWith('GIR')) ||
-                (op.badge && op.badge.startsWith('GIR')) ||
-                ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id);
-  if (isGir) return [4];
-
-  const isVvFinal = (op.codigo && op.codigo.startsWith('VV')) ||
-                   (op.badge && op.badge.startsWith('VV')) ||
-                   ['joao_paulo', 'alessandra'].includes(op.id);
-  if (isVvFinal) return [4];
-
-  const isBat = (op.codigo && op.codigo.startsWith('BAT')) ||
-                (op.badge && op.badge.startsWith('BAT')) ||
-                ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id);
-  if (isBat) return [3];
-
-  const isOff = (op.codigo && op.codigo.startsWith('OFF')) ||
-                (op.badge && op.badge.startsWith('OFF')) ||
-                ['lucas'].includes(op.id);
-  if (isOff) return [3];
-
-  const isInj = (op.codigo && op.codigo.startsWith('INJ')) ||
-                (op.badge && op.badge.startsWith('INJ')) ||
-                ['magna', 'donizete'].includes(op.id);
-  if (isInj) return [2];
-
-  const isPrep = (op.codigo && op.codigo.startsWith('PREP')) ||
-                 (op.badge && op.badge.startsWith('PREP')) ||
-                 ['paulo_henrique'].includes(op.id);
-  if (isPrep) return [2];
-
-  const isCorte = (op.codigo && op.codigo.startsWith('CORTE')) ||
-                  (op.badge && op.badge.startsWith('CORTE')) ||
-                  ['eliel'].includes(op.id);
-  if (isCorte) return [1];
-
-  const isDob = (op.codigo && op.codigo.startsWith('DOB')) ||
-                (op.badge && op.badge.startsWith('DOB')) ||
-                ['leonardo', 'danielson'].includes(op.id);
-  if (isDob) return [1];
-
-  const isSol = (op.codigo && op.codigo.startsWith('SOL')) ||
-                (op.badge && op.badge.startsWith('SOL')) ||
-                op.badge === 'ESP-PL' ||
-                ['fabio', 'nathan'].includes(op.id);
-  if (isSol) return [5];
-
-  const isPvv = (op.codigo && op.codigo.startsWith('PVV')) ||
-                (op.badge && op.badge.startsWith('PVV')) ||
-                ['yasmin'].includes(op.id);
-  if (isPvv) return [5];
-
-  const isRou = (op.codigo && op.codigo.startsWith('ROU')) ||
-                (op.badge && op.badge.startsWith('ROU')) ||
-                ['victor'].includes(op.id);
-  if (isRou) return [5];
-
-  const isEle = (op.codigo && op.codigo.startsWith('ELE')) ||
-                (op.badge && op.badge.startsWith('ELE')) ||
-                ['marcio', 'cristiane'].includes(op.id);
-  if (isEle) return [5];
-
-  const isCor = (op.codigo && op.codigo.startsWith('COR-')) ||
-                (op.badge && op.badge.startsWith('COR-')) ||
-                ['gabriele'].includes(op.id);
-  if (isCor) return [5];
-
   return [];
 }
 
@@ -148,8 +86,23 @@ function getOperatorTerminals(op: Operator): number[] {
  * Validação estrita entre o colaborador e a operação específica selecionada
  */
 function matchOperatorToSector(op: Operator, selectedSector: string, targetTerminalId: number): boolean {
-  if (op.isRoaming || op.especialistaVolante) {
+  // 1. Especialistas (especialista: true, isRoaming, especialistaVolante) têm acesso a todos os setores de seus terminais autorizados
+  if (op.especialista || op.isRoaming || op.especialistaVolante) {
     return true;
+  }
+
+  // 2. Se o colaborador possui vínculo explícito com o terminal em questão:
+  if (Array.isArray(op.terminais) && op.terminais.length > 0) {
+    const isAuthorized = op.terminais.some(
+      (t) => t.toUpperCase() === `T${targetTerminalId}` || parseInt(t.replace(/[^\d]/g, ''), 10) === targetTerminalId
+    );
+    if (isAuthorized) {
+      // Se não houver setores explicitamente restritos, ele está habilitado para o terminal
+      const opSectors = Array.isArray(op.sectors) ? op.sectors : [];
+      if (opSectors.length === 0) {
+        return true;
+      }
+    }
   }
 
   const secNorm = normalizarTexto(selectedSector);
@@ -201,64 +154,9 @@ function matchOperatorToSector(op: Operator, selectedSector: string, targetTermi
     });
   }
 
-  // Fallback heurístico apenas se não houver setores configurados
-  if (targetTerminalId === 1) {
-    if (secNorm.includes('corte') || secNorm.includes('guilhotina')) {
-      return Boolean(op.codigo?.startsWith('CORTE') || op.badge?.startsWith('CORTE') || op.id === 'eliel');
-    }
-    if (secNorm.includes('dobra')) {
-      return Boolean(op.codigo?.startsWith('DOB') || op.badge?.startsWith('DOB') || ['leonardo', 'danielson'].includes(op.id));
-    }
-    if (secNorm.includes('laser')) {
-      return Boolean(op.badge?.startsWith('ESP-JR') || ['afonso', 'bruno'].includes(op.id));
-    }
-  }
-  if (targetTerminalId === 2) {
-    if (secNorm.includes('prep') || secNorm.includes('preparacao')) {
-      return Boolean(op.badge?.startsWith('PREP') || op.id === 'paulo_henrique');
-    }
-    if (secNorm.includes('inj') || secNorm.includes('injetora')) {
-      return Boolean(op.badge?.startsWith('INJ') || ['magna', 'donizete'].includes(op.id));
-    }
-  }
-  if (targetTerminalId === 3) {
-    if (secNorm.includes('batente')) {
-      return Boolean(op.badge?.startsWith('BAT') || ['antonio_massena', 'antonio', 'aparecido', 'yuri'].includes(op.id));
-    }
-    if (secNorm.includes('emendad') || secNorm.includes('correr')) {
-      return Boolean(op.badge?.startsWith('EME') || ['ademir', 'francisco', 'denis', 'jhonatan', 'jose_aparecido', 'deilson'].includes(op.id));
-    }
-    if (secNorm.includes('office')) {
-      return Boolean(op.badge?.startsWith('OFF') || op.id === 'lucas');
-    }
-  }
-  if (targetTerminalId === 4) {
-    if (secNorm.includes('gaxeta') || secNorm.includes('girat')) {
-      return Boolean(op.badge?.startsWith('GIR') || ['nalysson', 'vinicius', 'fabiano', 'gustavo_naves'].includes(op.id));
-    }
-    if (secNorm.includes('vai vem') || secNorm.includes('finalizacao')) {
-      return Boolean(op.badge?.startsWith('VV') || ['joao_paulo', 'alessandra'].includes(op.id));
-    }
-  }
-  if (targetTerminalId === 5) {
-    if (secNorm.includes('solda')) {
-      return Boolean(op.badge?.startsWith('SOL') || op.badge === 'ESP-PL' || ['fabio', 'nathan'].includes(op.id));
-    }
-    if (secNorm.includes('vai vem') || secNorm.includes('preparacao')) {
-      return Boolean(op.badge?.startsWith('PVV') || op.id === 'yasmin');
-    }
-    if (secNorm.includes('router')) {
-      return Boolean(op.badge?.startsWith('ROU') || op.id === 'victor');
-    }
-    if (secNorm.includes('eletrica')) {
-      return Boolean(op.badge?.startsWith('ELE') || ['marcio', 'cristiane'].includes(op.id));
-    }
-    if (secNorm.includes('cortina')) {
-      return Boolean(op.badge?.startsWith('COR') || op.id === 'gabriele');
-    }
-  }
-
-  return false;
+  // 3. Se o colaborador pertence ao terminal e não tem restrições adicionais, está liberado
+  const colabTerminals = getOperatorTerminals(op);
+  return colabTerminals.includes(targetTerminalId);
 }
 
 export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
@@ -404,10 +302,10 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
                         <Check className="w-2.5 h-2.5 stroke-[3]" />
                       </div>
                     )}
-                    {op.isRoaming && !isSelected && (
+                    {(op.especialista || op.isRoaming) && !isSelected && (
                       <div
                         className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[8px]"
-                        title="Especialista Volante"
+                        title="Especialista"
                       >
                         ★
                       </div>
@@ -416,10 +314,12 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
 
                   <div className="w-full">
                     <div className="font-bold text-xs text-white truncate max-w-full leading-tight">
-                      {op.name.split(' ')[0]}
+                      {op.name.split(' ').length > 1
+                        ? `${op.name.split(' ')[0]} ${op.name.split(' ')[1][0]}.`
+                        : op.name}
                     </div>
                     <div className="text-[9px] font-mono text-slate-400 truncate">
-                      {op.badge || op.name.split(' ')[1] || ''}
+                      {op.badge || op.role}
                     </div>
                   </div>
                 </button>

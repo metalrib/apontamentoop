@@ -271,6 +271,7 @@ export interface Apontamento {
 export interface Operator {
   id: string;
   name: string;
+  nome?: string;
   initials: string;
   badge: string;
   codigo?: string;
@@ -278,71 +279,67 @@ export interface Operator {
   setor?: string;
   setores?: string[];
   sectors: string[];
+  terminais?: string[];
+  especialista?: boolean;
   isRoaming?: boolean; // Especialistas sem setor fixo que podem passar por todos
   especialistaVolante?: boolean;
   ativo?: boolean;
 }
 
-export const OPERATORS: Operator[] = [
-  // Setor de Corte
-  { id: "eliel", name: "Eliel", initials: "EL", badge: "CORTE-01", codigo: "CORTE-01", role: "Corte", setor: "Corte - Guilhotina", setores: ["Corte - Guilhotina"], sectors: ["Corte - Guilhotina"], ativo: true, especialistaVolante: false },
+import { colaboradores, BADGES_MAP } from '../data/colaboradores';
 
-  // Setor de Dobra
-  { id: "leonardo", name: "Leonardo", initials: "LE", badge: "DOB-01", codigo: "DOB-01", role: "Dobra / Prep. Folhas", setor: "Dobra e Preparação", setores: ["Dobra e Preparação"], sectors: ["Dobra e Preparação"], ativo: true, especialistaVolante: false },
-  { id: "danielson", name: "Danielson", initials: "DA", badge: "DOB-02", codigo: "DOB-02", role: "Dobra", setor: "Dobra e Preparação", setores: ["Dobra e Preparação"], sectors: ["Dobra e Preparação"], ativo: true, especialistaVolante: false },
+export { colaboradores };
 
-  // Setor de Preparação de folhas
-  { id: "paulo_henrique", name: "Paulo Henrique", initials: "PH", badge: "PREP-01", codigo: "PREP-01", role: "Preparação de Folhas", setor: "Preparação de folhas", setores: ["Preparação de folhas"], sectors: ["Preparação de folhas"], ativo: true, especialistaVolante: false },
+const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
+  T1: ['Corte - Guilhotina', 'Dobra e Preparação', 'Laser'],
+  T2: ['Preparação', 'Injetora de folhas'],
+  T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Portas Emendadas'],
+  T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias', 'Finalização Vai Vem'],
+  T5: ['Elétrica', 'Router', 'Solda e Montagem', 'Preparação Vai Vem', 'Cortina']
+};
 
-  // Setor de Injeção de folhas
-  { id: "magna", name: "Magna", initials: "MA", badge: "INJ-01", codigo: "INJ-01", role: "Injeção de Folhas", setor: "Injetora de folhas", setores: ["Injetora de folhas"], sectors: ["Injetora de folhas"], ativo: true, especialistaVolante: false },
-  { id: "donizete", name: "Donizete", initials: "DO", badge: "INJ-02", codigo: "INJ-02", role: "Injeção de Folhas", setor: "Injetora de folhas", setores: ["Injetora de folhas"], sectors: ["Injetora de folhas"], ativo: true, especialistaVolante: false },
+function extractInitials(nome: string): string {
+  const parts = nome.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
 
-  // Setores de Preparação e Injeção de Batentes (Terminal 3)
-  { id: "antonio_massena", name: "Antônio Massena", initials: "AM", badge: "BAT-01", codigo: "BAT-01", role: "Preparação / Injeção Batentes", setor: "Preparação de Batentes", setores: ["Preparação de Batentes", "Injeção e Finalização Batentes"], sectors: ["Preparação de Batentes", "Injeção e Finalização Batentes"], ativo: true, especialistaVolante: false },
-  { id: "antonio", name: "Antônio", initials: "AN", badge: "BAT-02", codigo: "BAT-02", role: "Preparação / Injeção Batentes", setor: "Preparação de Batentes", setores: ["Preparação de Batentes", "Injeção e Finalização Batentes"], sectors: ["Preparação de Batentes", "Injeção e Finalização Batentes"], ativo: true, especialistaVolante: false },
-  { id: "aparecido", name: "Aparecido", initials: "AP", badge: "BAT-03", codigo: "BAT-03", role: "Preparação / Injeção Batentes", setor: "Preparação de Batentes", setores: ["Preparação de Batentes", "Injeção e Finalização Batentes"], sectors: ["Preparação de Batentes", "Injeção e Finalização Batentes"], ativo: true, especialistaVolante: false },
-  { id: "yuri", name: "Yuri", initials: "YU", badge: "BAT-04", codigo: "BAT-04", role: "Preparação / Injeção Batentes", setor: "Preparação de Batentes", setores: ["Preparação de Batentes", "Injeção e Finalização Batentes"], sectors: ["Preparação de Batentes", "Injeção e Finalização Batentes"], ativo: true, especialistaVolante: false },
+function resolveSectorsForTerminais(terminais: string[]): string[] {
+  const set = new Set<string>();
+  terminais.forEach((t) => {
+    const list = TERMINAL_SECTORS_DEFAULT_MAP[t.toUpperCase().trim()];
+    if (list) {
+      list.forEach((s) => set.add(s));
+    }
+  });
+  return Array.from(set);
+}
 
-  // Setor de Office Door
-  { id: "lucas", name: "Lucas", initials: "LU", badge: "OFF-01", codigo: "OFF-01", role: "Office Door", setor: "Montagem Office Door", setores: ["Montagem Office Door"], sectors: ["Montagem Office Door"], ativo: true, especialistaVolante: false },
+export const OPERATORS: Operator[] = colaboradores.map((colab) => {
+  const initials = extractInitials(colab.nome);
+  const badge = BADGES_MAP[colab.id] || colab.id.toUpperCase();
+  const sectors = resolveSectorsForTerminais(colab.terminais);
+  const role = colab.especialista
+    ? `Especialista (${colab.terminais.join('/')})`
+    : colab.terminais.length > 1
+    ? `Operador Volante (${colab.terminais.join('/')})`
+    : `Operador ${colab.terminais[0]}`;
 
-  // Setor de Montagem porta emendada (Terminal 3 - NUNCA Terminal 4)
-  { id: "ademir", name: "Ademir", initials: "AD", badge: "EME-01", codigo: "EME-01", role: "Montagem Porta Emendada", setor: "Montagem de Portas Emendadas", setores: ["Montagem de Portas Emendadas"], sectors: ["Montagem de Portas Emendadas"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "francisco", name: "Francisco", initials: "FR", badge: "EME-02", codigo: "EME-02", role: "Montagem Porta Emendada", setor: "Montagem de Portas Emendadas", setores: ["Montagem de Portas Emendadas"], sectors: ["Montagem de Portas Emendadas"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "denis", name: "Denis", initials: "DE", badge: "EME-03", codigo: "EME-03", role: "Montagem Porta Emendada", setor: "Montagem de Portas Emendadas", setores: ["Montagem de Portas Emendadas"], sectors: ["Montagem de Portas Emendadas"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "jhonatan", name: "Jhonatan", initials: "JH", badge: "EME-04", codigo: "EME-04", role: "Montagem Porta Emendada", setor: "Montagem de Portas Emendadas", setores: ["Montagem de Portas Emendadas"], sectors: ["Montagem de Portas Emendadas"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "jose_aparecido", name: "José Aparecido", initials: "JA", badge: "EME-05", codigo: "EME-05", role: "Montagem Porta Emendada", setor: "Montagem de Portas Emendadas", setores: ["Montagem de Portas Emendadas"], sectors: ["Montagem de Portas Emendadas"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "deilson", name: "Deilson", initials: "DL", badge: "EME-06", codigo: "EME-06", role: "Montagem Porta Emendada", setor: "Montagem de Portas Emendadas", setores: ["Montagem de Portas Emendadas"], sectors: ["Montagem de Portas Emendadas"], isRoaming: false, especialistaVolante: false, ativo: true },
-
-  // Setor de finalização de vai vem
-  { id: "joao_paulo", name: "João Paulo", initials: "JP", badge: "VV-01", codigo: "VV-01", role: "Finalização Vai Vem", setor: "Finalização Vai Vem", setores: ["Finalização Vai Vem"], sectors: ["Finalização Vai Vem"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "alessandra", name: "Alessandra", initials: "AL", badge: "VV-02", codigo: "VV-02", role: "Finalização Vai Vem", setor: "Finalização Vai Vem", setores: ["Finalização Vai Vem"], sectors: ["Finalização Vai Vem"], isRoaming: false, especialistaVolante: false, ativo: true },
-
-  // Setor Montagem de porta Giratória
-  { id: "nalysson", name: "Nalysson", initials: "NA", badge: "GIR-01", codigo: "GIR-01", role: "Montagem Porta Giratória", setor: "Montagem de Portas Giratórias", setores: ["Montagem de Portas Giratórias"], sectors: ["Montagem de Portas Giratórias"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "vinicius", name: "Vinicius", initials: "VI", badge: "GIR-02", codigo: "GIR-02", role: "Montagem Porta Giratória", setor: "Montagem de Portas Giratórias", setores: ["Montagem de Portas Giratórias"], sectors: ["Montagem de Portas Giratórias"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "fabiano", name: "Fabiano", initials: "FA", badge: "GIR-03", codigo: "GIR-03", role: "Montagem Porta Giratória", setor: "Montagem de Portas Giratórias", setores: ["Montagem de Portas Giratórias"], sectors: ["Montagem de Portas Giratórias"], isRoaming: false, especialistaVolante: false, ativo: true },
-  { id: "gustavo_naves", name: "Gustavo Naves", initials: "GN", badge: "GIR-04", codigo: "GIR-04", role: "Montagem Porta Giratória", setor: "Montagem de Portas Giratórias", setores: ["Montagem de Portas Giratórias"], sectors: ["Montagem de Portas Giratórias"], isRoaming: false, especialistaVolante: false, ativo: true },
-
-  // Setor de Router
-  { id: "victor", name: "Victor", initials: "VC", badge: "ROU-01", codigo: "ROU-01", role: "Router", setor: "Router", setores: ["Router"], sectors: ["Router"], ativo: true, especialistaVolante: false },
-
-  // Setor Laser & Especialistas Jr (volantes - podem passar por todos)
-  { id: "afonso", name: "Afonso", initials: "AF", badge: "ESP-JR1", codigo: "ESP-JR1", role: "Especialista Jr (Todos Setores)", setor: "Laser", setores: ["Laser"], sectors: ["Laser"], isRoaming: true, especialistaVolante: true, ativo: true },
-  { id: "bruno", name: "Bruno", initials: "BR", badge: "ESP-JR2", codigo: "ESP-JR2", role: "Especialista Jr (Todos Setores)", setor: "Laser", setores: ["Laser"], sectors: ["Laser"], isRoaming: true, especialistaVolante: true, ativo: true },
-
-  // Setor Elétrica
-  { id: "marcio", name: "Marcio", initials: "MC", badge: "ELE-01", codigo: "ELE-01", role: "Elétrica", setor: "Elétrica", setores: ["Elétrica"], sectors: ["Elétrica"], ativo: true, especialistaVolante: false },
-  { id: "cristiane", name: "Cristiane", initials: "CR", badge: "ELE-02", codigo: "ELE-02", role: "Elétrica", setor: "Elétrica", setores: ["Elétrica"], sectors: ["Elétrica"], ativo: true, especialistaVolante: false },
-
-  // Setor Cortina
-  { id: "gabriele", name: "Gabriele", initials: "GA", badge: "COR-01", codigo: "COR-01", role: "Cortina", setor: "Cortina", setores: ["Cortina"], sectors: ["Cortina"], ativo: true, especialistaVolante: false },
-
-  // Setor de Preparação Vai vem
-  { id: "yasmin", name: "Yasmin", initials: "YA", badge: "PVV-01", codigo: "PVV-01", role: "Preparação Vai Vem", setor: "Preparação Vai Vem", setores: ["Preparação Vai Vem"], sectors: ["Preparação Vai Vem"], ativo: true, especialistaVolante: false },
-
-  // Setor de Solda e Montagem
-  { id: "fabio", name: "Fabio", initials: "FB", badge: "ESP-PL", codigo: "ESP-PL", role: "Especialista Pleno (Solda e Montagem)", setor: "Solda e Montagem", setores: ["Solda e Montagem"], sectors: ["Solda e Montagem"], ativo: true, especialistaVolante: false },
-  { id: "nathan", name: "Nathan", initials: "NT", badge: "SOL-01", codigo: "SOL-01", role: "Solda e Montagem", setor: "Solda e Montagem", setores: ["Solda e Montagem"], sectors: ["Solda e Montagem"], ativo: true, especialistaVolante: false }
-];
+  return {
+    id: colab.id,
+    name: colab.nome,
+    nome: colab.nome,
+    initials,
+    badge,
+    codigo: badge,
+    role,
+    setor: sectors[0] || '',
+    setores: sectors,
+    sectors,
+    terminais: [...colab.terminais],
+    especialista: colab.especialista,
+    isRoaming: colab.especialista && colab.terminais.length > 2,
+    especialistaVolante: colab.especialista,
+    ativo: true
+  };
+});

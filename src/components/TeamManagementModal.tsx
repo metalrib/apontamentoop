@@ -842,11 +842,21 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                                     {op.initials}
                                   </div>
                                   <div>
-                                    <div className="font-bold text-white text-xs flex items-center gap-1.5">
-                                      <span>{op.name}</span>
-                                      {op.isRoaming && (
+                                    <div className="font-bold text-white text-xs flex items-center gap-1.5 flex-wrap">
+                                      <span>{op.nome || op.name}</span>
+                                      {op.especialista && (
+                                        <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 rounded font-bold">
+                                          ★ ESPECIALISTA
+                                        </span>
+                                      )}
+                                      {op.isRoaming && !op.especialista && (
                                         <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-bold">
                                           ★ VOLANTE
+                                        </span>
+                                      )}
+                                      {Array.isArray(op.terminais) && op.terminais.length > 0 && (
+                                        <span className="text-[9px] bg-cyan-950/80 text-cyan-300 border border-cyan-800/80 px-1.5 py-0.2 rounded font-bold font-mono">
+                                          {op.terminais.join(', ')}
                                         </span>
                                       )}
                                       {isCurrentlyEditing && (

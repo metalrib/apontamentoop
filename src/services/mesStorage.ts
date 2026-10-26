@@ -123,13 +123,21 @@ export function ensureInitialData() {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
   }
 
-  // Inicializa equipe de colaboradores (caso vazio no storage)
+  // Inicializa equipe de colaboradores (caso vazio no storage ou se estiver com versão legada)
   const existingOps = localStorage.getItem(STORAGE_OPERATORS_KEY);
   if (!existingOps) {
     localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
   } else {
     try {
-      JSON.parse(existingOps);
+      const parsed: Operator[] = JSON.parse(existingOps);
+      const hasElionai = Array.isArray(parsed) && parsed.some(o => o.id === 'elionai');
+      const hasOldPaulo = Array.isArray(parsed) && parsed.some(o => o.id === 'paulo_henrique');
+      if (!hasElionai || hasOldPaulo) {
+        localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
+        try {
+          set(ref(db, 'config_operadores'), OPERATORS);
+        } catch {}
+      }
     } catch {
       localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
     }
@@ -212,17 +220,24 @@ export function fetchOperators(): Operator[] {
         const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
         const badge = (op.badge || op.codigo || '').trim().toUpperCase();
         const primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
+        const nome = op.nome || op.name || '';
+        const especialista = Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming);
+        const terminais = Array.isArray(op.terminais) ? op.terminais : [];
 
         return {
           ...op,
+          nome,
+          name: nome,
           badge,
           codigo: badge,
           setor: primarySetor,
           setores: uniqueSectors,
           sectors: uniqueSectors,
+          terminais,
+          especialista,
           ativo: op.ativo !== false,
-          especialistaVolante: Boolean(op.especialistaVolante ?? op.isRoaming),
-          isRoaming: Boolean(op.isRoaming ?? op.especialistaVolante)
+          especialistaVolante: especialista,
+          isRoaming: especialista && (terminais.length > 2 || terminais.length === 0)
         };
       });
     }
@@ -244,17 +259,24 @@ export function saveOperators(operators: Operator[]): void {
     const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
     const badge = (op.badge || op.codigo || '').trim().toUpperCase();
     const primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
+    const nome = op.nome || op.name || '';
+    const especialista = Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming);
+    const terminais = Array.isArray(op.terminais) ? op.terminais : [];
 
     return {
       ...op,
+      nome,
+      name: nome,
       badge,
       codigo: badge,
       setor: primarySetor,
       setores: uniqueSectors,
       sectors: uniqueSectors,
+      terminais,
+      especialista,
       ativo: op.ativo !== false,
-      especialistaVolante: Boolean(op.especialistaVolante ?? op.isRoaming),
-      isRoaming: Boolean(op.isRoaming ?? op.especialistaVolante)
+      especialistaVolante: especialista,
+      isRoaming: especialista && (terminais.length > 2 || terminais.length === 0)
     };
   });
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
@@ -268,22 +290,29 @@ export function saveOperators(operators: Operator[]): void {
 export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Operator {
   const current = fetchOperators();
   const id = newOp.id || `op_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-  const initials = newOp.initials || newOp.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'OP';
+  const nome = (newOp.nome || newOp.name || '').trim();
+  const initials = newOp.initials || nome.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'OP';
   const rawSectors = Array.isArray(newOp.sectors) ? newOp.sectors : (newOp.setores || []);
   const uniqueSectors = Array.from(new Set(rawSectors.map(s => s.trim()).filter(Boolean)));
   const badge = (newOp.badge || newOp.codigo || '').trim().toUpperCase();
+  const especialista = Boolean(newOp.especialista ?? newOp.especialistaVolante ?? newOp.isRoaming);
+  const terminais = Array.isArray(newOp.terminais) ? newOp.terminais : [];
 
   const operator: Operator = {
     ...newOp,
     id,
+    name: nome,
+    nome,
     badge,
     codigo: badge,
     initials,
     setor: uniqueSectors[0] || '',
     setores: uniqueSectors,
     sectors: uniqueSectors,
-    isRoaming: Boolean(newOp.isRoaming ?? newOp.especialistaVolante),
-    especialistaVolante: Boolean(newOp.especialistaVolante ?? newOp.isRoaming),
+    terminais,
+    especialista,
+    isRoaming: especialista && (terminais.length > 2 || terminais.length === 0),
+    especialistaVolante: especialista,
     ativo: newOp.ativo !== false
   };
   const updated = [operator, ...current];
@@ -308,20 +337,30 @@ export function updateOperator(updatedOp: Operator): void {
     : updatedOp.setor ? [updatedOp.setor] : [];
   const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
   const badge = (updatedOp.badge || updatedOp.codigo || '').trim().toUpperCase();
+  const nome = (updatedOp.nome || updatedOp.name || '').trim();
+  const especialista = Boolean(updatedOp.especialista ?? updatedOp.isRoaming ?? updatedOp.especialistaVolante);
+  const terminais = Array.isArray(updatedOp.terminais)
+    ? updatedOp.terminais
+    : index >= 0 && Array.isArray(current[index].terminais)
+    ? current[index].terminais!
+    : [];
 
   const normalized: Operator = {
     ...(index >= 0 ? current[index] : {}),
     ...updatedOp,
     id: updatedOp.id || (index >= 0 ? current[index].id : `op_${Date.now()}`),
-    name: updatedOp.name.trim(),
+    name: nome,
+    nome,
     badge,
     codigo: badge,
     role: updatedOp.role || 'Operador',
     setor: uniqueSectors[0] || '',
     setores: [...uniqueSectors],
     sectors: [...uniqueSectors],
-    isRoaming: Boolean(updatedOp.isRoaming ?? updatedOp.especialistaVolante),
-    especialistaVolante: Boolean(updatedOp.especialistaVolante ?? updatedOp.isRoaming),
+    terminais,
+    especialista,
+    isRoaming: especialista && (terminais.length > 2 || terminais.length === 0),
+    especialistaVolante: especialista,
     ativo: updatedOp.ativo !== false
   };
 
