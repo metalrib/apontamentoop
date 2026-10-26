@@ -172,32 +172,50 @@ export function deducePhysicalUnitsFromM2(descricao: string, m2: number): number
   return rounded >= 1 ? rounded : 1;
 }
 
-function cleanProducedNumber(val: string | undefined): number {
-  if (!val) return 0;
-  const cleaned = val.replace(/\s+/g, '').replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, '');
-  const num = parseFloat(cleaned);
-  return isNaN(num) || num < 0 ? 0 : Math.round(num);
+/**
+ * Normaliza textos de cabeçalho para comparação (sem acentos, minúsculo, sem pontuação)
+ */
+function normalizeHeader(str?: string | null): string {
+  if (!str) return '';
+  return str
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .trim();
 }
 
 /**
- * Parser especializado do relatório Status_Ordem_Producao_Diario do Nomus ERP
- * 
- * Regras estritas (10 colunas):
- * - td[0]: Número sequencial da linha (ex: "26") -> IGNORAR/DESCARTAR.
- * - td[1]: data_entrega -> Ex: "16/10/26" (se vier em branco por mesclagem, herdar da linha anterior válida).
- * - td[2]: status_nomus -> Ex: "Requisitada totalmente" (herdar se vazio).
- * - td[3]: descricao -> Ex: "PT GIR RESF 2.000A X 1.000L 4BAT REV CH" (Descrição do Produto).
- * - td[4]: codigo -> Ex: "001.0123" (Código do Item).
- * - td[5]: lote -> Se vier &nbsp; ou vazio, preencher com "—".
- * - td[6]: observacao -> Ex: "BOLHA / ESTOQUE" ou "TRANSPORTE".
- * - td[7]: numero -> Ex: "OP 023912-01" (apenas uma ocorrência, NUNCA duplicar "OP OP").
- * - td[8]: quantidade -> parseFloat(td[8].innerText.replace(',', '.')) -> Ex: 4.00.
- * - td[9]: qtde_produzida -> Ex: 0.00.
- * 
- * Descarte obrigatório:
- * - Ignore linhas de cabeçalho (<th> ou linhas com texto "Entrega OP").
- * - Ignore qualquer <tr> que não contenha "OP " na coluna td[7].
- * - Ignore linhas com texto "Resumo Geral".
+ * Limpa o texto da célula removendo &nbsp;, espaços duplicados e quebras
+ */
+function cleanCellText(cell?: Element | null): string {
+  if (!cell) return '';
+  return (cell.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .trim();
+}
+
+/**
+ * Valida se um valor de texto não está vazio nem preenchido com hífen/nulo
+ */
+function isValidDataValue(val?: string | null): boolean {
+  if (!val) return false;
+  const clean = val.replace(/\s+/g, '').replace(/\u00a0/g, '').replace(/&nbsp;/gi, '');
+  return (
+    clean !== '' &&
+    clean !== '-' &&
+    clean !== '—' &&
+    clean.toLowerCase() !== 'null' &&
+    clean.toLowerCase() !== 'undefined'
+  );
+}
+
+/**
+ * Parser inteligente do relatório de Ordem de Produção do Nomus ERP
+ * Suporta layouts dinâmicos (9 ou 10 colunas, com ou sem coluna sequencial),
+ * mapeamento por nome de cabeçalho e herança de células agrupadas (&nbsp;).
  */
 export function parseNomusHtml(htmlContent: string): NomusParseResult {
   const warnings: string[] = [];
@@ -211,16 +229,140 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
   const doc = parser.parseFromString(htmlContent, 'text/html');
   const rows = Array.from(doc.querySelectorAll('tr'));
 
-  let lastValidEntrega = '';
-  let lastValidStatus = '';
+  if (rows.length === 0) {
+    return { orders: [], rawCount: 0, warnings: ['Nenhuma linha de tabela encontrada no HTML fornecido.'] };
+  }
+
+  // 1. Localização dinâmica da linha de cabeçalho (<tr class="chRow"> ou primeira <tr> com <td> ou <th> de cabeçalho)
+  let headerRow: HTMLTableRowElement | null = doc.querySelector('tr.chRow') as HTMLTableRowElement | null;
+
+  if (!headerRow) {
+    for (const row of rows) {
+      const cells = Array.from(row.querySelectorAll('th, td'));
+      if (cells.length < 5) continue;
+      const texts = cells.map((c) => normalizeHeader(c.textContent));
+
+      const hasOp = texts.some((t) => (t.includes('ordem') || t.includes('op')) && !t.includes('entrega') && !t.includes('status'));
+      const hasDescOrCod = texts.some((t) => t.includes('desc') || t.includes('cod') || t.includes('produto'));
+      const hasEntrega = texts.some((t) => t.includes('entrega') || t.includes('prazo'));
+
+      if ((hasOp && (hasDescOrCod || hasEntrega)) || (hasDescOrCod && hasEntrega)) {
+        headerRow = row;
+        break;
+      }
+    }
+  }
+
+  if (!headerRow) {
+    const thRow = rows.find((r) => r.querySelectorAll('th').length >= 5);
+    if (thRow) {
+      headerRow = thRow;
+    }
+  }
+
+  // 2. Mapeamento dinâmico de cabeçalhos (sem índice fixo)
+  let idxOp = -1;
+  let idxDescricao = -1;
+  let idxCodigo = -1;
+  let idxQtde = -1;
+  let idxQtdeProduzida = -1;
+  let idxEntrega = -1;
+  let idxStatus = -1;
+  let idxLote = -1;
+  let idxObservacao = -1;
+
+  if (headerRow) {
+    const headerCells = Array.from(headerRow.querySelectorAll('th, td'));
+    headerCells.forEach((cell, idx) => {
+      const norm = normalizeHeader(cell.textContent);
+
+      // 'entrega' -> Data de Entrega
+      if (norm.includes('entrega') || norm.includes('prazo') || norm.includes('previsao')) {
+        idxEntrega = idx;
+      }
+      // 'status' -> Status no ERP Nomus
+      else if (norm.includes('status') || norm.includes('situacao')) {
+        idxStatus = idx;
+      }
+      // 'qtde' ou 'quantidade' (que não contenha 'produzida') -> Quantidade Total
+      else if (norm.includes('qtde') || norm.includes('quantidade') || norm.includes('qtd')) {
+        if (norm.includes('produz') || norm.includes('prod')) {
+          idxQtdeProduzida = idx;
+        } else {
+          idxQtde = idx;
+        }
+      }
+      // 'ordem' ou 'op' -> Índice da OP
+      else if (norm.includes('ordem') || norm.includes('op') || norm.includes('numero') || norm.includes('num op') || norm.includes('nº op')) {
+        idxOp = idx;
+      }
+      // 'descricao' -> Descrição do Produto
+      else if (norm.includes('desc') || norm.includes('produto') || norm.includes('item')) {
+        idxDescricao = idx;
+      }
+      // 'codigo' -> Código do Produto
+      else if (norm.includes('cod') || norm.includes('ref')) {
+        idxCodigo = idx;
+      }
+      // 'lote' -> Informações do Lote
+      else if (norm.includes('lote')) {
+        idxLote = idx;
+      }
+      // 'observacao' -> Observações
+      else if (norm.includes('observ') || norm.includes('obs') || norm.includes('nota')) {
+        idxObservacao = idx;
+      }
+    });
+  }
+
+  // Fallback inteligente caso algum cabeçalho não tenha sido mapeado
+  if (idxOp === -1) {
+    const sampleRow = rows.find((r) => r !== headerRow && r.querySelectorAll('td').length >= 8);
+    const colCount = sampleRow ? sampleRow.querySelectorAll('td').length : 10;
+    if (colCount >= 10) {
+      if (idxEntrega === -1) idxEntrega = 1;
+      if (idxStatus === -1) idxStatus = 2;
+      if (idxDescricao === -1) idxDescricao = 3;
+      if (idxCodigo === -1) idxCodigo = 4;
+      if (idxLote === -1) idxLote = 5;
+      if (idxObservacao === -1) idxObservacao = 6;
+      if (idxOp === -1) idxOp = 7;
+      if (idxQtde === -1) idxQtde = 8;
+      if (idxQtdeProduzida === -1) idxQtdeProduzida = 9;
+    } else {
+      if (idxEntrega === -1) idxEntrega = 0;
+      if (idxStatus === -1) idxStatus = 1;
+      if (idxDescricao === -1) idxDescricao = 2;
+      if (idxCodigo === -1) idxCodigo = 3;
+      if (idxLote === -1) idxLote = 4;
+      if (idxObservacao === -1) idxObservacao = 5;
+      if (idxOp === -1) idxOp = 6;
+      if (idxQtde === -1) idxQtde = 7;
+      if (idxQtdeProduzida === -1) idxQtdeProduzida = 8;
+    }
+  }
+
+  // 3. Tratamento de agrupamentos e células vazias (&nbsp;)
+  let ultimaDataEntrega = '';
+  let ultimoStatus = '';
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
-    const rowText = (row.textContent || '').replace(/\u00a0/g, ' ').trim();
+    if (row === headerRow) {
+      continue;
+    }
 
-    // 1. Descarte: Linhas com "Resumo Geral", paginação, subtotais
-    const rowLower = rowText.toLowerCase();
+    // Ignore linhas de subtotais e resumo (class="sL", class="sR", class="tL", class="tR" ou que contenham 'Resumo Geral')
+    const rowClass = (row.className || '').trim();
+    const hasSubtotalClass =
+      /\b(sL|sR|tL|tR)\b/i.test(rowClass) ||
+      Boolean(row.querySelector('td.sL, td.sR, td.tL, td.tR, th.sL, th.sR, th.tL, th.tR'));
+
+    const rowText = (row.textContent || '').replace(/\u00a0/g, ' ').trim();
+    const rowLower = normalizeHeader(rowText);
+
     if (
+      hasSubtotalClass ||
       rowLower.includes('resumo geral') ||
       rowLower.includes('subtotal') ||
       rowLower.includes('total geral') ||
@@ -229,78 +371,97 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       continue;
     }
 
-    // 2. Descarte: Linhas de cabeçalho (<th> ou texto "Entrega OP")
+    // Ignora linhas de cabeçalho secundárias repetidas
     if (row.querySelector('th') && !row.querySelector('td')) {
       continue;
     }
-    if (rowLower.includes('entrega op')) {
+    if (rowLower.includes('entrega op') && (rowLower.includes('ordem') || rowLower.includes('descricao'))) {
       continue;
     }
 
     const cells = Array.from(row.querySelectorAll('td'));
-    // É necessário ter pelo menos 8 colunas para alcançar td[7]
-    if (cells.length < 8) {
+    if (cells.length === 0) {
       continue;
     }
 
-    // td[7]: numero -> Ex: "OP 023912-01"
-    const rawNumeroCell = (cells[7]?.textContent || '').replace(/\u00a0/g, ' ').trim();
-
-    // Regra OBRIGATÓRIA: Ignore qualquer <tr> que não contenha "OP " na coluna td[7]
-    if (!rawNumeroCell.toUpperCase().startsWith('OP ')) {
-      continue;
+    // Extraia o texto da célula de Ordem. Se ela não contiver a regex /OP\s*\d+/i, ignore a linha.
+    let rawOpCellText = '';
+    if (idxOp >= 0 && cells[idxOp]) {
+      rawOpCellText = cleanCellText(cells[idxOp]);
     }
 
-    // Garante que o número da OP tenha apenas uma ocorrência de "OP " e nunca duplique "OP OP"
-    const numero = rawNumeroCell.replace(/^(\s*OP\s*)+/i, 'OP ').trim();
+    // Se o índice mapeado não contiver a regex /OP\s*\d+/i, busca dinamicamente em qualquer outra célula da linha como tolerância
+    if (!/OP\s*\d+/i.test(rawOpCellText)) {
+      const foundCell = cells.find((c) => /OP\s*\d+/i.test(cleanCellText(c)));
+      if (!foundCell) {
+        continue;
+      }
+      rawOpCellText = cleanCellText(foundCell);
+    }
 
-    // td[0]: Número sequencial (descartado)
-
-    // td[1]: data_entrega -> Ex: "16/10/26" (herança de célula mesclada válida)
-    const rawEntrega = (cells[1]?.textContent || '').replace(/\u00a0/g, ' ').trim();
-    let dataEntrega = rawEntrega;
-    if (dataEntrega && dataEntrega !== '-' && dataEntrega !== '—') {
-      lastValidEntrega = dataEntrega;
+    // Formate o número da OP sempre no padrão OP XXXXXX-XX
+    const opMatch = rawOpCellText.match(/OP\s*(\d+[\-_/]\d+)/i) || rawOpCellText.match(/(\d{4,8}[\-_/]\d{1,3})/i);
+    let numero = '';
+    if (opMatch) {
+      const cleanCode = opMatch[1].replace(/[_/]/g, '-');
+      numero = `OP ${cleanCode}`;
     } else {
-      dataEntrega = lastValidEntrega;
+      const cleanCode = rawOpCellText.replace(/^(\s*OP\s*)+/i, '').trim();
+      numero = `OP ${cleanCode}`;
     }
 
-    // td[2]: status_nomus -> Ex: "Requisitada totalmente" (herança de célula mesclada)
-    const rawStatus = (cells[2]?.textContent || '').replace(/\u00a0/g, ' ').trim();
-    let statusNomus = rawStatus;
-    if (statusNomus && statusNomus !== '-' && statusNomus !== '—') {
-      lastValidStatus = statusNomus;
-    } else {
-      statusNomus = lastValidStatus;
+    // Se a célula de 'Entrega OP' tiver texto válido, atualize ultimaDataEntrega. Se estiver vazia ou com &nbsp;, use ultimaDataEntrega
+    const rawEntrega = idxEntrega >= 0 && cells[idxEntrega] ? cleanCellText(cells[idxEntrega]) : '';
+    if (isValidDataValue(rawEntrega)) {
+      ultimaDataEntrega = rawEntrega;
     }
+    const dataEntrega = ultimaDataEntrega;
 
-    // td[3]: descricao -> Ex: "PT GIR RESF 2.000A X 1.000L 4BAT REV CH" (Descrição do Produto)
-    let descricao = (cells[3]?.textContent || '').replace(/\u00a0/g, ' ').trim();
+    // Se a célula de 'Status' tiver texto válido, atualize ultimoStatus. Se estiver vazia ou com &nbsp;, use ultimoStatus
+    const rawStatus = idxStatus >= 0 && cells[idxStatus] ? cleanCellText(cells[idxStatus]) : '';
+    if (isValidDataValue(rawStatus)) {
+      ultimoStatus = rawStatus;
+    }
+    const statusNomus = ultimoStatus || 'Liberada';
+
+    // Descrição do Produto
+    let descricao = idxDescricao >= 0 && cells[idxDescricao] ? cleanCellText(cells[idxDescricao]) : '';
     if (!descricao) {
       descricao = `PRODUTO ${numero}`;
     }
 
-    // td[4]: codigo -> Ex: "001.0123" (Código do Item)
-    const rawCodigo = (cells[4]?.textContent || '').replace(/\u00a0/g, ' ').trim();
-    const codigo = rawCodigo && rawCodigo !== '-' && rawCodigo !== '—' ? rawCodigo : undefined;
+    // Código do Produto
+    const rawCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cleanCellText(cells[idxCodigo]) : '';
+    const codigo = isValidDataValue(rawCodigo) ? rawCodigo : undefined;
 
-    // td[5]: lote -> Se vier &nbsp; ou vazio, preencher com "—"
-    const rawLote = (cells[5]?.textContent || '').replace(/\u00a0/g, ' ').trim();
-    const lote = rawLote && rawLote !== '-' ? rawLote : '—';
+    // Informações do Lote
+    const rawLote = idxLote >= 0 && cells[idxLote] ? cleanCellText(cells[idxLote]) : '';
+    const lote = isValidDataValue(rawLote) ? rawLote : '—';
 
-    // td[6]: observacao -> Ex: "BOLHA / ESTOQUE" ou "TRANSPORTE"
-    const rawObs = (cells[6]?.textContent || '').replace(/\u00a0/g, ' ').trim();
-    const observacao = rawObs && rawObs !== '-' && rawObs !== '—' ? rawObs : undefined;
+    // Observações
+    const rawObs = idxObservacao >= 0 && cells[idxObservacao] ? cleanCellText(cells[idxObservacao]) : '';
+    const observacao = isValidDataValue(rawObs) ? rawObs : undefined;
 
-    // td[8]: quantidade -> parseFloat(td[8].innerText.replace(',', '.')) -> Ex: 4.00 ou 6.60
-    const rawQtd = cells[8] ? (cells[8].textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, '').replace(',', '.') : '1';
-    const parsedQtd = parseFloat(rawQtd);
+    // Converta a coluna 'Qtde' substituindo vírgulas por pontos antes de aplicar parseFloat (ex: 15.00 ou 6,60)
+    const rawQtdText = idxQtde >= 0 && cells[idxQtde] ? cleanCellText(cells[idxQtde]) : '1';
+    let parsedQtd = 1;
+    if (rawQtdText) {
+      let cleanQtd = rawQtdText.replace(/\s+/g, '');
+      if (cleanQtd.includes('.') && cleanQtd.includes(',')) {
+        cleanQtd = cleanQtd.replace(/\./g, '').replace(',', '.');
+      } else if (cleanQtd.includes(',')) {
+        cleanQtd = cleanQtd.replace(',', '.');
+      }
+      cleanQtd = cleanQtd.replace(/[^\d.]/g, '');
+      const num = parseFloat(cleanQtd);
+      parsedQtd = isNaN(num) || num <= 0 ? 1 : num;
+    }
 
-    // Identificação de Quantidade em M² (valores decimais como 6.60, 3.30, 2.64 ou menção na descrição/código)
-    const isDecimal = !isNaN(parsedQtd) && Math.abs(parsedQtd - Math.round(parsedQtd)) > 0.001;
+    // Identificação de Quantidade em M²
+    const isDecimal = Math.abs(parsedQtd - Math.round(parsedQtd)) > 0.001;
     const descUpper = descricao.toUpperCase();
     const hasM2InDesc = descUpper.includes('M2') || descUpper.includes('M²') || descUpper.includes('VAI VEM');
-    const isM2 = (isDecimal || descUpper.includes('M2') || descUpper.includes('M²')) && !isNaN(parsedQtd) && parsedQtd > 0;
+    const isM2 = (isDecimal || descUpper.includes('M2') || descUpper.includes('M²')) && parsedQtd > 0;
 
     let quantidadeTotal = 1;
     let quantidadeM2: number | undefined = undefined;
@@ -311,13 +472,27 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       quantidadeM2 = Number(parsedQtd.toFixed(2));
       quantidadeTotal = deducePhysicalUnitsFromM2(descricao, parsedQtd);
     } else {
-      quantidadeTotal = isNaN(parsedQtd) || parsedQtd <= 0 ? 1 : Math.round(parsedQtd);
+      quantidadeTotal = Math.round(parsedQtd);
     }
 
-    // td[9]: qtde_produzida -> Ex: 0.00
-    const rawProd = cells[9] ? (cells[9].textContent || '').replace(/\u00a0/g, ' ').replace(/\s+/g, '').replace(',', '.') : '0';
-    const parsedProd = parseFloat(rawProd);
-    const qtdeProduzida = isNaN(parsedProd) || parsedProd < 0 ? 0 : Math.round(parsedProd);
+    // Quantidade Produzida
+    let qtdeProduzida = 0;
+    if (idxQtdeProduzida >= 0 && cells[idxQtdeProduzida]) {
+      const rawProd = cleanCellText(cells[idxQtdeProduzida]);
+      if (rawProd) {
+        let cleanProd = rawProd.replace(/\s+/g, '');
+        if (cleanProd.includes('.') && cleanProd.includes(',')) {
+          cleanProd = cleanProd.replace(/\./g, '').replace(',', '.');
+        } else if (cleanProd.includes(',')) {
+          cleanProd = cleanProd.replace(',', '.');
+        }
+        cleanProd = cleanProd.replace(/[^\d.]/g, '');
+        const num = parseFloat(cleanProd);
+        if (!isNaN(num) && num >= 0) {
+          qtdeProduzida = Math.round(num);
+        }
+      }
+    }
 
     // Status da fábrica baseado no prazo e situação
     const deadline = calculateDeadlineInfo(dataEntrega);
@@ -358,7 +533,9 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
   const finalOrders = Array.from(uniqueMap.values());
 
   if (finalOrders.length === 0) {
-    warnings.push('Nenhuma OP válida encontrada no HTML. Certifique-se de que as linhas contêm a coluna td[7] iniciando com "OP ".');
+    warnings.push(
+      'Nenhuma OP válida encontrada no relatório HTML do Nomus. Certifique-se de que o arquivo possui ordens com o padrão "OP XXXXXX-XX".'
+    );
   }
 
   return {
