@@ -273,6 +273,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         setores: [...formSectors],
         sectors: [...formSectors],
         postos: formSectors.length > 0 ? [...formSectors] : (existing?.postos || []),
+        familias: Array.isArray(existing?.familias) ? existing.familias : ['TODAS'],
         isRoaming: formIsRoaming,
         especialistaVolante: formIsRoaming,
         ativo: true
@@ -290,6 +291,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         setores: [...formSectors],
         sectors: [...formSectors],
         postos: [...formSectors],
+        familias: ['TODAS'],
         isRoaming: formIsRoaming,
         especialistaVolante: formIsRoaming,
         initials,

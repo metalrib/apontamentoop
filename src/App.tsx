@@ -641,6 +641,7 @@ export default function App() {
             selectedOperator={selectedOperator}
             selectedSector={selectedSector}
             currentTerminal={currentTerminal}
+            order={currentOp}
             onSelectOperator={(op) => setSelectedOperator(op)}
           />
 

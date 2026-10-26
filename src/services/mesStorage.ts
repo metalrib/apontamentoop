@@ -133,7 +133,8 @@ export function ensureInitialData() {
       const hasElionai = Array.isArray(parsed) && parsed.some(o => o.id === 'elionai');
       const hasOldPaulo = Array.isArray(parsed) && parsed.some(o => o.id === 'paulo_henrique');
       const hasPostos = Array.isArray(parsed) && parsed.some(o => Array.isArray(o.postos) && o.postos.length > 0);
-      if (!hasElionai || hasOldPaulo || !hasPostos) {
+      const hasFamilias = Array.isArray(parsed) && parsed.some(o => Array.isArray(o.familias) && o.familias.length > 0);
+      if (!hasElionai || hasOldPaulo || !hasPostos || !hasFamilias) {
         localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
         try {
           set(ref(db, 'config_operadores'), OPERATORS);
@@ -264,6 +265,7 @@ export function saveOperators(operators: Operator[]): void {
     const especialista = Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming);
     const terminais = Array.isArray(op.terminais) ? op.terminais : [];
     const postos = Array.isArray(op.postos) ? op.postos : [];
+    const familias = Array.isArray(op.familias) ? op.familias : ['TODAS'];
 
     return {
       ...op,
@@ -276,6 +278,7 @@ export function saveOperators(operators: Operator[]): void {
       sectors: uniqueSectors,
       terminais,
       postos,
+      familias,
       especialista,
       ativo: op.ativo !== false,
       especialistaVolante: especialista,
@@ -314,6 +317,7 @@ export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Oper
     sectors: uniqueSectors,
     terminais,
     postos: Array.isArray(newOp.postos) ? newOp.postos : [],
+    familias: Array.isArray(newOp.familias) ? newOp.familias : ['TODAS'],
     especialista,
     isRoaming: especialista && (terminais.length > 2 || terminais.length === 0),
     especialistaVolante: especialista,
@@ -353,6 +357,11 @@ export function updateOperator(updatedOp: Operator): void {
     : index >= 0 && Array.isArray(current[index].postos)
     ? current[index].postos!
     : [];
+  const familias = Array.isArray(updatedOp.familias)
+    ? updatedOp.familias
+    : index >= 0 && Array.isArray(current[index].familias)
+    ? current[index].familias!
+    : ['TODAS'];
 
   const normalized: Operator = {
     ...(index >= 0 ? current[index] : {}),
@@ -368,6 +377,7 @@ export function updateOperator(updatedOp: Operator): void {
     sectors: [...uniqueSectors],
     terminais,
     postos,
+    familias,
     especialista,
     isRoaming: especialista && (terminais.length > 2 || terminais.length === 0),
     especialistaVolante: especialista,

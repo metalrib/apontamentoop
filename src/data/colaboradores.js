@@ -5,42 +5,48 @@ export const colaboradores = [
     nome: 'Eliel',
     terminais: ['T1'],
     especialista: false,
-    postos: ['Corte - Guilhotina', 'Corte']
+    postos: ['Corte - Guilhotina', 'Corte'],
+    familias: ['TODAS']
   },
   {
     id: 'elionai',
     nome: 'Elionai',
     terminais: ['T1'],
     especialista: false,
-    postos: ['Corte - Guilhotina', 'Corte']
+    postos: ['Corte - Guilhotina', 'Corte'],
+    familias: ['TODAS']
   },
   {
     id: 'bruno_c',
     nome: 'Bruno Constancio',
     terminais: ['T1'],
     especialista: true,
-    postos: ['TODOS']
+    postos: ['TODOS'],
+    familias: ['TODAS']
   },
   {
     id: 'leonardo_c',
     nome: 'Leonardo Constancio',
     terminais: ['T1'],
     especialista: false,
-    postos: ['Dobra e Preparação', 'Dobra']
+    postos: ['Dobra e Preparação', 'Dobra'],
+    familias: ['TODAS']
   },
   {
     id: 'danielson',
     nome: 'Danielson',
     terminais: ['T1'],
     especialista: false,
-    postos: ['Dobra e Preparação', 'Dobra']
+    postos: ['Dobra e Preparação', 'Dobra'],
+    familias: ['TODAS']
   },
   {
     id: 'leonardo_h',
     nome: 'Leonardo Henrique',
     terminais: ['T1', 'T2'],
     especialista: false,
-    postos: ['Dobra e Preparação', 'Dobra', 'Preparação', 'Preparação de folhas']
+    postos: ['Dobra e Preparação', 'Dobra', 'Preparação', 'Preparação de folhas'],
+    familias: ['TODAS']
   },
 
   // TERMINAL 2
@@ -49,14 +55,16 @@ export const colaboradores = [
     nome: 'Magna',
     terminais: ['T2'],
     especialista: false,
-    postos: ['Injetora de folhas', 'Injeção']
+    postos: ['Injetora de folhas', 'Injeção'],
+    familias: ['FOLHA', 'PORTA_GIRATORIA', 'PORTA_CORRER', 'PORTA_EMENDADA', 'TODAS']
   },
   {
     id: 'donizete',
     nome: 'Donizete',
     terminais: ['T2'],
     especialista: false,
-    postos: ['Injetora de folhas', 'Injeção']
+    postos: ['Injetora de folhas', 'Injeção'],
+    familias: ['FOLHA', 'PORTA_GIRATORIA', 'PORTA_CORRER', 'PORTA_EMENDADA', 'TODAS']
   },
 
   // TERMINAL 3
@@ -65,84 +73,96 @@ export const colaboradores = [
     nome: 'Aparecido',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes']
+    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
+    familias: ['BATENTE']
   },
   {
     id: 'antonio_m',
     nome: 'Antonio Massena',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes']
+    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
+    familias: ['BATENTE']
   },
   {
     id: 'salatiel',
     nome: 'Salatiel',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes']
+    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
+    familias: ['BATENTE']
   },
   {
     id: 'yuri',
     nome: 'Yuri',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes']
+    postos: ['Preparação de Batentes', 'Injeção e Finalização Batentes'],
+    familias: ['BATENTE']
   },
   {
     id: 'sergio',
     nome: 'Sergio',
     terminais: ['T3'],
     especialista: true,
-    postos: ['TODOS']
+    postos: ['TODOS'],
+    familias: ['TODAS']
   },
   {
     id: 'jose_lucas',
     nome: 'Jose Lucas',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Montagem Office Door', 'Preparação de Batentes', 'Injeção e Finalização Batentes']
+    postos: ['Montagem Office Door', 'Preparação de Batentes', 'Injeção e Finalização Batentes'],
+    familias: ['BATENTE']
   },
   {
     id: 'ademir',
     nome: 'Ademir',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Montagem de Portas Emendadas']
+    postos: ['Montagem de Portas Emendadas'],
+    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
   },
   {
     id: 'francisco_h',
     nome: 'Francisco Henrique',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Montagem de Portas Emendadas']
+    postos: ['Montagem de Portas Emendadas'],
+    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
   },
   {
     id: 'denis',
     nome: 'Denis',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Montagem de Portas Emendadas']
+    postos: ['Montagem de Portas Emendadas'],
+    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
   },
   {
     id: 'jonathan',
     nome: 'Jonathan',
     terminais: ['T3'],
     especialista: false,
-    postos: ['Montagem de Portas Emendadas']
+    postos: ['Montagem de Portas Emendadas'],
+    familias: ['PORTA_EMENDADA', 'PORTA_CORRER']
   },
   {
     id: 'jose_aparecido',
     nome: 'José Aparecido',
     terminais: ['T3', 'T4'],
     especialista: false,
-    postos: ['Montagem de Portas Emendadas', 'Montagem de Portas Giratórias']
+    postos: ['Montagem de Portas Emendadas', 'Montagem de Portas Giratórias'],
+    familias: ['BATENTE', 'PORTA_GIRATORIA']
   },
   {
     id: 'deilson',
     nome: 'Deilson',
     terminais: ['T3', 'T4'],
     especialista: false,
-    postos: ['Montagem de Portas Emendadas', 'Montagem de Portas Giratórias']
+    postos: ['Montagem de Portas Emendadas', 'Montagem de Portas Giratórias'],
+    familias: ['BATENTE', 'PORTA_GIRATORIA']
   },
 
   // TERMINAL 4
@@ -151,42 +171,48 @@ export const colaboradores = [
     nome: 'João Paulo',
     terminais: ['T4'],
     especialista: false,
-    postos: ['Finalização Vai Vem']
+    postos: ['Finalização Vai Vem'],
+    familias: ['VAI_VEM']
   },
   {
     id: 'alessandra',
     nome: 'Alessandra',
     terminais: ['T4'],
     especialista: false,
-    postos: ['Finalização Vai Vem']
+    postos: ['Finalização Vai Vem'],
+    familias: ['VAI_VEM']
   },
   {
     id: 'gustavo_n',
     nome: 'Gustavo Naves',
     terminais: ['T4'],
     especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias']
+    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
+    familias: ['PORTA_GIRATORIA']
   },
   {
     id: 'fabiano',
     nome: 'Fabiano',
     terminais: ['T4'],
     especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias']
+    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
+    familias: ['PORTA_GIRATORIA']
   },
   {
     id: 'vinicius',
     nome: 'Vinicius',
     terminais: ['T4'],
     especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias']
+    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
+    familias: ['PORTA_GIRATORIA']
   },
   {
     id: 'nalysson',
     nome: 'Nalysson',
     terminais: ['T4'],
     especialista: false,
-    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias']
+    postos: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
+    familias: ['PORTA_GIRATORIA']
   },
 
   // TERMINAL 5
@@ -195,56 +221,64 @@ export const colaboradores = [
     nome: 'Victor',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Router']
+    postos: ['Router'],
+    familias: ['TODAS']
   },
   {
     id: 'cristiane',
     nome: 'Cristiane',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Elétrica']
+    postos: ['Elétrica'],
+    familias: ['TODAS']
   },
   {
     id: 'marcio',
     nome: 'Marcio',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Elétrica']
+    postos: ['Elétrica'],
+    familias: ['TODAS']
   },
   {
     id: 'gabriele',
     nome: 'Gabriele',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Cortina']
+    postos: ['Cortina'],
+    familias: ['ACESSORIOS', 'TODAS']
   },
   {
     id: 'yasmin',
     nome: 'Yasmin',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Preparação Vai Vem']
+    postos: ['Preparação Vai Vem'],
+    familias: ['VAI_VEM']
   },
   {
     id: 'carol',
     nome: 'Carol',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Preparação Vai Vem', 'Elétrica']
+    postos: ['Preparação Vai Vem', 'Elétrica'],
+    familias: ['VAI_VEM', 'TODAS']
   },
   {
     id: 'fabio',
     nome: 'Fabio',
     terminais: ['T5'],
     especialista: true,
-    postos: ['TODOS']
+    postos: ['TODOS'],
+    familias: ['TODAS']
   },
   {
     id: 'nathan',
     nome: 'Nathan',
     terminais: ['T5'],
     especialista: false,
-    postos: ['Solda e Montagem']
+    postos: ['Solda e Montagem'],
+    familias: ['ACESSORIOS', 'TODAS']
   },
 
   // ESPECIALISTA MULTI-TERMINAL
@@ -253,7 +287,8 @@ export const colaboradores = [
     nome: 'Afonso',
     terminais: ['T1', 'T3', 'T4', 'T5'],
     especialista: true,
-    postos: ['TODOS']
+    postos: ['TODOS'],
+    familias: ['TODAS']
   }
 ];
 

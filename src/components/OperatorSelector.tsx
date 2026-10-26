@@ -1,13 +1,15 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Operator, TerminalConfig } from '../types/mes';
+import { Operator, TerminalConfig, ProductionOrder } from '../types/mes';
 import { fetchOperators, subscribeToMesUpdates } from '../services/mesStorage';
-import { Check, User } from 'lucide-react';
+import { identificarFamiliaProduto, FamiliaProduto } from '../utils/productClassifier';
+import { Check, User, Tag } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
 interface OperatorSelectorProps {
   selectedOperator: string | null;
   selectedSector: string | null;
   currentTerminal?: TerminalConfig | null;
+  order?: ProductionOrder | null;
   onSelectOperator: (operatorName: string) => void;
 }
 
@@ -219,20 +221,43 @@ function matchPosto(postos: string[] | undefined, selectedSector: string): boole
 }
 
 /**
- * Validação estrita entre o colaborador, terminal ativo e o posto de trabalho selecionado
+ * Validação estrita entre o colaborador, terminal ativo, posto de trabalho e a família de produto da OP
  */
-function matchOperatorToSector(op: Operator, selectedSector: string, targetTerminalId: number): boolean {
+function matchOperatorToSector(
+  op: Operator,
+  selectedSector: string,
+  targetTerminalId: number,
+  order?: ProductionOrder | null
+): boolean {
   // 1. Trava estrita de terminal: colaborador deve estar autorizado no terminal ativo
   if (!hasTerminalAccess(op, targetTerminalId)) {
     return false;
   }
 
-  // 2. Especialistas com acesso ao terminal têm acesso irrestrito a todos os postos
+  // 2. Especialistas com acesso ao terminal têm acesso irrestrito a todos os postos e famílias de seu terminal
   if (op.especialista || op.isRoaming || op.especialistaVolante) {
     return true;
   }
 
-  // 3. Cruzamento estrito com os postos cadastrados do colaborador
+  // 3. Validação por Família de Produto da OP aberta (se houver OP informada):
+  if (order) {
+    const familiaOP: FamiliaProduto = identificarFamiliaProduto(order);
+    if (familiaOP && familiaOP !== 'OUTROS') {
+      const colabFamilias = Array.isArray(op.familias) && op.familias.length > 0
+        ? op.familias
+        : ['TODAS'];
+
+      const matchesFamily =
+        colabFamilias.includes('TODAS') ||
+        colabFamilias.includes(familiaOP);
+
+      if (!matchesFamily) {
+        return false;
+      }
+    }
+  }
+
+  // 4. Cruzamento estrito com os postos cadastrados do colaborador
   const postos = Array.isArray(op.postos) && op.postos.length > 0
     ? op.postos
     : Array.isArray(op.sectors) && op.sectors.length > 0
@@ -248,6 +273,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
   selectedOperator,
   selectedSector,
   currentTerminal,
+  order,
   onSelectOperator
 }) => {
   const [operators, setOperators] = useState<Operator[]>(() => fetchOperators());
@@ -284,7 +310,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     };
   }, [loadOps]);
 
-  // Filtro Rigoroso por Posto e Terminal Selecionado
+  // Filtro Rigoroso por Posto, Terminal Selecionado e Família da OP
   const filteredOperators = useMemo(() => {
     // 1. OCULTAÇÃO DO PASSO 2 SEM POSTO/SETOR SELECIONADO:
     if (!selectedSector || selectedSector.trim() === '') {
@@ -300,21 +326,37 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       // 1. Status ativo
       if (colab.ativo === false) return false;
 
-      // 2. Trava estrita de terminais e posto selecionado
-      return matchOperatorToSector(colab, selectedSector, targetTerminalId);
+      // 2. Trava estrita de terminais, posto selecionado e família de produto da OP
+      return matchOperatorToSector(colab, selectedSector, targetTerminalId, order);
     });
-  }, [operators, selectedSector, currentTerminal?.id]);
+  }, [operators, selectedSector, currentTerminal?.id, order]);
+
+  // Identificação amigável da Família do Produto para exibição
+  const familiaAtiva = useMemo(() => {
+    if (!order) return null;
+    const f = identificarFamiliaProduto(order);
+    return f && f !== 'OUTROS' ? f : null;
+  }, [order]);
 
   return (
     <div className="w-full bg-[#0e131f] border border-slate-700/80 rounded-xl p-2.5 shadow-md shrink-0">
       <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest font-mono">
             PASSO 2: IDENTIFICAÇÃO DO COLABORADOR
           </span>
           {selectedSector && (
             <span className="text-[10px] font-mono text-slate-400">
               ({filteredOperators.length} disponíveis)
+            </span>
+          )}
+          {familiaAtiva && (
+            <span
+              className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-blue-950 border border-blue-700/60 text-blue-300 flex items-center gap-1"
+              title={`Família do produto da OP: ${familiaAtiva}`}
+            >
+              <Tag className="w-2.5 h-2.5 text-blue-400" />
+              FAMÍLIA: {familiaAtiva.replace('_', ' ')}
             </span>
           )}
         </div>
@@ -338,7 +380,11 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       ) : filteredOperators.length === 0 ? (
         <div className="py-3 px-4 text-center bg-slate-950/60 rounded-lg border border-slate-800">
           <p className="text-xs font-mono text-slate-300">
-            Nenhum colaborador alocado para <span className="text-amber-400 font-bold">{selectedSector}</span> neste terminal.
+            Nenhum colaborador habilitado para <span className="text-amber-400 font-bold">{selectedSector}</span>
+            {familiaAtiva && (
+              <> na família <span className="text-blue-300 font-bold">{familiaAtiva.replace('_', ' ')}</span></>
+            )}{' '}
+            neste terminal.
           </p>
         </div>
       ) : (
