@@ -58,7 +58,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
         {availableSectors.map((sector, idx) => {
           const matchedStep = findStepForSector(sector, steps);
           const isSobDemanda = isAncora && isTerminal5 && sector.includes('Solda');
@@ -78,7 +78,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 }
                 onSelectSector(sector);
               }}
-              className={`relative min-h-[58px] px-3 py-1.5 text-xs sm:text-sm rounded-xl border text-center transition-all flex items-center justify-between gap-2 kiosk-btn cursor-pointer ${
+              className={`relative py-2 px-3 text-xs sm:text-sm font-medium rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn cursor-pointer ${
                 isSelected
                   ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold'
                   : isSobDemanda && !order.requer_solda
@@ -91,7 +91,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
               }`}
             >
               <span
-                className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                className={`w-2 h-2 mr-2 rounded-full shrink-0 ${
                   isSobDemanda && !order.requer_solda
                     ? 'bg-amber-400 animate-pulse'
                     : isLaserPending
@@ -102,22 +102,22 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 }`}
               />
 
-              <span className="whitespace-normal text-center leading-snug text-xs sm:text-sm px-2 py-3 flex-1 font-semibold break-words">
+              <span className="whitespace-normal text-center leading-snug text-xs sm:text-sm font-medium flex-1 break-words">
                 {sector}
               </span>
 
               {isSelected ? (
-                <div className="w-5 h-5 rounded-full bg-blue-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-sm">
-                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                <div className="w-4 h-4 rounded-full bg-blue-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-sm ml-1.5">
+                  <Check className="w-3 h-3 stroke-[3]" />
                 </div>
               ) : isSobDemanda && !order.requer_solda ? (
-                <span className="text-[10px] text-amber-400 font-mono shrink-0">+Solda</span>
+                <span className="text-[10px] text-amber-400 font-mono shrink-0 ml-1.5">+Solda</span>
               ) : isLaserPending && stepEval ? (
-                <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5">
+                <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5 ml-1.5">
                   🔥 {stepEval.finalizadas}/{order.quantidade_total}
                 </span>
               ) : isPartOfRoute && stepEval ? (
-                <span className="text-[10px] text-slate-400 font-mono shrink-0">
+                <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1.5">
                   {stepEval.finalizadas}/{order.quantidade_total}
                 </span>
               ) : null}
