@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, isBatchTracking, matchStepName } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, isBatchTracking, matchStepName, obterQuantidadeTotal } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -34,7 +34,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
 
   const matchedStep = selectedSector ? findStepForSector(selectedSector, steps) : null;
-  const totalPhysicalUnits = Math.max(1, Math.round(order.quantidade_total || 1));
+  const totalPhysicalUnits = obterQuantidadeTotal(order);
 
   // Identifica se a OP e o Setor utilizam Apontamento em Lote Completo ou Peça a Peça (Unitário)
   const isBatch = isBatchTracking(order, selectedSector);

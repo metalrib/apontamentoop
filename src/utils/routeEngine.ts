@@ -13,6 +13,20 @@ import {
 } from '../types/mes';
 
 /**
+ * Extrai e sanitiza com segurança a quantidade total da OP,
+ * tratando variações como quantidade, qtd, qtde, quantidadePlanejada,
+ * qtdTotal, quantidade_total, números com vírgula ou campos vazios/NaN.
+ */
+export const obterQuantidadeTotal = (op: any): number => {
+  if (!op) return 1;
+  const valor = op.quantidade ?? op.qtd ?? op.qtde ?? op.quantidadePlanejada ?? op.qtdTotal ?? op.quantidade_total ?? 1;
+  const num = Number(String(valor).replace(',', '.').replace(/[^0-9.]/g, ''));
+  if (!isNaN(num) && num > 0) return num;
+  const fallbackNum = Number(String(op.quantidade_total).replace(',', '.').replace(/[^0-9.]/g, ''));
+  return isNaN(fallbackNum) || fallbackNum <= 0 ? 1 : fallbackNum;
+};
+
+/**
  * Normaliza strings para comparação insensível a maiúsculas e acentos
  */
 export function normalizeText(text: string): string {
@@ -436,7 +450,7 @@ export function initOrSyncOrderEtapas(
   apontamentos: Apontamento[] = []
 ): ProductionOrder {
   const { steps } = getRouteForOp(order);
-  const total = Math.max(1, Math.round(order.quantidade_total || 1));
+  const total = obterQuantidadeTotal(order);
   const currentEtapas = { ...(order.etapas || {}) };
 
   steps.forEach((step) => {
@@ -605,7 +619,7 @@ export function getRouteEvaluation(
   routeSteps: string[]
 ): Record<string, StepStatus> {
   const result: Record<string, StepStatus> = {};
-  const total = Math.max(1, Math.round(op.quantidade_total || 1));
+  const total = obterQuantidadeTotal(op);
   const synchronizedOp = initOrSyncOrderEtapas(op, apontamentos);
   const etapas = synchronizedOp.etapas || {};
 

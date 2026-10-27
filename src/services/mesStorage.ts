@@ -1,6 +1,6 @@
 import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
 import { deducePhysicalUnitsFromM2 } from '../utils/nomusParser';
-import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas } from '../utils/routeEngine';
+import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal } from '../utils/routeEngine';
 import { db, ref, set, get, onValue, update, push } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
@@ -713,10 +713,13 @@ export function initFirebaseRealtimeListeners(): void {
             const key = child.key || '';
             const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
             if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+              const qtd = obterQuantidadeTotal(item);
               ordersMap[opNumero] = {
                 ...item,
                 op_numero: opNumero,
-                numero: item.numero || opNumero
+                numero: item.numero || opNumero,
+                quantidade_total: qtd,
+                quantidade: qtd
               };
             }
           }
@@ -968,10 +971,13 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
             const key = child.key || '';
             const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
             if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+              const qtd = obterQuantidadeTotal(item);
               ordersMap[opNumero] = {
                 ...item,
                 op_numero: opNumero,
-                numero: item.numero || opNumero
+                numero: item.numero || opNumero,
+                quantidade_total: qtd,
+                quantidade: qtd
               };
             }
           }
@@ -998,6 +1004,14 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
         continue;
       }
       const o = orders[key];
+      if (o) {
+        const qtd = obterQuantidadeTotal(o);
+        if (o.quantidade_total !== qtd || o.quantidade !== qtd) {
+          o.quantidade_total = qtd;
+          o.quantidade = qtd;
+          modified = true;
+        }
+      }
       if (o && typeof o.quantidade_total === 'number') {
         const isDecimal = Math.abs(o.quantidade_total - Math.round(o.quantidade_total)) > 0.001;
         if (isDecimal) {

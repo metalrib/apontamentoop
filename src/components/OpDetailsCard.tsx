@@ -1,6 +1,6 @@
 import React from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
@@ -18,6 +18,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
   apontamentos,
   selectedSector
 }) => {
+  const qtdTotal = obterQuantidadeTotal(order);
   const { rule, steps } = getRouteForOp(order);
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
 
@@ -38,14 +39,14 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
   // Verifica se é estritamente Porta Vai e Vem faturada em M² com metragem fracionada
   const descUpper = (order.descricao || '').toUpperCase();
   const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || rule.keyword === 'PT VAI VEM';
-  const m2Num = Number(order.quantidade_m2 ?? (order.unidade_medida === 'M²' ? (order.quantidade ?? order.quantidade_total) : 0));
+  const m2Num = Number(order.quantidade_m2 ?? (order.unidade_medida === 'M²' ? qtdTotal : 0));
   const isM2Fracionado = Boolean((order.unidade_medida === 'M²' || order.quantidade_m2) && m2Num > 0 && !Number.isInteger(m2Num));
   const showPhysicalQuantitySelector = isVaiVem && isM2Fracionado;
 
   // Ajuste rápido de quantidade física a produzir (especialmente útil para M²)
   const handleAdjustPhysicalQuantity = async (delta: number) => {
     playClick();
-    const current = Math.round(order.quantidade_total || 1);
+    const current = qtdTotal;
     const nextVal = Math.max(1, current + delta);
     if (nextVal === current) return;
 
@@ -131,16 +132,16 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
         {showPhysicalQuantitySelector ? (
           <div className="h-8 px-2.5 bg-slate-950 border border-amber-500/60 rounded-lg flex items-center gap-1.5">
             <span className="text-[10px] font-bold text-amber-400">
-              {Number(order.quantidade_m2 || order.quantidade_total).toFixed(1)} M²
+              {Number(order.quantidade_m2 || qtdTotal).toFixed(1)} M²
             </span>
             <span className="text-white font-black text-sm">
-              {Math.round(order.quantidade_total)} {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
+              {qtdTotal} {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
             </span>
             <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
               <button
                 type="button"
                 onClick={() => handleAdjustPhysicalQuantity(-1)}
-                disabled={order.quantidade_total <= 1}
+                disabled={qtdTotal <= 1}
                 className="w-4 h-4 rounded bg-slate-800 text-white font-bold text-[10px] flex items-center justify-center cursor-pointer"
               >
                 -
@@ -158,7 +159,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
           <div className="h-8 px-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center gap-1.5">
             <span className="text-slate-400 text-[10px] font-bold">QTDE:</span>
             <span className="text-white font-black text-sm">
-              {Math.round(order.quantidade_total)}
+              {qtdTotal}
             </span>
             <span className="text-slate-300 text-[10px]">
               {order.unidade_medida === 'UN' ? 'UN' : (unitBadge === 'M²' ? 'PC' : (unitBadge || 'PC'))}

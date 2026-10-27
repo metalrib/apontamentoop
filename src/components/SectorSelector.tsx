@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { TerminalConfig, ProductionOrder, Apontamento } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
-import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder } from '../utils/routeEngine';
+import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import { Check } from 'lucide-react';
@@ -21,6 +21,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   selectedSector,
   onSelectSector
 }) => {
+  const qtdTotal = obterQuantidadeTotal(order);
   const { steps } = getRouteForOp(order);
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
 
@@ -66,7 +67,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
           const stepEval = matchedStep ? evaluation[matchedStep] : null;
           const isSelected = selectedSector === sector;
           const isLaserSector = sector.toLowerCase().includes('laser');
-          const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < order.quantidade_total);
+          const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
 
           return (
             <button
@@ -114,11 +115,11 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 <span className="text-[10px] text-amber-400 font-mono shrink-0 ml-1.5">+Solda</span>
               ) : isLaserPending && stepEval ? (
                 <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5 ml-1.5">
-                  🔥 {stepEval.finalizadas}/{order.quantidade_total}
+                  🔥 {stepEval.finalizadas}/{qtdTotal}
                 </span>
               ) : isPartOfRoute && stepEval ? (
                 <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1.5">
-                  {stepEval.finalizadas}/{order.quantidade_total}
+                  {stepEval.finalizadas}/{qtdTotal}
                 </span>
               ) : null}
             </button>

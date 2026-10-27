@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
-import { getRouteForOp, getRouteEvaluation, isAncoraOrder } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
@@ -36,7 +36,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   const { rule, steps } = getRouteForOp(order);
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
   const isAncora = isAncoraOrder(order);
-  const totalPhysicalUnits = Math.max(1, Math.round(order.quantidade_total || 1));
+  const totalPhysicalUnits = obterQuantidadeTotal(order);
 
   // Detecção de 100% Concluída Geral
   const isAllStepsFinished = steps.length > 0 && steps.every((s) => {
@@ -124,16 +124,16 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
         {showPhysicalQuantitySelector ? (
           <div className="bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[72px] shadow-inner shrink-0">
             <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">
-              {Number(order.quantidade_m2 || order.quantidade_total).toFixed(2)} M²
+              {Number(order.quantidade_m2 || totalPhysicalUnits).toFixed(2)} M²
             </span>
             <span className="text-xs font-black text-white font-mono leading-tight mt-1 whitespace-nowrap">
-              {Math.round(order.quantidade_total)} UN
+              {totalPhysicalUnits} UN
             </span>
           </div>
         ) : (
           <div className="bg-slate-950/90 border border-blue-950 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[54px] shadow-inner shrink-0">
             <span className="text-xl font-black text-white font-mono leading-none">
-              {Math.round(order.quantidade_total)}
+              {totalPhysicalUnits}
             </span>
             <span className="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
               {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
