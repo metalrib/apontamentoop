@@ -179,7 +179,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "TRILHO",
     label: "Trilho Porta de Correr (Corte e Montagem)",
-    steps: ["Montagem de Portas Emendadas"]
+    steps: ["Corte de Trilho p/ Porta Correr", "Montagem de Trilho p/ Porta Correr"]
   },
   {
     keyword: "CORTINA",
@@ -239,6 +239,7 @@ export interface ProductionOrder {
   requer_solda?: boolean; // Inclusão sob demanda de Solda e Montagem (Terminal 5) para Âncoras
   requer_laser?: boolean; // Inclusão sob demanda de Laser CNC no Terminal 1 antes da Dobra
   etapas?: Record<string, OpEtapaState>; // Estado individual isolado de cada etapa da rota
+  progressoPostos?: Record<string, { concluido?: boolean; concluidas?: number; dataConclusao?: string }>;
   ultimo_aviso?: {
     autor: string;
     texto: string;

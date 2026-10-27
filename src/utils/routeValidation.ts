@@ -78,3 +78,66 @@ export function verificarSeExigeEmenda(descricao: string): boolean {
 
   return false;
 }
+
+/**
+ * Retorna as etapas oficiais da rota de fabricação de Trilhos de Portas de Correr.
+ */
+export function getRotaTrilhoCorrer(): string[] {
+  return [
+    'Corte de Trilho p/ Porta Correr',
+    'Montagem de Trilho p/ Porta Correr'
+  ];
+}
+
+/**
+ * Validação sequencial e verificação de compatibilidade para Ordens de Produção de Trilhos.
+ * Impede que produtos que não sejam trilhos usem os postos de trilho,
+ * restringe OPs de trilhos aos postos permitidos,
+ * e exige a conclusão do Corte antes do início da Montagem.
+ */
+export function validarPostoTrilho(
+  op: any,
+  postoSelecionado: string,
+  apontamentos?: any[]
+): { valido: boolean; motivo?: string } {
+  const isTrilho = (op?.descricao || '').toUpperCase().includes('TRILHO') || 
+                   String(op?.codigo || op?.codigoProduto || '').startsWith('028.');
+
+  // Se NÃO for trilho, não pode selecionar postos exclusivos de trilho
+  if (!isTrilho) {
+    if (postoSelecionado.includes('Trilho p/ Porta Correr')) {
+      return { valido: false, motivo: 'Este posto é exclusivo para fabricação de Trilhos de Portas de Correr.' };
+    }
+    return { valido: true };
+  }
+
+  // Se FOR trilho, só pode selecionar postos da rota de trilho
+  const rotaTrilho = getRotaTrilhoCorrer();
+  if (!rotaTrilho.includes(postoSelecionado)) {
+    return { valido: false, motivo: 'OP de Trilho só pode ser apontada nos postos de Corte ou Montagem de Trilho.' };
+  }
+
+  // Validação Sequencial: Montagem só libera se Corte estiver concluído
+  if (postoSelecionado === 'Montagem de Trilho p/ Porta Correr') {
+    const cortePostoKey = 'Corte de Trilho p/ Porta Correr';
+    const corteProgresso = op?.progressoPostos?.[cortePostoKey]?.concluido;
+    const corteEtapaArray = Array.isArray(op?.etapas) && op.etapas.find((e: any) => e.nome === cortePostoKey || e.step === cortePostoKey)?.concluido;
+    const corteEtapaRecord = op?.etapas?.[cortePostoKey];
+    const corteRecordConcluido = corteEtapaRecord?.status === 'CONCLUIDO' || 
+      (typeof corteEtapaRecord?.concluidas === 'number' && corteEtapaRecord.concluidas > 0 && corteEtapaRecord.concluidas >= (corteEtapaRecord.total || 1));
+
+    const corteAptConcluido = Array.isArray(apontamentos) && apontamentos.some(
+      (a: any) =>
+        (a.op_numero === op?.op_numero || a.op === op?.op_numero) &&
+        (a.etapa_rota === cortePostoKey || a.etapaRota === cortePostoKey || a.setor === cortePostoKey || a.setorFisico === cortePostoKey) &&
+        a.status === 'FINALIZADO'
+    );
+
+    const corteConcluido = Boolean(corteProgresso || corteEtapaArray || corteRecordConcluido || corteAptConcluido);
+    if (!corteConcluido) {
+      return { valido: false, motivo: 'A Montagem do Trilho só pode ser iniciada após a conclusão do Corte do Trilho.' };
+    }
+  }
+
+  return { valido: true };
+}

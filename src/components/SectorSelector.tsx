@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TerminalConfig, ProductionOrder, Apontamento } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
 import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
+import { validarPostoTrilho } from '../utils/routeValidation';
 import { updateProductionOrder } from '../services/mesStorage';
-import { playClick } from '../utils/audio';
-import { Check } from 'lucide-react';
+import { playClick, playBlockedError } from '../utils/audio';
+import { Check, AlertCircle, Lock } from 'lucide-react';
 
 interface SectorSelectorProps {
   terminal: TerminalConfig;
@@ -21,6 +22,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   selectedSector,
   onSelectSector
 }) => {
+  const [blockedWarning, setBlockedWarning] = useState<string | null>(null);
   const qtdTotal = obterQuantidadeTotal(order);
   const { steps } = getRouteForOp(order);
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
@@ -32,9 +34,13 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const availableSectors = Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
     ? terminal.sectors
     : (POSTOS_POR_TERMINAL[termKey] || []);
+
   const validSectors = availableSectors.filter(s => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
-    return findStepForSector(s, steps) !== null;
+    const isStep = findStepForSector(s, steps) !== null;
+    if (!isStep) return false;
+    const v = validarPostoTrilho(order, s, apontamentos);
+    return v.valido;
   });
 
   // Auto-seleciona imediatamente se houver apenas UM setor válido neste terminal para a OP
@@ -59,6 +65,13 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
         </div>
       </div>
 
+      {blockedWarning && (
+        <div className="mb-2 p-2 bg-rose-950/80 border border-rose-500/70 rounded-lg text-rose-200 text-xs font-mono flex items-center gap-2 animate-pulse">
+          <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>{blockedWarning}</span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {availableSectors.map((sector, idx) => {
           const matchedStep = findStepForSector(sector, steps);
@@ -69,31 +82,47 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
           const isLaserSector = sector.toLowerCase().includes('laser');
           const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
 
+          // Validação estrita de rotas para OPs de Trilho
+          const trilhoValidation = validarPostoTrilho(order, sector, apontamentos);
+          const isBlockedByTrilhoRule = !trilhoValidation.valido;
+
           return (
             <button
               key={`${terminal.id}_${sector}_${idx}`}
               onClick={async () => {
+                if (isBlockedByTrilhoRule) {
+                  playBlockedError();
+                  setBlockedWarning(trilhoValidation.motivo || 'Posto não permitido para esta OP.');
+                  setTimeout(() => setBlockedWarning(null), 5000);
+                  return;
+                }
+                setBlockedWarning(null);
                 playClick();
                 if (isSobDemanda && !order.requer_solda) {
                   await updateProductionOrder(order.op_numero, { requer_solda: true });
                 }
                 onSelectSector(sector);
               }}
-              className={`relative py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn cursor-pointer ${
-                isSelected
-                  ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold'
+              title={isBlockedByTrilhoRule ? trilhoValidation.motivo : undefined}
+              className={`relative py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn ${
+                isBlockedByTrilhoRule
+                  ? 'bg-slate-950/30 border-slate-800/80 text-slate-500 cursor-not-allowed opacity-60'
+                  : isSelected
+                  ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold cursor-pointer'
                   : isSobDemanda && !order.requer_solda
-                  ? 'bg-amber-950/25 border-amber-500/50 hover:border-amber-400 text-amber-200'
+                  ? 'bg-amber-950/25 border-amber-500/50 hover:border-amber-400 text-amber-200 cursor-pointer'
                   : isLaserPending
-                  ? 'bg-orange-950/30 border-orange-500/60 hover:border-orange-400 text-orange-200'
+                  ? 'bg-orange-950/30 border-orange-500/60 hover:border-orange-400 text-orange-200 cursor-pointer'
                   : isPartOfRoute
-                  ? 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200'
-                  : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200'
+                  ? 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200 cursor-pointer'
+                  : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer'
               }`}
             >
               <span
                 className={`w-2 h-2 mr-2 rounded-full shrink-0 ${
-                  isSobDemanda && !order.requer_solda
+                  isBlockedByTrilhoRule
+                    ? 'bg-slate-600'
+                    : isSobDemanda && !order.requer_solda
                     ? 'bg-amber-400 animate-pulse'
                     : isLaserPending
                     ? 'bg-orange-400 animate-pulse'
@@ -107,7 +136,11 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 {sector}
               </span>
 
-              {isSelected ? (
+              {isBlockedByTrilhoRule ? (
+                <div className="shrink-0 ml-1.5 text-slate-500" title={trilhoValidation.motivo}>
+                  <Lock className="w-3.5 h-3.5" />
+                </div>
+              ) : isSelected ? (
                 <div className="w-4 h-4 rounded-full bg-blue-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-sm ml-1.5">
                   <Check className="w-3 h-3 stroke-[3]" />
                 </div>

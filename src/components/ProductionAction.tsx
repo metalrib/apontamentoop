@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, isBatchTracking, matchStepName, obterQuantidadeTotal } from '../utils/routeEngine';
+import { validarPostoTrilho } from '../utils/routeValidation';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -278,7 +279,11 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
 
   // Caso 3: Início de Lote ou Próxima Unidade
   const nextUnitNumber = stepEval.nextUnitNumber;
-  const isUnblocked = stepEval.canStartNextUnit;
+  const trilhoValidation = selectedSector ? validarPostoTrilho(order, selectedSector, apontamentos) : { valido: true };
+  const isUnblocked = stepEval.canStartNextUnit && trilhoValidation.valido;
+  const blockingMessage = !trilhoValidation.valido
+    ? trilhoValidation.motivo
+    : stepEval.blockingReason || (stepEval.previousStepName ? `Aguardando etapa anterior (${stepEval.previousStepName})` : 'Bloqueado');
 
   // RENDERIZAÇÃO PARA ITENS EM LOTE (ESTADO 1: PENDENTE)
   if (isBatch) {
@@ -331,7 +336,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             className="w-full py-2.5 px-4 bg-slate-800/80 border border-slate-700 text-slate-400 font-bold text-base rounded-xl cursor-not-allowed flex items-center justify-center gap-2 opacity-70"
           >
             <Lock className="w-5 h-5 text-slate-500" />
-            <span>Aguardando etapa anterior ({stepEval.previousStepName || 'Bloqueado'})</span>
+            <span>{blockingMessage}</span>
           </button>
         ) : (
           <button
@@ -413,7 +418,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           className="w-full py-2.5 px-4 bg-slate-800/80 border border-slate-700 text-slate-400 font-bold text-base rounded-xl cursor-not-allowed flex items-center justify-center gap-2 opacity-70"
         >
           <Lock className="w-5 h-5 text-slate-500" />
-          <span>Aguardando término da Unidade {nextUnitNumber} no setor anterior</span>
+          <span>{!trilhoValidation.valido ? trilhoValidation.motivo : `Aguardando término da Unidade ${nextUnitNumber} no setor anterior`}</span>
         </button>
       ) : (
         <button

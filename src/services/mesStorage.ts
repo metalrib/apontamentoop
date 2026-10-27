@@ -129,7 +129,22 @@ export function ensureInitialData() {
 
   const existingTerms = localStorage.getItem(STORAGE_TERMINALS_KEY);
   if (!existingTerms) {
-    localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(TERMINALS));
+    const { terminals: sanitized } = sanitizeTerminalSectors(TERMINALS);
+    localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+  } else {
+    try {
+      const parsed: TerminalConfig[] = JSON.parse(existingTerms);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const { terminals: sanitized, changed } = sanitizeTerminalSectors(parsed);
+        if (changed) {
+          localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+          const setoresMap = buildSetoresMap(sanitized);
+          localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+        }
+      }
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -428,6 +443,36 @@ export function resetOperatorsToDefault(): Operator[] {
 /**
  * Funções de Gestão Dinâmica de Terminais e Setores (Chave: metalrib_terminals_sectors)
  */
+export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminals: TerminalConfig[]; changed: boolean } {
+  let changed = false;
+  const RAIL_POSTS = ['Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr'];
+
+  const updated = terminals.map((t) => {
+    let sectors = Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []));
+
+    // Remove qualquer versão da nomenclatura legada solta "Trilhos p/ Portas Correr"
+    const hasLegacy = sectors.some((s) => s === 'Trilhos p/ Portas Correr' || s.trim().toUpperCase() === 'TRILHOS P/ PORTAS CORRER');
+    if (hasLegacy) {
+      sectors = sectors.filter((s) => s !== 'Trilhos p/ Portas Correr' && s.trim().toUpperCase() !== 'TRILHOS P/ PORTAS CORRER');
+      changed = true;
+    }
+
+    // Terminais 3, 4 e 5: Presença obrigatória de Corte e Montagem de Trilho
+    if ([3, 4, 5].includes(t.id)) {
+      RAIL_POSTS.forEach((post) => {
+        if (!sectors.includes(post)) {
+          sectors.push(post);
+          changed = true;
+        }
+      });
+    }
+
+    return { ...t, sectors };
+  });
+
+  return { terminals: updated, changed };
+}
+
 export function buildSetoresMap(terminals: TerminalConfig[]): Record<string, string[]> {
   const map: Record<string, string[]> = { T1: [], T2: [], T3: [], T4: [], T5: [] };
   terminals.forEach((t) => {
@@ -438,27 +483,37 @@ export function buildSetoresMap(terminals: TerminalConfig[]): Record<string, str
 }
 
 export function fetchTerminalsConfig(): TerminalConfig[] {
-  if (typeof window === 'undefined') return [...TERMINALS];
+  if (typeof window === 'undefined') {
+    const { terminals } = sanitizeTerminalSectors(TERMINALS);
+    return terminals;
+  }
   ensureInitialData();
   const raw = localStorage.getItem(STORAGE_TERMINALS_KEY);
-  if (!raw) return [...TERMINALS];
+  if (!raw) {
+    const { terminals } = sanitizeTerminalSectors(TERMINALS);
+    return terminals;
+  }
   try {
     const list: TerminalConfig[] = JSON.parse(raw);
     if (Array.isArray(list) && list.length > 0) {
-      return list.map((t) => ({
-        ...t,
-        sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
-      }));
+      const { terminals: sanitized, changed } = sanitizeTerminalSectors(list);
+      if (changed) {
+        saveTerminalsConfig(sanitized);
+      }
+      return sanitized;
     }
-    return [...TERMINALS];
+    const { terminals } = sanitizeTerminalSectors(TERMINALS);
+    return terminals;
   } catch {
-    return [...TERMINALS];
+    const { terminals } = sanitizeTerminalSectors(TERMINALS);
+    return terminals;
   }
 }
 
 export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
   if (typeof window === 'undefined') return;
-  const cleaned = terminals.map((t) => ({
+  const { terminals: sanitized } = sanitizeTerminalSectors(terminals);
+  const cleaned = sanitized.map((t) => ({
     ...t,
     sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
   }));
@@ -797,12 +852,17 @@ export function initFirebaseRealtimeListeners(): void {
       try {
         const val = snapshot.val();
         if (Array.isArray(val) && val.length > 0) {
+          const { terminals: sanitized, changed: wasSanitized } = sanitizeTerminalSectors(val);
           const rawLocal = localStorage.getItem(STORAGE_TERMINALS_KEY);
-          const serialized = JSON.stringify(val);
-          if (rawLocal !== serialized) {
+          const serialized = JSON.stringify(sanitized);
+          if (rawLocal !== serialized || wasSanitized) {
             localStorage.setItem(STORAGE_TERMINALS_KEY, serialized);
-            const setoresMap = buildSetoresMap(val);
+            const setoresMap = buildSetoresMap(sanitized);
             localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+            if (wasSanitized) {
+              set(ref(db, 'config_terminais'), sanitized);
+              set(ref(db, 'config_setores'), setoresMap);
+            }
             broadcastUpdate();
             window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
           }
@@ -830,9 +890,14 @@ export function initFirebaseRealtimeListeners(): void {
             }
             return t;
           });
-          if (changed) {
-            localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(updated));
-            localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(val));
+          const { terminals: sanitized, changed: wasSanitized } = sanitizeTerminalSectors(updated);
+          if (changed || wasSanitized) {
+            localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+            const newSetoresMap = buildSetoresMap(sanitized);
+            localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(newSetoresMap));
+            if (wasSanitized) {
+              set(ref(db, 'config_setores'), newSetoresMap);
+            }
             broadcastUpdate();
             window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
           }
@@ -1346,6 +1411,12 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
             status: 'CONCLUIDO',
             concluidas: totalUnits
           };
+          if (!targetOrder.progressoPostos) targetOrder.progressoPostos = {};
+          targetOrder.progressoPostos[matchedStep] = {
+            concluido: true,
+            concluidas: totalUnits,
+            dataConclusao: new Date().toISOString()
+          };
 
           if (currentStepIndex >= 0) {
             for (let i = currentStepIndex + 1; i < steps.length; i++) {
@@ -1381,6 +1452,7 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
             status: targetOrder.status,
             status_fabrica: targetOrder.status_fabrica,
             etapas: targetOrder.etapas,
+            progressoPostos: targetOrder.progressoPostos,
             qtde_produzida: targetOrder.qtde_produzida || 0,
             data_atualizacao: new Date().toISOString()
           });
@@ -1655,6 +1727,12 @@ export async function finishBatch(
           status: 'CONCLUIDO',
           concluidas: totalUnits
         };
+        if (!targetOrder.progressoPostos) targetOrder.progressoPostos = {};
+        targetOrder.progressoPostos[matchedStep] = {
+          concluido: true,
+          concluidas: totalUnits,
+          dataConclusao: new Date().toISOString()
+        };
 
         // As etapas subsequentes permanecem rigorosamente PENDENTES com 0 peças feitas
         if (currentStepIndex >= 0) {
@@ -1688,6 +1766,7 @@ export async function finishBatch(
             status: targetOrder.status,
             status_fabrica: targetOrder.status_fabrica,
             etapas: targetOrder.etapas,
+            progressoPostos: targetOrder.progressoPostos,
             qtde_produzida: targetOrder.qtde_produzida || 0,
             data_atualizacao: new Date().toISOString()
           });

@@ -18,14 +18,17 @@ export const POSTOS_POR_TERMINAL = {
     'Montagem de Portas Giratória Padrão e Especial',
     'Instalação de Gaxeta',
     'Finalização Vai Vem',
-    'Trilhos p/ Portas Correr'
+    'Corte de Trilho p/ Porta Correr',
+    'Montagem de Trilho p/ Porta Correr'
   ],
   T4: [
     'Montagem Vai Vem',
     'Instalação de Gaxeta',
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem Portas Emendadas',
-    'Montagem Portas de Correr Padrão e Especial'
+    'Montagem Portas de Correr Padrão e Especial',
+    'Corte de Trilho p/ Porta Correr',
+    'Montagem de Trilho p/ Porta Correr'
   ],
   T5: [
     'Router',
@@ -37,6 +40,8 @@ export const POSTOS_POR_TERMINAL = {
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem Portas de Correr Padrão e Especial',
     'Montagem Portas Office Door',
-    'Montagem Vai Vem'
+    'Montagem Vai Vem',
+    'Corte de Trilho p/ Porta Correr',
+    'Montagem de Trilho p/ Porta Correr'
   ]
 };

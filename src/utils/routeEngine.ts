@@ -11,9 +11,9 @@ import {
   CODIGOS_BATENTES_PADRAO,
   CODIGOS_ANCORAS_PADRAO
 } from '../types/mes';
-import { verificarSeExigeEmenda } from './routeValidation';
+import { verificarSeExigeEmenda, getRotaTrilhoCorrer, validarPostoTrilho } from './routeValidation';
 
-export { verificarSeExigeEmenda };
+export { verificarSeExigeEmenda, getRotaTrilhoCorrer, validarPostoTrilho };
 
 /**
  * Extrai e sanitiza com segurança a quantidade total da OP,
@@ -100,16 +100,17 @@ function resolveBaseRoute(
   const norm = normalizeText(desc || '');
   const code = extractProductCode(input, explicitCodigo);
 
-  // 1. Trilhos LGT Alumínio (se o código estiver em CODIGOS_TRILHOS_LGT_PADRAO)
-  // Rota: "Trilho LGT Alumínio (Corte e Montagem)"
-  // Setor aplicável: "Montagem de Portas Emendadas" (Terminal 3). NUNCA enviar para guilhotina ou laser.
-  // Badge: "Trilho LGT Padrão (Alumínio)".
-  if (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) {
+  // 1. Trilhos para Portas de Correr (família 028., código em CODIGOS_TRILHOS_LGT_PADRAO ou descrição com TRILHO)
+  // Rota Oficial Padronizada: Corte -> Montagem nos Terminais 3, 4 e 5
+  const isTrilho = (code && code.startsWith('028.')) ||
+                   (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) ||
+                   norm.includes('TRILHO');
+  if (isTrilho) {
     const rule: RouteRule = {
-      keyword: 'TRILHO LGT',
-      label: 'Trilho LGT Alumínio (Corte e Montagem)',
-      steps: ['Montagem de Portas Emendadas'],
-      badge: 'Trilho LGT Padrão (Alumínio)',
+      keyword: 'TRILHO',
+      label: 'Trilho Porta de Correr (Corte e Montagem)',
+      steps: getRotaTrilhoCorrer(),
+      badge: 'Trilho Correr',
       isStandardLine: true
     };
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
@@ -198,20 +199,8 @@ function resolveBaseRoute(
     }
   }
 
-  // 6. Se for Porta de Correr ou Trilho convencional
-  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('TRILHO')) {
-    const isTrilho = (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO');
-    if (isTrilho) {
-      const rule: RouteRule = {
-        keyword: 'TRILHO',
-        label: 'Trilho Porta de Correr (Corte e Montagem)',
-        steps: ['Trilhos p/ Portas Correr'],
-        badge: 'Trilho Correr',
-        isStandardLine: true
-      };
-      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
-    }
-
+  // 6. Se for Porta de Correr
+  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER')) {
     const exigeEmenda = verificarSeExigeEmenda(desc || '');
     const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem Portas de Correr Padrão e Especial';
 
@@ -320,6 +309,22 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
 
   // Mapeamentos diretos e equivalências industriais
   if (normSector === normStep) return true;
+
+  // Trilhos de Portas de Correr (Corte e Montagem)
+  if (normStep.includes('TRILHO')) {
+    if (normStep.includes('CORTE')) {
+      return normSector.includes('TRILHO') && normSector.includes('CORTE');
+    }
+    if (normStep.includes('MONTAGEM')) {
+      return normSector.includes('TRILHO') && normSector.includes('MONTAGEM');
+    }
+    return normSector.includes('TRILHO');
+  }
+
+  // Setores exclusivos de Trilho não atendem etapas convencionais
+  if (normSector.includes('TRILHO')) {
+    return false;
+  }
 
   if (normStep === 'CORTE' && (normSector.includes('CORTE') || normSector.includes('GUILHOTINA'))) {
     return true;
@@ -554,7 +559,7 @@ export function isBatchTracking(
   }
 
   // - Portas de Correr e Portas Emendadas (nos setores de Montagem)
-  const isTrilho = (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO');
+  const isTrilho = (code && code.startsWith('028.')) || (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO');
   const isPortaCorrer = !isTrilho && (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER'));
   if (isPortaCorrer && (secNorm.includes('emendad') || secNorm.includes('correr'))) {
     return false;
@@ -585,8 +590,8 @@ export function isBatchTracking(
     return true;
   }
 
-  // - Trilhos para porta de correr (código em CODIGOS_TRILHOS_LGT_PADRAO ou descrição TRILHO)
-  if ((code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO')) {
+  // - Trilhos para porta de correr (família 028, código em CODIGOS_TRILHOS_LGT_PADRAO ou descrição TRILHO)
+  if ((code && code.startsWith('028.')) || (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO')) {
     return true;
   }
 
