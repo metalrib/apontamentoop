@@ -56,31 +56,31 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
   };
 
   return (
-    <div className="w-full py-1.5 px-3 bg-slate-900 border border-slate-800 rounded-lg shadow-md flex items-center justify-between gap-3 text-xs font-mono shrink-0 select-none">
+    <div className="w-full h-[44px] max-h-[44px] px-3 bg-slate-900 border border-slate-800 rounded-xl shadow-md flex items-center justify-between gap-2.5 text-xs font-mono shrink-0 select-none overflow-hidden">
       {/* Lado Esquerdo: Número da OP, Descrição, Código e Tags */}
-      <div className="flex items-center gap-2.5 min-w-0">
+      <div className="flex items-center gap-2 min-w-0">
         {/* Número da OP */}
-        <div className="px-2.5 py-0.5 bg-[#1C2F8A] border border-blue-400/80 rounded-md text-white font-mono font-black text-sm tracking-wider shadow-sm shrink-0">
+        <div className="h-8 px-2.5 bg-[#1C2F8A] border border-blue-400/80 rounded-lg text-white font-mono font-black text-xs sm:text-sm tracking-wider shadow-sm shrink-0 flex items-center">
           {(order.numero || order.op_numero).replace(/^(\s*OP\s*)+/i, 'OP ').trim()}
         </div>
 
-        {/* Descrição do Produto com truncate */}
-        <div className="text-white font-bold text-xs sm:text-sm truncate max-w-[240px] md:max-w-sm lg:max-w-md font-sans" title={order.descricao}>
+        {/* Descrição do Produto com truncate flexível */}
+        <div className="text-white font-bold text-xs sm:text-sm truncate max-w-[200px] sm:max-w-xs md:max-w-md lg:max-w-lg font-sans leading-none" title={order.descricao}>
           {order.descricao}
         </div>
 
         {/* Código do Item */}
-        <div className="hidden sm:inline-flex px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-blue-300 font-mono text-[11px] shrink-0">
+        <div className="hidden sm:inline-flex h-7 px-2 items-center rounded-md bg-slate-950 border border-slate-800 text-blue-300 font-mono text-[11px] shrink-0 leading-none">
           Cód: {order.codigo || '—'}
         </div>
 
         {/* Tag de Atraso ou Entrega */}
         {deadline.isDelayed ? (
-          <span className="px-2 py-0.5 rounded bg-red-950/80 text-red-400 border border-red-800 font-bold text-[10px] shrink-0">
+          <span className="h-7 px-2 flex items-center rounded-md bg-red-950/80 text-red-400 border border-red-800 font-bold text-[10px] shrink-0 leading-none">
             {deadline.text}
           </span>
         ) : (
-          <span className="hidden md:inline-flex px-2 py-0.5 rounded bg-slate-950 text-slate-400 border border-slate-800 text-[10px] shrink-0">
+          <span className="hidden md:inline-flex h-7 px-2 flex items-center rounded-md bg-slate-950 text-slate-400 border border-slate-800 text-[10px] shrink-0 leading-none">
             Entrega: {deliveryDate}
           </span>
         )}
@@ -88,7 +88,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
         {/* Badge de Linha Padrão / Sob Medida */}
         {rule.badge && (
           <span
-            className={`hidden lg:inline-flex px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 ${
+            className={`hidden lg:inline-flex h-7 px-2 flex items-center rounded-md text-[10px] font-bold border shrink-0 leading-none ${
               rule.isStandardLine
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60'
                 : 'bg-amber-950/80 text-amber-300 border-amber-500/60'
@@ -100,8 +100,8 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
 
         {/* Badge Requer Laser */}
         {order.requer_laser && (
-          <span className="px-2 py-0.5 rounded text-[10px] font-bold border shrink-0 bg-orange-950/80 text-orange-300 border-orange-500/60 font-mono flex items-center gap-1">
-            <span>🔥 Requer Laser</span>
+          <span className="h-7 px-2 flex items-center rounded-md text-[10px] font-bold border shrink-0 bg-orange-950/80 text-orange-300 border-orange-500/60 font-mono gap-1 leading-none">
+            <span>🔥 Laser</span>
           </span>
         )}
 
@@ -113,7 +113,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
               playClick();
               await updateProductionOrder(order.op_numero, { requer_solda: !order.requer_solda });
             }}
-            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border flex items-center gap-1 shadow-sm transition cursor-pointer active:scale-95 shrink-0 ${
+            className={`h-7 px-2 rounded-md text-[10px] font-mono font-bold border flex items-center gap-1 shadow-sm transition cursor-pointer active:scale-95 shrink-0 leading-none ${
               order.requer_solda
                 ? 'bg-amber-500 text-slate-950 border-amber-400 font-black'
                 : 'bg-slate-950 text-amber-300 border-amber-500/50'
@@ -129,7 +129,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
       {/* Lado Direito: Quantidade Total e Ajuste M² */}
       <div className="flex items-center gap-2 shrink-0">
         {showPhysicalQuantitySelector ? (
-          <div className="px-2.5 py-0.5 bg-slate-950 border border-amber-500/60 rounded-md flex items-center gap-1.5">
+          <div className="h-8 px-2.5 bg-slate-950 border border-amber-500/60 rounded-lg flex items-center gap-1.5">
             <span className="text-[10px] font-bold text-amber-400">
               {Number(order.quantidade_m2 || order.quantidade_total).toFixed(1)} M²
             </span>
@@ -155,7 +155,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
             </div>
           </div>
         ) : (
-          <div className="px-2.5 py-0.5 bg-slate-950 border border-slate-800 rounded-md flex items-center gap-1.5">
+          <div className="h-8 px-2.5 bg-slate-950 border border-slate-800 rounded-lg flex items-center gap-1.5">
             <span className="text-slate-400 text-[10px] font-bold">QTDE:</span>
             <span className="text-white font-black text-sm">
               {Math.round(order.quantidade_total)}

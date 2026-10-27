@@ -160,7 +160,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs font-mono text-slate-400 uppercase">
-                  Lista sincronizada do Firebase (pcp/orders)
+                  Lista sincronizada do Firebase (ordens_producao)
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -470,7 +470,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
               <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-xs text-slate-400 space-y-2">
                 <div className="font-bold text-slate-200">Estrutura de Nós do Firebase Realtime DB:</div>
                 <div className="font-mono text-slate-300">
-                  📁 <span className="text-amber-400">pcp/orders/</span>&lt;op_numero&gt;<br />
+                  📁 <span className="text-amber-400">ordens_producao/</span>&lt;op_numero&gt;<br />
                   📁 <span className="text-emerald-400">apontamentos/</span>&lt;op_numero&gt;/&lt;id_unico&gt;
                 </div>
               </div>

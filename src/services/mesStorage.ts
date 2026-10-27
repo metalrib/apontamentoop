@@ -123,31 +123,16 @@ export function ensureInitialData() {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
   }
 
-  // Inicializa equipe de colaboradores e terminais com a padronização definitiva
-  const STORAGE_PADRONIZACAO_KEY = 'metalrib_padronizacao_oficial_v4';
-  const hasPadronizacao = localStorage.getItem(STORAGE_PADRONIZACAO_KEY) === 'true';
-
+  // Inicializa equipe de colaboradores e terminais apenas localmente se ainda não existirem
   const existingOps = localStorage.getItem(STORAGE_OPERATORS_KEY);
-  if (!existingOps || !hasPadronizacao) {
+  if (!existingOps) {
     localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(OPERATORS));
-    try {
-      const initialMap: Record<string, any> = {};
-      OPERATORS.forEach((op) => {
-        initialMap[op.id] = op;
-      });
-      set(ref(db, 'config_colaboradores'), initialMap);
-    } catch {}
   }
 
   const existingTerms = localStorage.getItem(STORAGE_TERMINALS_KEY);
-  if (!existingTerms || !hasPadronizacao) {
+  if (!existingTerms) {
     localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(TERMINALS));
-    try {
-      set(ref(db, 'config_terminais'), TERMINALS);
-    } catch {}
   }
-
-  localStorage.setItem(STORAGE_PADRONIZACAO_KEY, 'true');
 }
 
 // Inicializa no carregamento
@@ -715,21 +700,27 @@ export function initFirebaseRealtimeListeners(): void {
     const ordensRef = ref(db, 'ordens_producao');
     onValue(ordensRef, (snapshot) => {
       try {
-        const val = snapshot.val();
-        if (!val || Object.keys(val).length === 0) {
+        if (!snapshot.exists()) {
           localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
           broadcastUpdate();
           return;
         }
 
         const ordersMap: Record<string, ProductionOrder> = {};
-        if (typeof val === 'object') {
-          Object.values(val).forEach((item: any) => {
-            if (item && item.op_numero && !TEST_DUMMY_OPS.has(item.op_numero)) {
-              ordersMap[item.op_numero] = item;
+        snapshot.forEach((child) => {
+          const item = child.val();
+          if (item && typeof item === 'object') {
+            const key = child.key || '';
+            const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+            if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+              ordersMap[opNumero] = {
+                ...item,
+                op_numero: opNumero,
+                numero: item.numero || opNumero
+              };
             }
-          });
-        }
+          }
+        });
 
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
         broadcastUpdate();
@@ -771,14 +762,13 @@ export function initFirebaseRealtimeListeners(): void {
     const colabRef = ref(db, 'config_colaboradores');
     onValue(colabRef, (snapshot) => {
       try {
+        if (!snapshot.exists()) {
+          // Nó ainda não existe no Firebase - NUNCA auto-seeda para não apagar edições
+          return;
+        }
+
         const val = snapshot.val();
         if (!val || (typeof val === 'object' && Object.keys(val).length === 0)) {
-          // Se o nó estiver vazio na primeira leitura, sobe a lista padrão
-          const initialMap: Record<string, any> = {};
-          OPERATORS.forEach((op) => {
-            initialMap[op.id] = op;
-          });
-          set(ref(db, 'config_colaboradores'), initialMap);
           return;
         }
 
@@ -877,38 +867,9 @@ function getFirebaseUrl(path: string): string | null {
 
 let bgSyncTimer: any = null;
 export function startFirebaseBackgroundSync(): void {
-  if (typeof window === 'undefined' || bgSyncTimer) return;
-  bgSyncTimer = setInterval(async () => {
-    const cfg = getSavedFirebaseConfig();
-    if (!cfg.enabled || !cfg.databaseURL) return;
-    try {
-      const cloudOrders = await firebaseGet<Record<string, ProductionOrder>>('pcp/orders');
-      if (cloudOrders && typeof cloudOrders === 'object' && Object.keys(cloudOrders).length > 0) {
-        const local = localStorage.getItem(STORAGE_ORDERS_KEY);
-        const serialized = JSON.stringify(cloudOrders);
-        if (local !== serialized) {
-          localStorage.setItem(STORAGE_ORDERS_KEY, serialized);
-          broadcastUpdate();
-        }
-      }
-    } catch {
-      // silent network retry
-    }
-
-    try {
-      const cloudApts = await firebaseGet<Record<string, Record<string, Apontamento>>>('apontamentos');
-      if (cloudApts && typeof cloudApts === 'object') {
-        const local = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
-        const serialized = JSON.stringify(cloudApts);
-        if (local !== serialized) {
-          localStorage.setItem(STORAGE_APONTAMENTOS_KEY, serialized);
-          broadcastUpdate();
-        }
-      }
-    } catch {
-      // silent network retry
-    }
-  }, 5000);
+  // Sincronização em tempo real é gerenciada diretamente pelos listeners nativos WebSocket do Firebase Realtime DB
+  // (initFirebaseRealtimeListeners). O polling REST legado de 'pcp/orders' foi desativado para eliminar qualquer risco
+  // de sobreposição assíncrona ou perda de ordens.
 }
 
 export async function firebaseGet<T>(path: string): Promise<T | null> {
@@ -1000,15 +961,21 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
     try {
       const snapshot = await get(ref(db, 'ordens_producao'));
       if (snapshot.exists()) {
-        const val = snapshot.val();
         const ordersMap: Record<string, ProductionOrder> = {};
-        if (typeof val === 'object' && val !== null) {
-          Object.values(val).forEach((item: any) => {
-            if (item && item.op_numero && !TEST_DUMMY_OPS.has(item.op_numero)) {
-              ordersMap[item.op_numero] = item;
+        snapshot.forEach((child) => {
+          const item = child.val();
+          if (item && typeof item === 'object') {
+            const key = child.key || '';
+            const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+            if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+              ordersMap[opNumero] = {
+                ...item,
+                op_numero: opNumero,
+                numero: item.numero || opNumero
+              };
             }
-          });
-        }
+          }
+        });
         raw = JSON.stringify(ordersMap);
         localStorage.setItem(STORAGE_ORDERS_KEY, raw);
       } else {
@@ -1190,43 +1157,76 @@ export async function startUnit(params: {
   } catch (err) {
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
-  try {
-    push(ref(db, 'historico_apontamentos'), novoApontamento);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
-  }
 
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+    let ordersMap: Record<string, ProductionOrder> = {};
     if (rawOrders) {
-      const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
-      const targetOrder = ordersMap[cleanOp];
-      if (targetOrder) {
-        const { steps } = getRouteForOp(targetOrder);
-        if (!targetOrder.etapas) {
-          targetOrder.etapas = {};
-        }
-        steps.forEach((s) => {
-          if (!targetOrder.etapas![s]) {
-            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
-          }
-        });
-        const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
-        targetOrder.etapas[matchedStepKey] = {
-          ...targetOrder.etapas[matchedStepKey],
-          status: 'EM_PRODUCAO',
-          concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
-        };
-        targetOrder.status = 'EM_PRODUCAO';
-        targetOrder.status_fabrica = 'Produzindo Hoje';
-        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-        firebasePut('pcp/orders', ordersMap);
-        try {
-          update(ref(db, `ordens_producao/${toFirebaseKey(cleanOp)}`), targetOrder);
-        } catch (err) {
-          console.warn('[Firebase] Erro ao atualizar ordem:', err);
-        }
+      try {
+        ordersMap = JSON.parse(rawOrders);
+      } catch {
+        ordersMap = {};
       }
+    }
+
+    let matchedOpKey = cleanOp;
+    let targetOrder = ordersMap[cleanOp];
+    if (!targetOrder) {
+      const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+      const foundKey = Object.keys(ordersMap).find((k) => {
+        const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+        return kClean === cleanNoPrefix || k.trim().toUpperCase() === cleanOp;
+      });
+      if (foundKey) {
+        matchedOpKey = foundKey;
+        targetOrder = ordersMap[foundKey];
+      }
+    }
+
+    const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
+
+    const opUpdates: Record<string, any> = {
+      status: 'EM_PRODUCAO',
+      status_fabrica: 'Produzindo Hoje',
+      etapaAtual: params.setor,
+      postoSelecionado: params.setor,
+      colaboradorIniciou: params.operador,
+      operadorAtual: params.operador,
+      dataInicio: nowIso,
+      data_atualizacao: nowIso
+    };
+
+    if (targetOrder) {
+      const { steps } = getRouteForOp(targetOrder);
+      if (!targetOrder.etapas) {
+        targetOrder.etapas = {};
+      }
+      steps.forEach((s) => {
+        if (!targetOrder.etapas![s]) {
+          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+        }
+      });
+      const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
+      targetOrder.etapas[matchedStepKey] = {
+        ...targetOrder.etapas[matchedStepKey],
+        status: 'EM_PRODUCAO',
+        concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
+      };
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.status_fabrica = 'Produzindo Hoje';
+      targetOrder.etapaAtual = params.setor;
+      targetOrder.postoSelecionado = params.setor;
+      targetOrder.colaboradorIniciou = params.operador;
+      targetOrder.dataInicio = nowIso;
+
+      opUpdates.etapas = targetOrder.etapas;
+
+      ordersMap[matchedOpKey] = targetOrder;
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+    }
+
+    if (opKey) {
+      await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
     }
   } catch (err) {
     console.error('Erro ao atualizar status da OP ao iniciar unidade:', err);
@@ -1289,17 +1289,25 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
   } catch (err) {
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
-  try {
-    push(ref(db, 'historico_apontamentos'), updated);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
-  }
 
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
     if (rawOrders) {
       const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
-      const targetOrder = ordersMap[cleanOp];
+      let matchedOpKey = cleanOp;
+      let targetOrder = ordersMap[cleanOp];
+      if (!targetOrder) {
+        const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+        const foundKey = Object.keys(ordersMap).find((k) => {
+          const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+          return kClean === cleanNoPrefix || k.trim().toUpperCase() === cleanOp;
+        });
+        if (foundKey) {
+          matchedOpKey = foundKey;
+          targetOrder = ordersMap[foundKey];
+        }
+      }
+
       if (targetOrder) {
         const { steps } = getRouteForOp(targetOrder);
         if (!targetOrder.etapas) {
@@ -1354,12 +1362,18 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
           };
         }
 
+        ordersMap[matchedOpKey] = targetOrder;
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-        firebasePut('pcp/orders', ordersMap);
-        try {
-          update(ref(db, `ordens_producao/${toFirebaseKey(cleanOp)}`), targetOrder);
-        } catch (err) {
-          console.warn('[Firebase] Erro ao atualizar ordem:', err);
+
+        const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
+        if (opKey) {
+          await update(ref(db, `ordens_producao/${opKey}`), {
+            status: targetOrder.status,
+            status_fabrica: targetOrder.status_fabrica,
+            etapas: targetOrder.etapas,
+            qtde_produzida: targetOrder.qtde_produzida || 0,
+            data_atualizacao: new Date().toISOString()
+          });
         }
       }
     }
@@ -1434,38 +1448,76 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
 
-  // Atualiza status da OP para EM_PRODUCAO com data/hora e colaborador
+  // Atualiza status da OP para EM_PRODUCAO com data/hora e colaborador de forma estritamente granular
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+    let ordersMap: Record<string, ProductionOrder> = {};
     if (rawOrders) {
-      const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
-      const targetOrder = ordersMap[cleanOp];
-      if (targetOrder) {
-        const { steps } = getRouteForOp(targetOrder);
-        if (!targetOrder.etapas) {
-          targetOrder.etapas = {};
-        }
-        steps.forEach((s) => {
-          if (!targetOrder.etapas![s]) {
-            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
-          }
-        });
-        const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
-        targetOrder.etapas[matchedStepKey] = {
-          ...targetOrder.etapas[matchedStepKey],
-          status: 'EM_PRODUCAO',
-          concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
-        };
-        targetOrder.status = 'EM_PRODUCAO';
-        targetOrder.status_fabrica = 'Produzindo Hoje';
-        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-        firebasePut('pcp/orders', ordersMap);
-        try {
-          update(ref(db, `ordens_producao/${toFirebaseKey(cleanOp)}`), targetOrder);
-        } catch (err) {
-          console.warn('[Firebase] Erro ao atualizar ordem:', err);
-        }
+      try {
+        ordersMap = JSON.parse(rawOrders);
+      } catch {
+        ordersMap = {};
       }
+    }
+
+    let matchedOpKey = cleanOp;
+    let targetOrder = ordersMap[cleanOp];
+    if (!targetOrder) {
+      const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+      const foundKey = Object.keys(ordersMap).find((k) => {
+        const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+        return kClean === cleanNoPrefix || k.trim().toUpperCase() === cleanOp;
+      });
+      if (foundKey) {
+        matchedOpKey = foundKey;
+        targetOrder = ordersMap[foundKey];
+      }
+    }
+
+    const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
+
+    const opUpdates: Record<string, any> = {
+      status: 'EM_PRODUCAO',
+      status_fabrica: 'Produzindo Hoje',
+      etapaAtual: params.setor,
+      postoSelecionado: params.setor,
+      colaboradorIniciou: params.operador,
+      operadorAtual: params.operador,
+      dataInicio: nowIso,
+      data_atualizacao: nowIso
+    };
+
+    if (targetOrder) {
+      const { steps } = getRouteForOp(targetOrder);
+      if (!targetOrder.etapas) {
+        targetOrder.etapas = {};
+      }
+      steps.forEach((s) => {
+        if (!targetOrder.etapas![s]) {
+          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+        }
+      });
+      const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
+      targetOrder.etapas[matchedStepKey] = {
+        ...targetOrder.etapas[matchedStepKey],
+        status: 'EM_PRODUCAO',
+        concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
+      };
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.status_fabrica = 'Produzindo Hoje';
+      targetOrder.etapaAtual = params.setor;
+      targetOrder.postoSelecionado = params.setor;
+      targetOrder.colaboradorIniciou = params.operador;
+      targetOrder.dataInicio = nowIso;
+
+      opUpdates.etapas = targetOrder.etapas;
+
+      ordersMap[matchedOpKey] = targetOrder;
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+    }
+
+    if (opKey) {
+      await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
     }
   } catch (err) {
     console.error('Erro ao atualizar status da OP ao iniciar lote:', err);
@@ -1558,7 +1610,20 @@ export async function finishBatch(
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
     if (rawOrders) {
       const ordersMap: Record<string, ProductionOrder> = JSON.parse(rawOrders);
-      const targetOrder = ordersMap[cleanOp];
+      let matchedOpKey = cleanOp;
+      let targetOrder = ordersMap[cleanOp];
+      if (!targetOrder) {
+        const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+        const foundKey = Object.keys(ordersMap).find((k) => {
+          const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+          return kClean === cleanNoPrefix || k.trim().toUpperCase() === cleanOp;
+        });
+        if (foundKey) {
+          matchedOpKey = foundKey;
+          targetOrder = ordersMap[foundKey];
+        }
+      }
+
       if (targetOrder) {
         const { steps } = getRouteForOp(targetOrder);
         if (!targetOrder.etapas) {
@@ -1603,12 +1668,19 @@ export async function finishBatch(
           targetOrder.status = 'EM_PRODUCAO';
           targetOrder.status_fabrica = 'Produzindo Hoje';
         }
+
+        ordersMap[matchedOpKey] = targetOrder;
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-        firebasePut('pcp/orders', ordersMap);
-        try {
-          update(ref(db, `ordens_producao/${toFirebaseKey(cleanOp)}`), targetOrder);
-        } catch (err) {
-          console.warn('[Firebase] Erro ao atualizar ordem:', err);
+
+        const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
+        if (opKey) {
+          await update(ref(db, `ordens_producao/${opKey}`), {
+            status: targetOrder.status,
+            status_fabrica: targetOrder.status_fabrica,
+            etapas: targetOrder.etapas,
+            qtde_produzida: targetOrder.qtde_produzida || 0,
+            data_atualizacao: new Date().toISOString()
+          });
         }
       }
     }
@@ -1693,10 +1765,14 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
   const orders = await fetchProductionOrders();
   orders[order.op_numero] = order;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  firebasePut('pcp/orders', orders);
   try {
-    set(ref(db, `ordens_producao/${toFirebaseKey(order.op_numero)}`), order);
-  } catch {}
+    const opKey = toFirebaseKey(order.op_numero);
+    if (opKey) {
+      await update(ref(db, `ordens_producao/${opKey}`), order);
+    }
+  } catch (err) {
+    console.error('[Firebase] Erro ao adicionar ordem:', err);
+  }
   broadcastUpdate();
 }
 
@@ -1709,10 +1785,14 @@ export async function deleteProductionOrder(opNumero: string): Promise<void> {
   if (orders[opNumero]) {
     delete orders[opNumero];
     localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-    firebasePut('pcp/orders', orders);
     try {
-      set(ref(db, `ordens_producao/${toFirebaseKey(opNumero)}`), null);
-    } catch {}
+      const opKey = toFirebaseKey(opNumero);
+      if (opKey) {
+        await set(ref(db, `ordens_producao/${opKey}`), null);
+      }
+    } catch (err) {
+      console.error('[Firebase] Erro ao deletar ordem:', err);
+    }
     broadcastUpdate();
   }
 }
@@ -1742,10 +1822,14 @@ export async function updateProductionOrder(
   };
   orders[targetKey] = updated;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  firebasePut('pcp/orders', orders);
   try {
-    update(ref(db, `ordens_producao/${toFirebaseKey(targetKey)}`), updated);
-  } catch {}
+    const opKey = toFirebaseKey(targetKey);
+    if (opKey) {
+      await update(ref(db, `ordens_producao/${opKey}`), updates);
+    }
+  } catch (err) {
+    console.error('[Firebase] Erro ao atualizar ordem:', err);
+  }
   broadcastUpdate();
   return updated;
 }
@@ -1789,10 +1873,17 @@ export async function addOpMessage(
 
   orders[targetKey] = currentOp;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  firebasePut('pcp/orders', orders);
   try {
-    update(ref(db, `ordens_producao/${toFirebaseKey(targetKey)}`), currentOp);
-  } catch {}
+    const opKey = toFirebaseKey(targetKey);
+    if (opKey) {
+      await update(ref(db, `ordens_producao/${opKey}`), {
+        mensagens: currentOp.mensagens,
+        ultimo_aviso: currentOp.ultimo_aviso
+      });
+    }
+  } catch (err) {
+    console.error('[Firebase] Erro ao adicionar mensagem na OP:', err);
+  }
   broadcastUpdate();
 }
 
@@ -1803,7 +1894,6 @@ export async function clearAllOrders(): Promise<void> {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
   localStorage.removeItem('pcp_orders');
-  firebaseDelete('pcp/orders');
   try {
     set(ref(db, 'ordens_producao'), null);
   } catch {}
@@ -1826,14 +1916,15 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
     }
   }
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  firebasePut('pcp/orders', orders);
   try {
     if (replaceAll) {
       set(ref(db, 'ordens_producao'), fbUpdates);
     } else {
       update(ref(db, 'ordens_producao'), fbUpdates);
     }
-  } catch {}
+  } catch (err) {
+    console.error('[Firebase] Erro ao salvar múltiplas ordens:', err);
+  }
   broadcastUpdate();
   return count;
 }
@@ -1845,7 +1936,6 @@ export function resetFactoryData(): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
-  firebasePut('pcp/orders', {});
   firebaseDelete('apontamentos');
   try {
     set(ref(db, 'ordens_producao'), null);

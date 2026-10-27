@@ -623,7 +623,7 @@ export default function App() {
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={handleResetScreen}
-              className="px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0 active:scale-95 shadow-sm"
+              className="h-[44px] max-h-[44px] px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0 active:scale-95 shadow-sm"
               title="Bipar outra OP"
             >
               <span>← Bipar Outra</span>

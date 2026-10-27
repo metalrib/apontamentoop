@@ -157,8 +157,8 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
           </p>
         </div>
       ) : (
-        <div className="overflow-y-auto max-h-[180px] pr-1">
-          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-8 gap-2">
+        <div className="overflow-y-auto max-h-[190px] pr-1">
+          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-2.5">
             {filteredOperators.map((op: Operator) => {
               const isSelected = selectedOperator === op.name;
 
@@ -169,18 +169,18 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
                     playClick();
                     onSelectOperator(op.name);
                   }}
-                  className={`p-1.5 rounded-lg border text-center transition-all flex flex-col items-center justify-center kiosk-btn cursor-pointer ${
+                  className={`min-h-[78px] p-2 rounded-xl border text-center transition-all flex flex-col items-center justify-between kiosk-btn cursor-pointer ${
                     isSelected
-                      ? 'bg-[#1C2F8A]/60 border-blue-400 ring-2 ring-blue-500/50 shadow-md'
-                      : 'bg-slate-900 border-slate-800 hover:border-blue-500/50 hover:bg-slate-850'
+                      ? 'bg-gradient-to-b from-cyan-950/70 to-[#1C2F8A]/90 border-cyan-400 ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.4)] scale-[1.02] text-white font-bold'
+                      : 'bg-slate-900 border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 text-slate-200'
                   }`}
                 >
                   {/* Avatar do Operador */}
                   <div className="relative mb-1">
                     <div
-                      className={`w-7 h-7 rounded-md flex items-center justify-center font-black text-xs transition ${
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs transition ${
                         isSelected
-                          ? 'bg-[#1C2F8A] text-white border border-blue-300'
+                          ? 'bg-cyan-500 text-slate-950 border-2 border-cyan-300 font-black shadow-[0_0_10px_rgba(34,211,238,0.6)]'
                           : op.isRoaming
                           ? 'bg-blue-950 text-blue-300 border border-blue-800'
                           : 'bg-slate-800 text-slate-300 border border-slate-700'
@@ -189,13 +189,13 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
                       {op.initials}
                     </div>
                     {isSelected && (
-                      <div className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-emerald-500 text-black flex items-center justify-center font-bold">
-                        <Check className="w-2.5 h-2.5 stroke-[3]" />
+                      <div className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center font-bold shadow-[0_0_8px_rgba(34,211,238,0.8)]">
+                        <Check className="w-3 h-3 stroke-[3]" />
                       </div>
                     )}
                     {(op.especialista || op.isRoaming) && !isSelected && (
                       <div
-                        className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[8px]"
+                        className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[8px]"
                         title="Especialista"
                       >
                         ★
@@ -204,12 +204,12 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
                   </div>
 
                   <div className="w-full">
-                    <div className="font-bold text-xs text-white truncate max-w-full leading-tight">
+                    <div className={`font-bold text-xs truncate max-w-full leading-tight mt-0.5 ${isSelected ? 'text-cyan-200 font-extrabold' : 'text-white'}`}>
                       {op.name.split(' ').length > 1
                         ? `${op.name.split(' ')[0]} ${op.name.split(' ')[1][0]}.`
                         : op.name}
                     </div>
-                    <div className="text-[9px] font-mono text-slate-400 truncate">
+                    <div className={`text-[9.5px] font-mono truncate mt-0.5 ${isSelected ? 'text-cyan-300/80 font-bold' : 'text-slate-400'}`}>
                       {op.badge || op.role}
                     </div>
                   </div>

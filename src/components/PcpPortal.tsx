@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES, OPERATORS } from '../types/mes';
+import React, { useState, useEffect } from 'react';
+import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators } from '../services/mesStorage';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
@@ -86,6 +86,17 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
   // Modal Gestão de Equipe e Colaboradores
   const [showTeamModal, setShowTeamModal] = useState<boolean>(false);
+  const [operatorsList, setOperatorsList] = useState<Operator[]>(() => fetchOperators());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setOperatorsList(fetchOperators());
+    };
+    window.addEventListener('metalrib_operators_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('metalrib_operators_updated', handleUpdate);
+    };
+  }, []);
 
   // Modal Confirmação Limpar Lista
   const [showClearConfirmModal, setShowClearConfirmModal] = useState<boolean>(false);
@@ -517,7 +528,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
               <div className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl shadow-lg">
                 <span className="text-xs font-mono text-slate-400 uppercase">Colaboradores em Ação</span>
                 <div className="text-3xl font-black text-blue-300 mt-1 font-mono-num">
-                  {uniqueActiveOperators} <span className="text-sm font-normal text-slate-500">de {OPERATORS.length}</span>
+                  {uniqueActiveOperators} <span className="text-sm font-normal text-slate-500">de {operatorsList.length}</span>
                 </div>
                 <span className="text-[11px] text-slate-400">Alocados nos setores</span>
               </div>
@@ -1070,7 +1081,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         {activeTab === 'productivity' && (
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {OPERATORS.map((op) => {
+              {operatorsList.map((op) => {
                 const operatorApts = apontamentos.filter((a) => a.operador === op.name);
                 const finished = operatorApts.filter((a) => a.status === 'FINALIZADO');
                 const inProgress = operatorApts.filter((a) => a.status === 'EM_ANDAMENTO');
@@ -1804,6 +1815,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       <TeamManagementModal
         isOpen={showTeamModal}
         onClose={() => setShowTeamModal(false)}
+        onOperatorsUpdated={() => setOperatorsList(fetchOperators())}
       />
     </div>
   );
