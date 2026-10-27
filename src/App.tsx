@@ -10,8 +10,10 @@ import {
   startBatch,
   finishBatch,
   subscribeToMesUpdates,
-  fetchTerminalsConfig
+  fetchTerminalsConfig,
+  TEST_DUMMY_OPS
 } from './services/mesStorage';
+import { db, ref, onValue } from './services/firebase';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
 import { BarcodeScannerInput } from './components/BarcodeScannerInput';
@@ -23,7 +25,7 @@ import { AutoCleanToast } from './components/AutoCleanToast';
 import { SupervisorDashboard } from './components/SupervisorDashboard';
 import { PcpPortal } from './components/PcpPortal';
 import { MobilePcpTracker } from './components/MobilePcpTracker';
-import { getRouteForOp, findStepForSector, isAncoraOrder } from './utils/routeEngine';
+import { getRouteForOp, findStepForSector, isAncoraOrder, obterQuantidadeTotal } from './utils/routeEngine';
 import { playSuccessStart, playSuccessFinish, playBlockedError, playClick } from './utils/audio';
 import { Lock, Shield, KeyRound } from 'lucide-react';
 
@@ -86,7 +88,9 @@ export default function App() {
         fetchProductionOrders(),
         fetchApontamentos()
       ]);
-      setOrders(allOrders);
+      if (allOrders && Object.keys(allOrders).length > 0) {
+        setOrders((prev) => ({ ...prev, ...allOrders }));
+      }
       setApontamentos(allApts);
 
       // Sincroniza configuração de terminais e setores caso tenham sido editados no PCP
@@ -101,9 +105,48 @@ export default function App() {
     }
   }, []);
 
-  // Executa carga inicial e escuta atualizações de outras abas ou terminais
+  // Executa carga inicial e escuta reativamente o Firebase e atualizações locais
   useEffect(() => {
+    // 1. Escuta permanente reativa do Firebase (/ordens_producao)
+    const ordensRef = ref(db, 'ordens_producao');
+    const unsubFirebase = onValue(ordensRef, (snapshot) => {
+      try {
+        if (snapshot.exists()) {
+          const dados = snapshot.val();
+          if (dados && typeof dados === 'object') {
+            const map: Record<string, ProductionOrder> = {};
+            snapshot.forEach((child) => {
+              const item = child.val();
+              if (item && typeof item === 'object') {
+                const key = child.key || '';
+                const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+                if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+                  const qtd = obterQuantidadeTotal(item);
+                  map[opNumero] = {
+                    ...item,
+                    op_numero: opNumero,
+                    numero: item.numero || opNumero,
+                    quantidade_total: qtd,
+                    quantidade: qtd
+                  };
+                }
+              }
+            });
+            if (Object.keys(map).length > 0) {
+              setOrders(map);
+              try {
+                localStorage.setItem('mes_pcp_orders', JSON.stringify(map));
+              } catch {}
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Firebase] Erro no listener reativo de ordens_producao:', err);
+      }
+    });
+
     loadData();
+
     const handleSectorsUpdated = () => {
       const dynamicTerms = fetchTerminalsConfig();
       setCurrentTerminal((prev) => {
@@ -116,7 +159,9 @@ export default function App() {
     const unsubscribe = subscribeToMesUpdates(() => {
       loadData();
     });
+
     return () => {
+      unsubFirebase();
       window.removeEventListener('metalrib_sectors_updated', handleSectorsUpdated);
       unsubscribe();
     };

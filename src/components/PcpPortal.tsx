@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators } from '../services/mesStorage';
+import { db, ref, update } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
@@ -232,10 +233,35 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const handleConfirmImportNomus = async () => {
     if (!nomusParseResult || nomusParseResult.orders.length === 0) return;
     playClick();
-    const count = await saveMultipleOrders(nomusParseResult.orders, replaceExistingOrders);
+
+    // 1. Gravação direta e permanente no Firebase Realtime Database (/ordens_producao)
+    const updates: Record<string, any> = {};
+    nomusParseResult.orders.forEach((op: any) => {
+      const opKey = String(op.numeroOP || op.op_numero || op.numero || op.id || '').replace(/[.#$[\]/]/g, '_');
+      if (!opKey) return;
+      const qtd = obterQuantidadeTotal(op);
+      const cleanOp = JSON.parse(JSON.stringify({
+        ...op,
+        op_numero: op.op_numero || opKey,
+        numero: op.numero || opKey,
+        numeroOP: op.numeroOP || opKey,
+        quantidade_total: qtd,
+        quantidade: qtd,
+        importadoEm: new Date().toISOString()
+      }));
+      updates[`ordens_producao/${opKey}`] = cleanOp;
+    });
+
+    try {
+      await update(ref(db), updates);
+    } catch (err) {
+      console.error('[PCP] Erro ao gravar ordens diretamente no nó permanente do Firebase:', err);
+    }
+
+    const count = await saveMultipleOrders(nomusParseResult.orders, false);
     
     // Atualização imediata do estado em memória para reatividade instantânea
-    const nextOrders: Record<string, ProductionOrder> = replaceExistingOrders ? {} : { ...orders };
+    const nextOrders: Record<string, ProductionOrder> = { ...orders };
     nomusParseResult.orders.forEach((o) => {
       if (o.op_numero) {
         nextOrders[o.op_numero] = o;
@@ -247,7 +273,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     }
 
     playSuccessStart();
-    setImportSuccessMsg(`🎉 ${count} Ordens de Produção do Nomus importadas e sincronizadas com sucesso para todos os 5 terminais!`);
+    setImportSuccessMsg(`🎉 ${count} Ordens de Produção do Nomus importadas e gravadas com sucesso no Firebase Realtime Database!`);
     showToast(`🎉 ${count} Ordens de Produção do Nomus importadas com sucesso!`, 'success');
     
     setTimeout(() => {

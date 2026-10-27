@@ -98,9 +98,7 @@ function broadcastUpdate() {
 export function ensureInitialData() {
   if (typeof window === 'undefined') return;
   const existingOrdersRaw = localStorage.getItem(STORAGE_ORDERS_KEY);
-  if (!existingOrdersRaw) {
-    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(INITIAL_ORDERS));
-  } else {
+  if (existingOrdersRaw) {
     // Purga ordens de teste fictícias antigas (023838-01 a 08) que possam ter ficado no storage
     try {
       const parsed = JSON.parse(existingOrdersRaw);
@@ -701,8 +699,7 @@ export function initFirebaseRealtimeListeners(): void {
     onValue(ordensRef, (snapshot) => {
       try {
         if (!snapshot.exists()) {
-          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
-          broadcastUpdate();
+          // Não apaga os dados locais se o Firebase ainda não possuir registros ou estiver conectando
           return;
         }
 
@@ -725,8 +722,10 @@ export function initFirebaseRealtimeListeners(): void {
           }
         });
 
-        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-        broadcastUpdate();
+        if (Object.keys(ordersMap).length > 0) {
+          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+          broadcastUpdate();
+        }
       } catch (err) {
         console.error('[Firebase] Erro no listener de ordens_producao:', err);
       }
@@ -959,41 +958,38 @@ export function clearTerminalSelection() {
 export async function fetchProductionOrders(): Promise<Record<string, ProductionOrder>> {
   ensureInitialData();
 
-  let raw = localStorage.getItem(STORAGE_ORDERS_KEY);
-  if (!raw || raw === '{}') {
-    try {
-      const snapshot = await get(ref(db, 'ordens_producao'));
-      if (snapshot.exists()) {
-        const ordersMap: Record<string, ProductionOrder> = {};
-        snapshot.forEach((child) => {
-          const item = child.val();
-          if (item && typeof item === 'object') {
-            const key = child.key || '';
-            const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-            if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
-              const qtd = obterQuantidadeTotal(item);
-              ordersMap[opNumero] = {
-                ...item,
-                op_numero: opNumero,
-                numero: item.numero || opNumero,
-                quantidade_total: qtd,
-                quantidade: qtd
-              };
-            }
+  try {
+    const snapshot = await get(ref(db, 'ordens_producao'));
+    if (snapshot.exists()) {
+      const ordersMap: Record<string, ProductionOrder> = {};
+      snapshot.forEach((child) => {
+        const item = child.val();
+        if (item && typeof item === 'object') {
+          const key = child.key || '';
+          const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+          if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+            const qtd = obterQuantidadeTotal(item);
+            ordersMap[opNumero] = {
+              ...item,
+              op_numero: opNumero,
+              numero: item.numero || opNumero,
+              quantidade_total: qtd,
+              quantidade: qtd
+            };
           }
-        });
-        raw = JSON.stringify(ordersMap);
-        localStorage.setItem(STORAGE_ORDERS_KEY, raw);
-      } else {
-        raw = '{}';
-        localStorage.setItem(STORAGE_ORDERS_KEY, raw);
+        }
+      });
+      if (Object.keys(ordersMap).length > 0) {
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        return ordersMap;
       }
-    } catch (err) {
-      console.warn('[Firebase] Falha na leitura inicial de ordens:', err);
     }
+  } catch (err) {
+    console.warn('[Firebase] Falha na leitura inicial de ordens_producao:', err);
   }
 
-  if (!raw) return {};
+  const raw = localStorage.getItem(STORAGE_ORDERS_KEY);
+  if (!raw || raw === '{}') return {};
   try {
     const orders: Record<string, ProductionOrder> = JSON.parse(raw);
     let modified = false;
@@ -1915,30 +1911,45 @@ export async function clearAllOrders(): Promise<void> {
 }
 
 /**
- * Salva múltiplas OPs importadas em lote (ex: importação do Nomus)
+ * Salva múltiplas OPs importadas em lote (ex: importação do Nomus) diretamente no Firebase Realtime Database
  */
 export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAll: boolean = false): Promise<number> {
-  ensureInitialData();
-  const orders = replaceAll ? {} : await fetchProductionOrders();
+  const currentOrders = await fetchProductionOrders();
+  const orders: Record<string, ProductionOrder> = replaceAll ? {} : { ...currentOrders };
   let count = 0;
-  const fbUpdates: Record<string, ProductionOrder> = {};
+  const updates: Record<string, any> = {};
+
   for (const o of newOrders) {
-    if (o.op_numero) {
-      orders[o.op_numero] = o;
-      fbUpdates[toFirebaseKey(o.op_numero)] = o;
-      count++;
-    }
+    const rawKey = String(o.op_numero || o.numero || (o as any).numeroOP || (o as any).id || '').trim();
+    if (!rawKey) continue;
+    const opKey = toFirebaseKey(rawKey);
+    const qtd = obterQuantidadeTotal(o);
+
+    const cleanOrder = JSON.parse(JSON.stringify({
+      ...o,
+      op_numero: o.op_numero || rawKey,
+      numero: o.numero || rawKey,
+      numeroOP: (o as any).numeroOP || rawKey,
+      quantidade_total: qtd,
+      quantidade: qtd,
+      importadoEm: new Date().toISOString()
+    }));
+
+    orders[o.op_numero || rawKey] = cleanOrder;
+    updates[`ordens_producao/${opKey}`] = cleanOrder;
+    count++;
   }
+
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+
   try {
-    if (replaceAll) {
-      set(ref(db, 'ordens_producao'), fbUpdates);
-    } else {
-      update(ref(db, 'ordens_producao'), fbUpdates);
+    if (Object.keys(updates).length > 0) {
+      await update(ref(db), updates);
     }
   } catch (err) {
-    console.error('[Firebase] Erro ao salvar múltiplas ordens:', err);
+    console.error('[Firebase] Erro ao salvar múltiplas ordens via update:', err);
   }
+
   broadcastUpdate();
   return count;
 }
