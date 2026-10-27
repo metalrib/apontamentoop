@@ -590,9 +590,9 @@ export default function App() {
     );
   }
 
-  // ESTADO 2: OP ENCONTRADA - FLUXO DO CHÃO DE FÁBRICA (ZERO SCROLL PARA 1366x768)
+  // ESTADO 2: OP ENCONTRADA - FLUXO DO CHÃO DE FÁBRICA
   return (
-    <div className="h-screen max-h-screen overflow-hidden flex flex-col p-2.5 gap-2 bg-slate-950 text-slate-100 select-none antialiased selection:bg-[#1C2F8A] selection:text-white">
+    <div className="min-h-screen flex flex-col p-2.5 gap-2 bg-slate-950 text-slate-100 select-none antialiased selection:bg-[#1C2F8A] selection:text-white">
       {/* Barra Superior Kiosk do Chão de Fábrica */}
       <Header
         currentTerminal={currentTerminal}
@@ -616,29 +616,30 @@ export default function App() {
         />
       )}
 
-      {/* Conteúdo Principal (Zero Scroll para 1366x768) */}
+      {/* Conteúdo Principal */}
       <main className="flex-1 min-h-0 flex flex-col w-full max-w-7xl mx-auto">
-        <div className="flex-1 min-h-0 flex flex-col gap-2 justify-between">
-          {/* Régua Horizontal Superior com Botão de Trocar OP e Detalhes Compactos */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleResetScreen}
-              className="h-[44px] max-h-[44px] px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0 active:scale-95 shadow-sm"
-              title="Bipar outra OP"
-            >
-              <span>← Bipar Outra</span>
-            </button>
+        {/* Régua Horizontal Superior com Botão de Trocar OP e Detalhes Compactos */}
+        <div className="flex items-center gap-2 shrink-0 mb-1">
+          <button
+            onClick={handleResetScreen}
+            className="h-[44px] max-h-[44px] px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-700 text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0 active:scale-95 shadow-sm"
+            title="Bipar outra OP"
+          >
+            <span>← Bipar Outra</span>
+          </button>
 
-            <div className="flex-1 min-w-0">
-              <OpDetailsCard
-                order={currentOp}
-                apontamentos={apontamentos}
-                selectedSector={selectedSector}
-                currentTerminal={currentTerminal}
-              />
-            </div>
+          <div className="flex-1 min-w-0">
+            <OpDetailsCard
+              order={currentOp}
+              apontamentos={apontamentos}
+              selectedSector={selectedSector}
+              currentTerminal={currentTerminal}
+            />
           </div>
+        </div>
 
+        {/* Div/container que envolve os Passos 1, 2 e 3 (abaixo do cabeçalho da OP) */}
+        <div className="flex-1 overflow-y-auto max-h-[calc(100vh-140px)] px-4 py-2 space-y-3 pb-28 custom-scrollbar">
           {/* Passo 1: Posto de Trabalho */}
           <SectorSelector
             terminal={currentTerminal!}

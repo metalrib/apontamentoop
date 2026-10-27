@@ -58,7 +58,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
         {availableSectors.map((sector, idx) => {
           const matchedStep = findStepForSector(sector, steps);
           const isSobDemanda = isAncora && isTerminal5 && sector.includes('Solda');
@@ -78,7 +78,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 }
                 onSelectSector(sector);
               }}
-              className={`relative py-2 px-3 text-xs sm:text-sm font-medium rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn cursor-pointer ${
+              className={`relative py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn cursor-pointer ${
                 isSelected
                   ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold'
                   : isSobDemanda && !order.requer_solda
@@ -102,7 +102,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 }`}
               />
 
-              <span className="whitespace-normal text-center leading-snug text-xs sm:text-sm font-medium flex-1 break-words">
+              <span className="whitespace-normal text-center leading-snug text-xs sm:text-sm font-semibold flex-1 break-words">
                 {sector}
               </span>
 
