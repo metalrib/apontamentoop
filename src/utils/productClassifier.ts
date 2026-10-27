@@ -8,6 +8,7 @@ import {
   CODIGOS_ANCORAS_PADRAO
 } from '../types/mes';
 import { extractProductCode, normalizeText } from './routeEngine';
+import { verificarSeExigeEmenda } from './routeValidation';
 
 export type FamiliaProduto =
   | 'PORTA_GIRATORIA'
@@ -47,7 +48,19 @@ export function identificarFamiliaProduto(
   const norm = normalizeText(rawDesc);
   const code = (rawCode ? extractProductCode(rawCode) : extractProductCode(rawDesc) || '').trim();
 
-  // 1. PORTAS GIRATÓRIAS (Códigos 001.xxx e 003.xxx são sempre Portas Giratórias, mesmo contendo 3BAT/4BAT)
+  // 1. PORTA EMENDADA (Tabela técnica oficial baseada em dimensões ou texto explícito)
+  if (
+    verificarSeExigeEmenda(rawDesc) ||
+    norm.includes('EMENDADA') ||
+    norm.includes('EMENDADO') ||
+    norm.includes('EME-') ||
+    /\bEME\b/.test(norm) ||
+    code.startsWith('002.')
+  ) {
+    return 'PORTA_EMENDADA';
+  }
+
+  // 2. PORTAS GIRATÓRIAS (Códigos 001.xxx e 003.xxx são sempre Portas Giratórias, mesmo contendo 3BAT/4BAT)
   if (
     code.startsWith('001.') ||
     code.startsWith('003.') ||
@@ -105,18 +118,7 @@ export function identificarFamiliaProduto(
     return 'BATENTE';
   }
 
-  // 6. PORTA EMENDADA
-  if (
-    norm.includes('EMENDADA') ||
-    norm.includes('EMENDADO') ||
-    norm.includes('EME-') ||
-    /\bEME\b/.test(norm) ||
-    code.startsWith('002.')
-  ) {
-    return 'PORTA_EMENDADA';
-  }
-
-  // 7. ACESSÓRIOS / MIUDEZAS (Âncoras, Trilhos, Perfis)
+  // 6. ACESSÓRIOS / MIUDEZAS (Âncoras, Trilhos, Perfis)
   if (
     code.startsWith('021.') ||
     code.startsWith('022.') ||

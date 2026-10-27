@@ -11,6 +11,9 @@ import {
   CODIGOS_BATENTES_PADRAO,
   CODIGOS_ANCORAS_PADRAO
 } from '../types/mes';
+import { verificarSeExigeEmenda } from './routeValidation';
+
+export { verificarSeExigeEmenda };
 
 /**
  * Extrai e sanitiza com segurança a quantidade total da OP,
@@ -171,11 +174,14 @@ function resolveBaseRoute(
 
   // 5. Se for Porta Giratória
   if (norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || norm.includes('GIRATORIA')) {
-    if (code && CODIGOS_PADRAO_GIRO.has(code)) {
+    const exigeEmenda = verificarSeExigeEmenda(desc || '');
+    const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem de Portas Giratória Padrão e Especial';
+
+    if (code && CODIGOS_PADRAO_GIRO.has(code) && !exigeEmenda) {
       const rule: RouteRule = {
         keyword: 'PT GIR',
         label: 'Rota 15 - Porta Padrão Giratória',
-        steps: ['Instalação de Gaxeta', 'Montagem de Portas Giratória'],
+        steps: ['Instalação de Gaxeta', montagemStep],
         badge: 'Linha Padrão (Montagem Direta)',
         isStandardLine: true
       };
@@ -183,9 +189,9 @@ function resolveBaseRoute(
     } else {
       const rule: RouteRule = {
         keyword: 'PT GIR ESPECIAL',
-        label: 'Rota 12 - Porta Especial Giratória',
-        steps: ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Portas Giratória'],
-        badge: 'Especial sob Medida (Fabricação Completa)',
+        label: exigeEmenda ? 'Rota 12 - Porta Giratória Emendada' : 'Rota 12 - Porta Especial Giratória',
+        steps: ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Instalação de Gaxeta', montagemStep],
+        badge: exigeEmenda ? 'Porta Emendada (Montagem T3)' : 'Especial sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
@@ -194,11 +200,26 @@ function resolveBaseRoute(
 
   // 6. Se for Porta de Correr ou Trilho convencional
   if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('TRILHO')) {
-    if (code && CODIGOS_PADRAO_CORRER.has(code)) {
+    const isTrilho = (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO');
+    if (isTrilho) {
+      const rule: RouteRule = {
+        keyword: 'TRILHO',
+        label: 'Trilho Porta de Correr (Corte e Montagem)',
+        steps: ['Trilhos p/ Portas Correr'],
+        badge: 'Trilho Correr',
+        isStandardLine: true
+      };
+      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+    }
+
+    const exigeEmenda = verificarSeExigeEmenda(desc || '');
+    const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem Portas de Correr Padrão e Especial';
+
+    if (code && CODIGOS_PADRAO_CORRER.has(code) && !exigeEmenda) {
       const rule: RouteRule = {
         keyword: 'PT COR',
         label: 'Rota 16 - Porta Padrão Correr',
-        steps: ['Montagem de Portas Emendadas'],
+        steps: [montagemStep],
         badge: 'Linha Padrão (Montagem Direta)',
         isStandardLine: true
       };
@@ -206,9 +227,9 @@ function resolveBaseRoute(
     } else {
       const rule: RouteRule = {
         keyword: 'PT COR ESPECIAL',
-        label: 'Rota 13/14 - Porta Especial de Correr',
-        steps: ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Montagem de Portas Emendadas'],
-        badge: 'Especial sob Medida (Fabricação Completa)',
+        label: exigeEmenda ? 'Rota 13/14 - Porta de Correr Emendada' : 'Rota 13/14 - Porta Especial de Correr',
+        steps: ['Corte', 'Dobra', 'Preparação', 'Injeção', montagemStep],
+        badge: exigeEmenda ? 'Porta Emendada (Montagem T3)' : 'Especial sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
@@ -348,16 +369,16 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return true;
   }
 
-  if (normStep.includes('MONTAGEM DE PORTAS GIRATORIA') && normSector.includes('GIRATORIA') && !normSector.includes('GAXETA')) {
-    return true;
+  if (normStep.includes('GIRATORIA') && !normStep.includes('GAXETA')) {
+    return normSector.includes('GIRATORIA') && !normSector.includes('GAXETA') && !normSector.includes('EMENDADA');
   }
 
-  if (normStep.includes('EMENDADA') && (normSector.includes('EMENDADA') || normSector.includes('PORTAS DE CORRER'))) {
-    return true;
+  if (normStep.includes('EMENDADA')) {
+    return normSector.includes('EMENDADA');
   }
 
-  if ((normStep.includes('CORRER') || normStep.includes('EMENDADA')) && (normSector.includes('PORTAS DE CORRER') || normSector.includes('TRILHO'))) {
-    return true;
+  if (normStep.includes('CORRER')) {
+    return normSector.includes('CORRER') && !normSector.includes('EMENDADA');
   }
 
   if (normStep === 'FINALIZACAO VAI VEM' || normStep.includes('FINALIZACAO VAI VEM') || normStep.includes('VAI VEM')) {
@@ -532,10 +553,13 @@ export function isBatchTracking(
     return false;
   }
 
-  // - Portas de Correr (no setor de Montagem de Portas Emendadas)
+  // - Portas de Correr e Portas Emendadas (nos setores de Montagem)
   const isTrilho = (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO');
   const isPortaCorrer = !isTrilho && (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER'));
-  if (isPortaCorrer && secNorm.includes('emendad')) {
+  if (isPortaCorrer && (secNorm.includes('emendad') || secNorm.includes('correr'))) {
+    return false;
+  }
+  if (secNorm.includes('emendad')) {
     return false;
   }
 

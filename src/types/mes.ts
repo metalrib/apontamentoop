@@ -131,7 +131,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT COR",
     label: "Rota 16 - Porta Padrão Correr",
-    steps: ["Montagem de Portas Emendadas"],
+    steps: ["Montagem Portas de Correr Padrão e Especial"],
     badge: "Linha Padrão (Montagem Direta)",
     isStandardLine: true
   },
@@ -139,8 +139,16 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT COR ESPECIAL",
     label: "Rota 13/14 - Porta Especial de Correr",
-    steps: ["Corte", "Dobra", "Preparação", "Injeção", "Montagem de Portas Emendadas"],
+    steps: ["Corte", "Dobra", "Preparação", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial sob Medida (Fabricação Completa)",
+    isStandardLine: false
+  },
+  // Porta Emendada (Dimensões Excedentes ou Modelo Emendado - Terminal 3)
+  {
+    keyword: "PT EMENDADA",
+    label: "Porta Emendada (Correr/Giro)",
+    steps: ["Corte", "Dobra", "Preparação", "Injeção", "Montagem Portas Emendadas"],
+    badge: "Porta Emendada (Montagem T3)",
     isStandardLine: false
   },
   {
