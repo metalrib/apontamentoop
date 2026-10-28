@@ -467,6 +467,17 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       });
     }
 
+    // Terminal 5: Presença de Corte, Montagem Estante e Montagem Abrigo Doca para serralheria e rotas especiais
+    if (t.id === 5) {
+      const T5_SPECIAL_POSTS = ['Corte', 'Montagem Estante', 'Montagem Abrigo Doca'];
+      T5_SPECIAL_POSTS.forEach((post) => {
+        if (!sectors.includes(post)) {
+          sectors.push(post);
+          changed = true;
+        }
+      });
+    }
+
     return { ...t, sectors };
   });
 

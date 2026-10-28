@@ -182,6 +182,48 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: ["Corte de Trilho p/ Porta Correr", "Montagem de Trilho p/ Porta Correr"]
   },
   {
+    keyword: "QUADRO ESTANTE",
+    label: "Quadro Estante Walk-in",
+    steps: ["Laser", "Dobra", "Solda", "Montagem Estante"],
+    badge: "Estante Walk-in"
+  },
+  {
+    keyword: "PE ESTANTE SEM PINTURA",
+    label: "Pé de Estante (Sem Pintura)",
+    steps: ["Corte", "Solda", "Montagem Estante"],
+    badge: "Serralheria Estante"
+  },
+  {
+    keyword: "PE ESTANTE COM PINTURA",
+    label: "Pé de Estante (Com Pintura)",
+    steps: ["Cortina"],
+    badge: "Montagem Final (Cortina)"
+  },
+  {
+    keyword: "RESIST PISO",
+    label: "Resistência de Piso 70W/MT",
+    steps: ["Montagem Portas Emendadas"],
+    badge: "Resistência de Piso (T3/T4)"
+  },
+  {
+    keyword: "ABRIGO DOCA",
+    label: "Abrigo de Doca Retrátil",
+    steps: ["Corte", "Solda", "Montagem Abrigo Doca"],
+    badge: "Abrigo de Doca (T5)"
+  },
+  {
+    keyword: "PERFIL PP",
+    label: "Perfil PP (Chapa)",
+    steps: ["Corte", "Dobra"],
+    badge: "Perfil PP (T1)"
+  },
+  {
+    keyword: "KIT GAXETA",
+    label: "Kit Gaxeta U",
+    steps: ["Montagem Portas Emendadas"],
+    badge: "Kit Gaxeta (T3/T4)"
+  },
+  {
     keyword: "CORTINA",
     label: "Cortina de PVC",
     steps: ["Cortina"]

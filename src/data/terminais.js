@@ -31,11 +31,14 @@ export const POSTOS_POR_TERMINAL = {
     'Montagem de Trilho p/ Porta Correr'
   ],
   T5: [
+    'Corte',
+    'Solda',
+    'Montagem Estante',
+    'Montagem Abrigo Doca',
+    'Cortina',
     'Router',
     'Elétrica',
-    'Cortina',
     'Preparação Vai Vem',
-    'Solda',
     'Montagem Portas Emendadas',
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem Portas de Correr Padrão e Especial',

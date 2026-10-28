@@ -79,6 +79,30 @@ export function verificarSeExigeEmenda(descricao: string): boolean {
   return false;
 }
 
+import { CODIGOS_TRILHOS_LGT_PADRAO } from '../types/mes';
+
+export function normalizeValidationText(text: string): string {
+  return (text || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase()
+    .trim();
+}
+
+export function extractValidationCode(op: any): string {
+  if (!op) return '';
+  const rawCode = String(op.codigo || op.codigoProduto || op.code || '').trim();
+  if (rawCode) {
+    const match = rawCode.match(/^(\d{3})\.?(\d{4})$/);
+    if (match) return `${match[1]}.${match[2]}`;
+    return rawCode;
+  }
+  const desc = String(op.descricao || op.description || '');
+  const matchDesc = desc.match(/\b(\d{3})\.?(\d{4})\b/);
+  if (matchDesc) return `${matchDesc[1]}.${matchDesc[2]}`;
+  return '';
+}
+
 /**
  * Retorna as etapas oficiais da rota de fabricação de Trilhos de Portas de Correr.
  */
@@ -90,54 +114,362 @@ export function getRotaTrilhoCorrer(): string[] {
 }
 
 /**
+ * Retorna as etapas oficiais do Quadro Estante Walk-in.
+ */
+export function getRotaQuadroEstante(): string[] {
+  return ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
+}
+
+/**
+ * Retorna as etapas oficiais do Pé da Estante sem pintura (Serralheria T5).
+ */
+export function getRotaPeEstanteSemPintura(): string[] {
+  return ['Corte', 'Solda', 'Montagem Estante'];
+}
+
+/**
+ * Retorna as etapas oficiais do Pé da Estante com pintura (Montagem Cortina T5).
+ */
+export function getRotaPeEstanteComPintura(): string[] {
+  return ['Cortina'];
+}
+
+/**
+ * Retorna as etapas oficiais da Resistência de Piso 70W/MT.
+ */
+export function getRotaResistenciaPiso(): string[] {
+  return ['Montagem Portas Emendadas'];
+}
+
+/**
+ * Retorna as etapas oficiais do Abrigo de Doca Retrátil.
+ */
+export function getRotaAbrigoDoca(): string[] {
+  return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
+}
+
+/**
+ * Retorna as etapas oficiais dos Perfis PP (Chapa).
+ */
+export function getRotaPerfilPP(): string[] {
+  return ['Corte', 'Dobra'];
+}
+
+/**
+ * Retorna as etapas oficiais do Kit Gaxeta U.
+ */
+export function getRotaKitGaxetaU(): string[] {
+  return ['Montagem Portas Emendadas'];
+}
+
+// Funções de Classificação de Produtos Industriais
+export function isQuadroEstante(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code === '090.0004' || code === '090.0005' || code.startsWith('015.')) return true;
+  if (norm.includes('QUADRO ESTANTE') || (norm.includes('QUADRO') && norm.includes('ESTANTE'))) return true;
+  return false;
+}
+
+export function isPeEstanteSemPintura(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code === '090.0002') return true;
+  const isPe = norm.includes('PE ESTANTE') || norm.includes('PE DA ESTANTE') || (norm.includes('PE') && norm.includes('ESTANTE'));
+  const isSemPintura = norm.includes('SEM PINTURA') || norm.includes('S/ PINTURA') || norm.includes('S/PINTURA') || norm.includes('S PINTURA');
+  return Boolean(isPe && isSemPintura);
+}
+
+export function isPeEstanteComPintura(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code === '090.0001') return true;
+  const isPe = norm.includes('PE ESTANTE') || norm.includes('PE DA ESTANTE') || (norm.includes('PE') && norm.includes('ESTANTE'));
+  const isSemPintura = norm.includes('SEM PINTURA') || norm.includes('S/ PINTURA') || norm.includes('S/PINTURA') || norm.includes('S PINTURA');
+  return Boolean(isPe && !isSemPintura);
+}
+
+export function isResistenciaPiso(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code === '029.0014' || code.startsWith('029.')) return true;
+  if (norm.includes('RESIST PISO') || norm.includes('RESISTENCIA DE PISO') || norm.includes('RESISTENCIA PISO') || norm.includes('RESIST. PISO')) return true;
+  return false;
+}
+
+export function isAbrigoDoca(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code === '014.0010' || code.startsWith('014.')) return true;
+  if (norm.includes('ABRIGO DOCA') || norm.includes('ABRIGO DE DOCA')) return true;
+  return false;
+}
+
+export function isPerfilPP(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code.startsWith('022.')) return true;
+  if (norm.startsWith('PERFIL PP') || norm.includes('PERFIL PP')) return true;
+  return false;
+}
+
+export function isKitGaxetaU(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code === '025.0006' || (code.startsWith('025.') && norm.includes('GAXETA'))) return true;
+  if (norm.includes('KIT GAXETA') || norm.includes('KIT DE GAXETA')) return true;
+  return false;
+}
+
+export function isTrilhoCorrer(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code.startsWith('028.') || (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code))) return true;
+  if (norm.includes('TRILHO') && !norm.includes('TRILHO CORTINA')) return true;
+  return false;
+}
+
+/**
+ * Verifica com segurança se uma etapa anterior já foi concluída na OP,
+ * conferindo op.progressoPostos, op.etapas (array ou dicionário de estados) e histórico de apontamentos.
+ */
+export function isEtapaConcluida(op: any, etapaNome: string, apontamentos?: any[]): boolean {
+  if (!op || !etapaNome) return false;
+  const normEtapa = normalizeValidationText(etapaNome);
+
+  // 1. op.progressoPostos
+  if (op.progressoPostos && typeof op.progressoPostos === 'object') {
+    for (const key of Object.keys(op.progressoPostos)) {
+      if (normalizeValidationText(key) === normEtapa) {
+        if (op.progressoPostos[key]?.concluido) return true;
+      }
+    }
+  }
+
+  // 2. op.etapas (Array)
+  if (Array.isArray(op.etapas)) {
+    const found = op.etapas.find((e: any) => normalizeValidationText(e.nome || e.step) === normEtapa);
+    if (found?.concluido || found?.status === 'CONCLUIDO') return true;
+  }
+
+  // 3. op.etapas (Record/Objeto)
+  if (op.etapas && typeof op.etapas === 'object') {
+    for (const key of Object.keys(op.etapas)) {
+      if (normalizeValidationText(key) === normEtapa) {
+        const etapaObj = op.etapas[key];
+        if (etapaObj?.status === 'CONCLUIDO') return true;
+        if (typeof etapaObj?.concluidas === 'number' && etapaObj.concluidas > 0 && etapaObj.concluidas >= (etapaObj.total || 1)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 4. Apontamentos finalizados
+  if (Array.isArray(apontamentos) && apontamentos.length > 0) {
+    const cleanOp = (op.op_numero || op.numero || op.id || '').trim().toUpperCase();
+    const cleanNorm = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+
+    const hasFinished = apontamentos.some((a: any) => {
+      const aOp = (a.op_numero || a.op || '').trim().toUpperCase();
+      const aNorm = aOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+      const matchOp = aOp === cleanOp || aNorm === cleanNorm;
+      if (!matchOp) return false;
+
+      const aptEtapa = a.etapa_rota || a.etapaRota || a.setor || a.setorFisico || '';
+      return normalizeValidationText(aptEtapa) === normEtapa && a.status === 'FINALIZADO';
+    });
+    if (hasFinished) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Matriz Oficial de Roteamento Industrial e Validação Sequencial Estrita.
+ * Valida se o posto selecionado pertence à rota oficial do produto,
+ * se o terminal físico condiz com o processo,
+ * e se as etapas precedentes foram concluídas antes de liberar a próxima etapa.
+ */
+export function validarPostoIndustrial(
+  op: any,
+  postoSelecionado: string,
+  apontamentos?: any[],
+  terminalId?: number
+): { valido: boolean; motivo?: string } {
+  if (!postoSelecionado) return { valido: true };
+
+  // 1. ESTANTES WALK-IN: QUADRO ESTANTE
+  if (isQuadroEstante(op)) {
+    const rota = getRotaQuadroEstante();
+    if (!rota.includes(postoSelecionado)) {
+      return {
+        valido: false,
+        motivo: 'Quadro Estante Walk-in só pode ser apontado na rota: Laser (T1) -> Dobra (T1) -> Solda (T5) -> Montagem Estante (T5).'
+      };
+    }
+    if ((postoSelecionado === 'Laser' || postoSelecionado === 'Dobra') && terminalId && terminalId !== 1) {
+      return { valido: false, motivo: `A etapa ${postoSelecionado} do Quadro Estante deve ser realizada no Terminal 1.` };
+    }
+    if ((postoSelecionado === 'Solda' || postoSelecionado === 'Montagem Estante') && terminalId && terminalId !== 5) {
+      return { valido: false, motivo: `A etapa ${postoSelecionado} do Quadro Estante deve ser realizada no Terminal 5.` };
+    }
+    if (postoSelecionado === 'Dobra' && !isEtapaConcluida(op, 'Laser', apontamentos)) {
+      return { valido: false, motivo: 'A Dobra do Quadro Estante só pode ser iniciada após a conclusão do Laser (T1).' };
+    }
+    if (postoSelecionado === 'Solda' && !isEtapaConcluida(op, 'Dobra', apontamentos)) {
+      return { valido: false, motivo: 'A Solda do Quadro Estante só pode ser iniciada após a conclusão da Dobra (T1).' };
+    }
+    if (postoSelecionado === 'Montagem Estante' && !isEtapaConcluida(op, 'Solda', apontamentos)) {
+      return { valido: false, motivo: 'A Montagem do Quadro Estante só pode ser iniciada após a conclusão da Solda (T5).' };
+    }
+    return { valido: true };
+  }
+
+  // 2. ESTANTES WALK-IN: PÉ DA ESTANTE SEM PINTURA
+  if (isPeEstanteSemPintura(op)) {
+    const rota = getRotaPeEstanteSemPintura();
+    if (!rota.includes(postoSelecionado)) {
+      return {
+        valido: false,
+        motivo: 'Pé da Estante sem pintura só pode ser apontado na rota da serralheria: Corte (T5) -> Solda (T5) -> Montagem Estante (T5).'
+      };
+    }
+    if (terminalId && terminalId !== 5) {
+      return { valido: false, motivo: 'O processo de Pé da Estante sem pintura é exclusivo da serralheria no Terminal 5.' };
+    }
+    if (postoSelecionado === 'Solda' && !isEtapaConcluida(op, 'Corte', apontamentos)) {
+      return { valido: false, motivo: 'A Solda do Pé de Estante só pode ser iniciada após a conclusão do Corte (T5).' };
+    }
+    if (postoSelecionado === 'Montagem Estante' && !isEtapaConcluida(op, 'Solda', apontamentos)) {
+      return { valido: false, motivo: 'A Montagem do Pé de Estante só pode ser iniciada após a conclusão da Solda (T5).' };
+    }
+    return { valido: true };
+  }
+
+  // 3. ESTANTES WALK-IN: PÉ DA ESTANTE COM PINTURA
+  if (isPeEstanteComPintura(op)) {
+    if (postoSelecionado !== 'Cortina') {
+      return {
+        valido: false,
+        motivo: 'Pé da Estante com pintura possui rota única de montagem final no posto Cortina (Terminal 5).'
+      };
+    }
+    if (terminalId && terminalId !== 5) {
+      return { valido: false, motivo: 'A montagem final de Pé de Estante com pintura deve ser feita no Terminal 5 (posto Cortina).' };
+    }
+    return { valido: true };
+  }
+
+  // 4. RESISTÊNCIA DE PISO 70W/MT
+  if (isResistenciaPiso(op)) {
+    if (postoSelecionado !== 'Montagem Portas Emendadas') {
+      return {
+        valido: false,
+        motivo: 'Resistência de Piso 70W/MT deve ser apontada exclusivamente no posto "Montagem Portas Emendadas" (Terminal 3 ou 4).'
+      };
+    }
+    if (terminalId && terminalId !== 3 && terminalId !== 4) {
+      return { valido: false, motivo: 'Resistência de Piso só pode ser montada no Terminal 3 ou Terminal 4.' };
+    }
+    return { valido: true };
+  }
+
+  // 5. ABRIGO DE DOCA RETRÁTIL
+  if (isAbrigoDoca(op)) {
+    const isMontagem = postoSelecionado === 'Montagem Abrigo Doca' || postoSelecionado === 'Montagem';
+    const isValido = postoSelecionado === 'Corte' || postoSelecionado === 'Solda' || isMontagem;
+    if (!isValido) {
+      return {
+        valido: false,
+        motivo: 'Abrigo de Doca Retrátil só pode ser apontado na rota: Corte (T5) -> Solda (T5) -> Montagem Abrigo Doca (T5).'
+      };
+    }
+    if (terminalId && terminalId !== 5) {
+      return { valido: false, motivo: 'O Abrigo de Doca Retrátil deve ser fabricado exclusivamente no Terminal 5.' };
+    }
+    if (postoSelecionado === 'Solda' && !isEtapaConcluida(op, 'Corte', apontamentos)) {
+      return { valido: false, motivo: 'A Solda do Abrigo de Doca só pode ser iniciada após a conclusão do Corte (T5).' };
+    }
+    if (isMontagem && !isEtapaConcluida(op, 'Solda', apontamentos)) {
+      return { valido: false, motivo: 'A Montagem do Abrigo de Doca só pode ser iniciada após a conclusão da Solda (T5).' };
+    }
+    return { valido: true };
+  }
+
+  // 6. PERFIS DE CHAPA / PP
+  if (isPerfilPP(op)) {
+    const rota = getRotaPerfilPP();
+    if (!rota.includes(postoSelecionado)) {
+      return {
+        valido: false,
+        motivo: 'Perfil PP só pode ser apontado na rota: Corte (T1) -> Dobra (T1).'
+      };
+    }
+    if (terminalId && terminalId !== 1) {
+      return { valido: false, motivo: 'Perfil PP deve ser processado exclusivamente no Terminal 1.' };
+    }
+    if (postoSelecionado === 'Dobra' && !isEtapaConcluida(op, 'Corte', apontamentos)) {
+      return { valido: false, motivo: 'A Dobra do Perfil PP só pode ser iniciada após a conclusão do Corte (T1).' };
+    }
+    return { valido: true };
+  }
+
+  // 7. KIT GAXETA U
+  if (isKitGaxetaU(op)) {
+    if (postoSelecionado !== 'Montagem Portas Emendadas') {
+      return {
+        valido: false,
+        motivo: 'Kit Gaxeta U deve ser apontado exclusivamente no posto "Montagem Portas Emendadas" (Terminal 3 ou 4).'
+      };
+    }
+    if (terminalId && terminalId !== 3 && terminalId !== 4) {
+      return { valido: false, motivo: 'Kit Gaxeta U só pode ser montado no Terminal 3 ou Terminal 4.' };
+    }
+    return { valido: true };
+  }
+
+  // 8. TRILHOS DE PORTA DE CORRER
+  if (isTrilhoCorrer(op)) {
+    const rota = getRotaTrilhoCorrer();
+    if (!rota.includes(postoSelecionado)) {
+      return {
+        valido: false,
+        motivo: 'OP de Trilho só pode ser apontada nos postos de Corte ou Montagem de Trilho.'
+      };
+    }
+    if (postoSelecionado === 'Montagem de Trilho p/ Porta Correr' && !isEtapaConcluida(op, 'Corte de Trilho p/ Porta Correr', apontamentos)) {
+      return {
+        valido: false,
+        motivo: 'A Montagem do Trilho só pode ser iniciada após a conclusão do Corte do Trilho.'
+      };
+    }
+    return { valido: true };
+  }
+
+  // 9. PROTEÇÃO CONTRA SELEÇÃO DE POSTOS EXCLUSIVOS POR OUTROS PRODUTOS
+  if (postoSelecionado.includes('Trilho p/ Porta Correr') && !isTrilhoCorrer(op)) {
+    return { valido: false, motivo: 'Este posto é exclusivo para fabricação de Trilhos de Portas de Correr.' };
+  }
+  if (postoSelecionado === 'Montagem Estante' && !isQuadroEstante(op) && !isPeEstanteSemPintura(op)) {
+    return { valido: false, motivo: 'O posto Montagem Estante é exclusivo para fabricação de Estantes Walk-in.' };
+  }
+  if (postoSelecionado === 'Montagem Abrigo Doca' && !isAbrigoDoca(op)) {
+    return { valido: false, motivo: 'O posto Montagem Abrigo Doca é exclusivo para Abrigo de Doca Retrátil.' };
+  }
+
+  // 10. POLÍTICA DE CONTINGÊNCIA (ROTA ABERTA / FÁBRICA)
+  return { valido: true };
+}
+
+/**
  * Validação sequencial e verificação de compatibilidade para Ordens de Produção de Trilhos.
- * Impede que produtos que não sejam trilhos usem os postos de trilho,
- * restringe OPs de trilhos aos postos permitidos,
- * e exige a conclusão do Corte antes do início da Montagem.
+ * Mantida para retrocompatibilidade total com módulos existentes.
  */
 export function validarPostoTrilho(
   op: any,
   postoSelecionado: string,
   apontamentos?: any[]
 ): { valido: boolean; motivo?: string } {
-  const isTrilho = (op?.descricao || '').toUpperCase().includes('TRILHO') || 
-                   String(op?.codigo || op?.codigoProduto || '').startsWith('028.');
-
-  // Se NÃO for trilho, não pode selecionar postos exclusivos de trilho
-  if (!isTrilho) {
-    if (postoSelecionado.includes('Trilho p/ Porta Correr')) {
-      return { valido: false, motivo: 'Este posto é exclusivo para fabricação de Trilhos de Portas de Correr.' };
-    }
-    return { valido: true };
-  }
-
-  // Se FOR trilho, só pode selecionar postos da rota de trilho
-  const rotaTrilho = getRotaTrilhoCorrer();
-  if (!rotaTrilho.includes(postoSelecionado)) {
-    return { valido: false, motivo: 'OP de Trilho só pode ser apontada nos postos de Corte ou Montagem de Trilho.' };
-  }
-
-  // Validação Sequencial: Montagem só libera se Corte estiver concluído
-  if (postoSelecionado === 'Montagem de Trilho p/ Porta Correr') {
-    const cortePostoKey = 'Corte de Trilho p/ Porta Correr';
-    const corteProgresso = op?.progressoPostos?.[cortePostoKey]?.concluido;
-    const corteEtapaArray = Array.isArray(op?.etapas) && op.etapas.find((e: any) => e.nome === cortePostoKey || e.step === cortePostoKey)?.concluido;
-    const corteEtapaRecord = op?.etapas?.[cortePostoKey];
-    const corteRecordConcluido = corteEtapaRecord?.status === 'CONCLUIDO' || 
-      (typeof corteEtapaRecord?.concluidas === 'number' && corteEtapaRecord.concluidas > 0 && corteEtapaRecord.concluidas >= (corteEtapaRecord.total || 1));
-
-    const corteAptConcluido = Array.isArray(apontamentos) && apontamentos.some(
-      (a: any) =>
-        (a.op_numero === op?.op_numero || a.op === op?.op_numero) &&
-        (a.etapa_rota === cortePostoKey || a.etapaRota === cortePostoKey || a.setor === cortePostoKey || a.setorFisico === cortePostoKey) &&
-        a.status === 'FINALIZADO'
-    );
-
-    const corteConcluido = Boolean(corteProgresso || corteEtapaArray || corteRecordConcluido || corteAptConcluido);
-    if (!corteConcluido) {
-      return { valido: false, motivo: 'A Montagem do Trilho só pode ser iniciada após a conclusão do Corte do Trilho.' };
-    }
-  }
-
-  return { valido: true };
+  return validarPostoIndustrial(op, postoSelecionado, apontamentos);
 }

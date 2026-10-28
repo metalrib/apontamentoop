@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TerminalConfig, ProductionOrder, Apontamento } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
-import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
-import { validarPostoTrilho } from '../utils/routeValidation';
+import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, validarPostoIndustrial } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick, playBlockedError } from '../utils/audio';
 import { Check, AlertCircle, Lock } from 'lucide-react';
@@ -39,7 +38,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
     const isStep = findStepForSector(s, steps) !== null;
     if (!isStep) return false;
-    const v = validarPostoTrilho(order, s, apontamentos);
+    const v = validarPostoIndustrial(order, s, apontamentos, terminal.id);
     return v.valido;
   });
 
@@ -82,18 +81,18 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
           const isLaserSector = sector.toLowerCase().includes('laser');
           const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
 
-          // Validação estrita de rotas para OPs de Trilho
-          const trilhoValidation = validarPostoTrilho(order, sector, apontamentos);
-          const isBlockedByTrilhoRule = !trilhoValidation.valido;
+          // Validação estrita de rotas industriais especiais
+          const routeValidation = validarPostoIndustrial(order, sector, apontamentos, terminal.id);
+          const isBlockedByRouteRule = !routeValidation.valido;
 
           return (
             <button
               key={`${terminal.id}_${sector}_${idx}`}
               onClick={async () => {
-                if (isBlockedByTrilhoRule) {
+                if (isBlockedByRouteRule) {
                   playBlockedError();
-                  setBlockedWarning(trilhoValidation.motivo || 'Posto não permitido para esta OP.');
-                  setTimeout(() => setBlockedWarning(null), 5000);
+                  setBlockedWarning(routeValidation.motivo || 'Posto não permitido para esta OP.');
+                  setTimeout(() => setBlockedWarning(null), 6000);
                   return;
                 }
                 setBlockedWarning(null);
@@ -103,9 +102,9 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 }
                 onSelectSector(sector);
               }}
-              title={isBlockedByTrilhoRule ? trilhoValidation.motivo : undefined}
+              title={isBlockedByRouteRule ? routeValidation.motivo : undefined}
               className={`relative py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn ${
-                isBlockedByTrilhoRule
+                isBlockedByRouteRule
                   ? 'bg-slate-950/30 border-slate-800/80 text-slate-500 cursor-not-allowed opacity-60'
                   : isSelected
                   ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold cursor-pointer'
@@ -120,7 +119,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
             >
               <span
                 className={`w-2 h-2 mr-2 rounded-full shrink-0 ${
-                  isBlockedByTrilhoRule
+                  isBlockedByRouteRule
                     ? 'bg-slate-600'
                     : isSobDemanda && !order.requer_solda
                     ? 'bg-amber-400 animate-pulse'
@@ -136,8 +135,8 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                 {sector}
               </span>
 
-              {isBlockedByTrilhoRule ? (
-                <div className="shrink-0 ml-1.5 text-slate-500" title={trilhoValidation.motivo}>
+              {isBlockedByRouteRule ? (
+                <div className="shrink-0 ml-1.5 text-slate-500" title={routeValidation.motivo}>
                   <Lock className="w-3.5 h-3.5" />
                 </div>
               ) : isSelected ? (

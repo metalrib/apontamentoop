@@ -11,9 +11,51 @@ import {
   CODIGOS_BATENTES_PADRAO,
   CODIGOS_ANCORAS_PADRAO
 } from '../types/mes';
-import { verificarSeExigeEmenda, getRotaTrilhoCorrer, validarPostoTrilho } from './routeValidation';
+import {
+  verificarSeExigeEmenda,
+  getRotaTrilhoCorrer,
+  getRotaQuadroEstante,
+  getRotaPeEstanteSemPintura,
+  getRotaPeEstanteComPintura,
+  getRotaResistenciaPiso,
+  getRotaAbrigoDoca,
+  getRotaPerfilPP,
+  getRotaKitGaxetaU,
+  isQuadroEstante,
+  isPeEstanteSemPintura,
+  isPeEstanteComPintura,
+  isResistenciaPiso,
+  isAbrigoDoca,
+  isPerfilPP,
+  isKitGaxetaU,
+  isTrilhoCorrer,
+  isEtapaConcluida,
+  validarPostoIndustrial,
+  validarPostoTrilho
+} from './routeValidation';
 
-export { verificarSeExigeEmenda, getRotaTrilhoCorrer, validarPostoTrilho };
+export {
+  verificarSeExigeEmenda,
+  getRotaTrilhoCorrer,
+  getRotaQuadroEstante,
+  getRotaPeEstanteSemPintura,
+  getRotaPeEstanteComPintura,
+  getRotaResistenciaPiso,
+  getRotaAbrigoDoca,
+  getRotaPerfilPP,
+  getRotaKitGaxetaU,
+  isQuadroEstante,
+  isPeEstanteSemPintura,
+  isPeEstanteComPintura,
+  isResistenciaPiso,
+  isAbrigoDoca,
+  isPerfilPP,
+  isKitGaxetaU,
+  isTrilhoCorrer,
+  isEtapaConcluida,
+  validarPostoIndustrial,
+  validarPostoTrilho
+};
 
 /**
  * Extrai e sanitiza com segurança a quantidade total da OP,
@@ -99,13 +141,97 @@ function resolveBaseRoute(
   const desc = typeof input === 'object' && input !== null ? input.descricao : input;
   const norm = normalizeText(desc || '');
   const code = extractProductCode(input, explicitCodigo);
+  const opObj = typeof input === 'object' && input !== null ? input : { descricao: desc, codigo: code };
 
-  // 1. Trilhos para Portas de Correr (família 028., código em CODIGOS_TRILHOS_LGT_PADRAO ou descrição com TRILHO)
+  // MATRIZ OFICIAL DE ROTEAMENTO INDUSTRIAL ESPECIAL:
+
+  // 1. Estantes Walk-in: Quadro Estante Walk-in
+  if (isQuadroEstante(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'QUADRO ESTANTE',
+      label: 'Quadro Estante Walk-in',
+      steps: getRotaQuadroEstante(),
+      badge: 'Estante Walk-in',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 2. Estantes Walk-in: Pé da Estante sem pintura (Serralheria T5)
+  if (isPeEstanteSemPintura(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'PE ESTANTE SEM PINTURA',
+      label: 'Pé de Estante (Sem Pintura)',
+      steps: getRotaPeEstanteSemPintura(),
+      badge: 'Serralheria Estante',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 3. Estantes Walk-in: Pé da Estante com pintura (Montagem Cortina T5)
+  if (isPeEstanteComPintura(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'PE ESTANTE COM PINTURA',
+      label: 'Pé de Estante (Com Pintura)',
+      steps: getRotaPeEstanteComPintura(),
+      badge: 'Montagem Final (Cortina)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 4. Resistência de Piso 70W/MT
+  if (isResistenciaPiso(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'RESIST PISO',
+      label: 'Resistência de Piso 70W/MT',
+      steps: getRotaResistenciaPiso(),
+      badge: 'Resistência de Piso (T3/T4)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 5. Abrigo de Doca Retrátil
+  if (isAbrigoDoca(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'ABRIGO DOCA',
+      label: 'Abrigo de Doca Retrátil',
+      steps: getRotaAbrigoDoca(),
+      badge: 'Abrigo de Doca (T5)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 6. Perfis de Chapa / PP
+  if (isPerfilPP(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'PERFIL PP',
+      label: 'Perfil PP (Chapa)',
+      steps: getRotaPerfilPP(),
+      badge: 'Perfil PP (T1)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 7. Kit Gaxeta U
+  if (isKitGaxetaU(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'KIT GAXETA',
+      label: 'Kit Gaxeta U',
+      steps: getRotaKitGaxetaU(),
+      badge: 'Kit Gaxeta (T3/T4)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 8. Trilhos para Portas de Correr (família 028., código em CODIGOS_TRILHOS_LGT_PADRAO ou descrição com TRILHO)
   // Rota Oficial Padronizada: Corte -> Montagem nos Terminais 3, 4 e 5
-  const isTrilho = (code && code.startsWith('028.')) ||
-                   (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) ||
-                   norm.includes('TRILHO');
-  if (isTrilho) {
+  if (isTrilhoCorrer(opObj)) {
     const rule: RouteRule = {
       keyword: 'TRILHO',
       label: 'Trilho Porta de Correr (Corte e Montagem)',
@@ -323,6 +449,22 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
 
   // Setores exclusivos de Trilho não atendem etapas convencionais
   if (normSector.includes('TRILHO')) {
+    return false;
+  }
+
+  // Setor Montagem Estante
+  if (normStep.includes('ESTANTE')) {
+    return normSector.includes('ESTANTE');
+  }
+  if (normSector.includes('ESTANTE')) {
+    return false;
+  }
+
+  // Setor Montagem Abrigo Doca
+  if (normStep.includes('ABRIGO DOCA')) {
+    return normSector.includes('ABRIGO DOCA') || normSector === 'MONTAGEM';
+  }
+  if (normSector.includes('ABRIGO DOCA')) {
     return false;
   }
 
@@ -556,6 +698,16 @@ export function isBatchTracking(
   const isPortaGiro = norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || (norm.includes('GIRATORIA') && !norm.includes('BAT') && !norm.includes('FOLHA'));
   if (isPortaGiro && (secNorm.includes('gaxeta') || secNorm.includes('girat'))) {
     return false;
+  }
+
+  // Produtos Especiais Industriais são apontados em Lote Completo:
+  // - Resistência de Piso e Kit Gaxeta U (mesmo apontados no setor Montagem Portas Emendadas)
+  if (isResistenciaPiso(order) || isKitGaxetaU(order)) {
+    return true;
+  }
+  // - Estantes Walk-in, Abrigo de Doca e Perfis PP
+  if (isQuadroEstante(order) || isPeEstanteSemPintura(order) || isPeEstanteComPintura(order) || isAbrigoDoca(order) || isPerfilPP(order)) {
+    return true;
   }
 
   // - Portas de Correr e Portas Emendadas (nos setores de Montagem)
