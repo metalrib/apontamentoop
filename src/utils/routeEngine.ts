@@ -21,6 +21,7 @@ import {
   getRotaAbrigoDoca,
   getRotaPerfilPP,
   getRotaKitGaxetaU,
+  obterEtapasDaRota,
   isQuadroEstante,
   isPeEstanteSemPintura,
   isPeEstanteComPintura,
@@ -44,6 +45,7 @@ export {
   getRotaAbrigoDoca,
   getRotaPerfilPP,
   getRotaKitGaxetaU,
+  obterEtapasDaRota,
   isQuadroEstante,
   isPeEstanteSemPintura,
   isPeEstanteComPintura,
@@ -401,10 +403,13 @@ export function getRouteForOp(
   const resolved = resolveBaseRoute(input, explicitCodigo);
   const requerLaser = typeof input === 'object' && input !== null && Boolean(input.requer_laser);
 
+  // Define as etapas oficiais dinâmicas a partir do gerador centralizado por produto
+  const dynamicSteps = obterEtapasDaRota(input);
+  const stepsCopy = dynamicSteps.length > 0 ? [...dynamicSteps] : [...resolved.steps];
+
   if (requerLaser) {
-    const hasLaser = resolved.steps.some((s) => s.toUpperCase().includes('LASER'));
+    const hasLaser = stepsCopy.some((s) => s.toUpperCase().includes('LASER'));
     if (!hasLaser) {
-      const stepsCopy = [...resolved.steps];
       const corteIdx = stepsCopy.findIndex((s) => s.toUpperCase().includes('CORTE'));
       if (corteIdx >= 0) {
         stepsCopy.splice(corteIdx + 1, 0, 'Laser');
@@ -416,14 +421,13 @@ export function getRouteForOp(
           stepsCopy.unshift('Laser');
         }
       }
-      return {
-        ...resolved,
-        steps: stepsCopy
-      };
     }
   }
 
-  return resolved;
+  return {
+    ...resolved,
+    steps: stepsCopy
+  };
 }
 
 /**
@@ -505,11 +509,16 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
   }
 
   // Injeção de Folhas / Geral (Terminal 2)
-  if ((normStep === 'INJECAO' || normStep === 'INJETORA') && (
+  if ((normStep === 'INJECAO' || normStep === 'INJETORA' || normStep === 'INJECAO DE FOLHAS' || normStep.includes('INJECAO DE FOLHA')) && (
     normSector.includes('INJETORA') || 
     (normSector.includes('INJECAO') && !normSector.includes('BATENTE'))
   )) {
     return true;
+  }
+
+  // Montagem Geral (Portas Convencionais T3 / T4)
+  if (normStep === 'MONTAGEM' || normStep === 'MONTAGEM DE PORTAS') {
+    return normSector.includes('MONTAGEM') && !normSector.includes('ESTANTE') && !normSector.includes('TRILHO') && !normSector.includes('ABRIGO');
   }
 
   if (normStep.includes('MONTAGEM OFFICE DOOR') && normSector.includes('OFFICE DOOR')) {
@@ -604,6 +613,25 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
       (normB.includes('INJEC') || normB.includes('INJET')) &&
       !normA.includes('BATENTE') && !normB.includes('BATENTE')) {
     return true;
+  }
+
+  // Trilhos (Corte e Montagem)
+  if (normA.includes('TRILHO') && normB.includes('TRILHO')) {
+    if (normA.includes('CORTE') && normB.includes('CORTE')) return true;
+    if (normA.includes('MONTAGEM') && normB.includes('MONTAGEM')) return true;
+    return true;
+  }
+
+  // Vai-Vem
+  if (normA.includes('VAI VEM') && normB.includes('VAI VEM')) {
+    if (normA.includes('PREPARACAO') && normB.includes('PREPARACAO')) return true;
+    if ((normA.includes('MONTAGEM') || normA.includes('FINALIZACAO')) && (normB.includes('MONTAGEM') || normB.includes('FINALIZACAO'))) return true;
+    return true;
+  }
+
+  // Montagem Geral (Portas Convencionais)
+  if (normA === 'MONTAGEM' || normB === 'MONTAGEM') {
+    if (normA.includes('MONTAGEM') && normB.includes('MONTAGEM') && !normA.includes('ESTANTE') && !normB.includes('ESTANTE') && !normA.includes('TRILHO') && !normB.includes('TRILHO')) return true;
   }
 
   return false;

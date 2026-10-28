@@ -1,6 +1,6 @@
 import React from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
@@ -19,7 +19,8 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
   selectedSector
 }) => {
   const qtdTotal = obterQuantidadeTotal(order);
-  const { rule, steps } = getRouteForOp(order);
+  const { rule } = getRouteForOp(order);
+  const steps = obterEtapasDaRota(order);
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
 
   // Calcula total geral de unidades finalizadas na última etapa da rota (produto acabado)

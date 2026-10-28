@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, isAncoraOrder } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterEtapasDaRota } from '../utils/routeEngine';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
@@ -131,7 +131,8 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
 
   // Análise da OP selecionada
   const routeData = selectedOp ? getRouteForOp(selectedOp) : null;
-  const evaluation = selectedOp && routeData ? getRouteEvaluation(selectedOp, apontamentos, routeData.steps) : null;
+  const steps = selectedOp ? obterEtapasDaRota(selectedOp) : [];
+  const evaluation = selectedOp && steps.length > 0 ? getRouteEvaluation(selectedOp, apontamentos, steps) : null;
   const deadline = selectedOp ? calculateDeadlineInfo(selectedOp.data_entrega) : null;
 
   // Descobre status em tempo real da OP
@@ -144,8 +145,8 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
     : null;
 
   const totalFinishedLastStep =
-    selectedOp && routeData && evaluation
-      ? evaluation[routeData.steps[routeData.steps.length - 1]]?.finalizadas || 0
+    selectedOp && steps.length > 0 && evaluation
+      ? evaluation[steps[steps.length - 1]]?.finalizadas || 0
       : 0;
   const isOrderFullyCompleted = selectedOp && totalFinishedLastStep >= (selectedOp.quantidade_total || 1);
 
@@ -348,16 +349,16 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
             {/* 3. Linha do Tempo da Rota (Timeline Vertical) */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-xl">
               <div className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center justify-between">
-                <span>LINHA DO TEMPO DA ROTA ({routeData.steps.length} ETAPAS)</span>
-                <span className="text-blue-400">{routeData.rule.label}</span>
+                <span>LINHA DO TEMPO DA ROTA ({steps.length} ETAPAS)</span>
+                <span className="text-blue-400">{routeData?.rule.label}</span>
               </div>
 
               <div className="space-y-2.5 relative">
                 {/* Linha vertical conectora de fundo */}
                 <div className="absolute left-[13px] top-3 bottom-3 w-0.5 bg-slate-800 -z-0" />
 
-                {routeData.steps.map((step, idx) => {
-                  const stepEval = evaluation[step];
+                {steps.map((step, idx) => {
+                  const stepEval = evaluation ? evaluation[step] : null;
                   const totalOpQtd = selectedOp.quantidade_total || 1;
                   const isFinished = stepEval ? stepEval.finalizadas >= totalOpQtd : false;
                   const isInProgress = stepEval ? (stepEval.emAndamento || 0) > 0 : false;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, obterEtapasDaRota } from '../utils/routeEngine';
 import { resetFactoryData, addProductionOrder, getSavedFirebaseConfig, saveFirebaseConfig, FirebaseConnectionConfig } from '../services/mesStorage';
 import { X, Factory, RefreshCw, Download, Database, Plus, CheckCircle2, Clock, Monitor, ExternalLink } from 'lucide-react';
 import { playClick } from '../utils/audio';
@@ -199,7 +199,8 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
                     {orderList.map((op) => {
-                      const { rule, steps } = getRouteForOp(op);
+                      const { rule } = getRouteForOp(op);
+                      const steps = obterEtapasDaRota(op);
                       const evalResult = getRouteEvaluation(op, apontamentos, steps);
                       const lastStep = steps[steps.length - 1];
                       const finishedCount = evalResult[lastStep]?.finalizadas || 0;

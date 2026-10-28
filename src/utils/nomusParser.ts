@@ -386,32 +386,7 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       continue;
     }
 
-    // Extraia o texto da célula de Ordem. Se ela não contiver a regex /OP\s*\d+/i, ignore a linha.
-    let rawOpCellText = '';
-    if (idxOp >= 0 && cells[idxOp]) {
-      rawOpCellText = cleanCellText(cells[idxOp]);
-    }
-
-    // Se o índice mapeado não contiver a regex /OP\s*\d+/i, busca dinamicamente em qualquer outra célula da linha como tolerância
-    if (!/OP\s*\d+/i.test(rawOpCellText)) {
-      const foundCell = cells.find((c) => /OP\s*\d+/i.test(cleanCellText(c)));
-      if (!foundCell) {
-        continue;
-      }
-      rawOpCellText = cleanCellText(foundCell);
-    }
-
-    // Formate o número da OP sempre no padrão OP XXXXXX-XX
-    const opMatch = rawOpCellText.match(/OP\s*(\d+[\-_/]\d+)/i) || rawOpCellText.match(/(\d{4,8}[\-_/]\d{1,3})/i);
-    let numero = '';
-    if (opMatch) {
-      const cleanCode = opMatch[1].replace(/[_/]/g, '-');
-      numero = `OP ${cleanCode}`;
-    } else {
-      const cleanCode = rawOpCellText.replace(/^(\s*OP\s*)+/i, '').trim();
-      numero = `OP ${cleanCode}`;
-    }
-
+    // 1. Atualização prioritária da memória carry-down (Data, Status, Descrição e Código)
     // Se a célula de 'Entrega OP' tiver texto válido, atualize ultimaDataEntrega. Se estiver vazia ou com &nbsp;, use ultimaDataEntrega
     const rawEntrega = idxEntrega >= 0 && cells[idxEntrega] ? cleanCellText(cells[idxEntrega]) : '';
     if (isValidDataValue(rawEntrega)) {
@@ -428,34 +403,57 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
 
     // Descrição do Produto (com memória carry-down para células mescladas)
     const celulaDescricao = idxDescricao >= 0 && cells[idxDescricao] ? cells[idxDescricao] : null;
-    let descTexto = celulaDescricao?.textContent?.trim().replace(/\u00a0/g, ' ') || '';
-    if (descTexto) {
-      descTexto = cleanCellText(celulaDescricao);
-    }
-
+    let descTexto = celulaDescricao ? cleanCellText(celulaDescricao) : '';
     if (descTexto && isValidDataValue(descTexto)) {
       ultimaDescricaoValida = descTexto;
     } else {
-      descTexto = ultimaDescricaoValida; // Herda a linha anterior
+      descTexto = ultimaDescricaoValida; // Herda imediatamente da linha anterior
     }
-
-    const fallbackDesc = numero.startsWith('OP') ? `PRODUTO ${numero}` : `PRODUTO OP ${numero}`;
-    const descricao = descTexto || fallbackDesc;
 
     // Código do Produto (com memória carry-down para células mescladas)
     const celulaCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cells[idxCodigo] : null;
-    let codTexto = celulaCodigo?.textContent?.trim().replace(/\u00a0/g, ' ') || '';
-    if (codTexto) {
-      codTexto = cleanCellText(celulaCodigo);
-    }
-
+    let codTexto = celulaCodigo ? cleanCellText(celulaCodigo) : '';
     if (codTexto && isValidDataValue(codTexto)) {
       ultimoCodigoValido = codTexto;
     } else {
-      codTexto = ultimoCodigoValido; // Herda a linha anterior
+      codTexto = ultimoCodigoValido; // Herda imediatamente da linha anterior
     }
 
-    const codigo = isValidDataValue(codTexto) ? codTexto : undefined;
+    // 2. Extraia o texto da célula de Ordem de Produção
+    let rawOpCellText = '';
+    if (idxOp >= 0 && cells[idxOp]) {
+      rawOpCellText = cleanCellText(cells[idxOp]);
+    }
+
+    const isOpPattern = (txt: string) => /OP\s*\d+/i.test(txt) || /\b\d{4,8}[\-_/]\d{1,3}\b/.test(txt);
+
+    // Se o índice mapeado não contiver padrão de OP, busca dinamicamente em qualquer outra célula da linha como tolerância
+    if (!isOpPattern(rawOpCellText)) {
+      const foundCell = cells.find((c) => isOpPattern(cleanCellText(c)));
+      if (!foundCell) {
+        // Linha sem OP (ex: linha de agrupamento/cabeçalho de grupo).
+        // Como a memória carry-down já foi atualizada acima, ignora a linha sem perder os dados herdáveis.
+        continue;
+      }
+      rawOpCellText = cleanCellText(foundCell);
+    }
+
+    // Formate o número da OP sempre no padrão OP XXXXXX-XX
+    const opMatch = rawOpCellText.match(/OP\s*(\d+[\-_/]\d+)/i) || rawOpCellText.match(/(\d{4,8}[\-_/]\d{1,3})/i);
+    let numero = '';
+    if (opMatch) {
+      const cleanCode = opMatch[1].replace(/[_/]/g, '-');
+      numero = `OP ${cleanCode}`;
+    } else {
+      const cleanCode = rawOpCellText.replace(/^(\s*OP\s*)+/i, '').trim();
+      numero = cleanCode.startsWith('OP') ? cleanCode : `OP ${cleanCode}`;
+    }
+
+    // Regra mandatória de herança imediata:
+    // Se a célula de descrição ou código vier vazia/&nbsp;, herda imediatamente da linha anterior
+    const fallbackDesc = numero.startsWith('OP') ? `PRODUTO ${numero}` : `PRODUTO OP ${numero}`;
+    const descricao = descTexto || ultimaDescricaoValida || fallbackDesc;
+    const codigo = codTexto || ultimoCodigoValido || undefined;
 
     // Informações do Lote
     const rawLote = idxLote >= 0 && cells[idxLote] ? cleanCellText(cells[idxLote]) : '';

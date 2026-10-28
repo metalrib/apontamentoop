@@ -162,6 +162,68 @@ export function getRotaKitGaxetaU(): string[] {
   return ['Montagem Portas Emendadas'];
 }
 
+/**
+ * Gerador Dinâmico Oficial de Etapas da Rota por Produto
+ * Define as etapas visíveis no card de status e na esteira de produção.
+ */
+export function obterEtapasDaRota(op: any): string[] {
+  const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
+  const cod = String(typeof op === 'object' && op ? (op?.codigoProduto || op?.codigo || op?.cod || '') : '');
+
+  // Perfis PP
+  if (cod.startsWith('022.') || desc.includes('PERFIL PP') || desc.startsWith('PERFIL')) {
+    return ['Corte', 'Dobra'];
+  }
+  // Quadro Estante Walk-in
+  if (cod === '090.0004' || cod === '090.0005' || cod.startsWith('015.') || desc.includes('QUADRO ESTANTE')) {
+    return ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
+  }
+  // Pé Estante sem pintura
+  if (
+    cod === '090.0002' ||
+    (desc.includes('PÉ ESTANTE') && desc.includes('SEM PINTURA')) ||
+    (desc.includes('PE ESTANTE') && desc.includes('SEM PINTURA'))
+  ) {
+    return ['Corte', 'Solda', 'Montagem Estante'];
+  }
+  // Pé Estante com pintura
+  if (cod === '090.0001' || desc.includes('PÉ ESTANTE') || desc.includes('PE ESTANTE')) {
+    return ['Cortina'];
+  }
+  // Trilhos p/ Porta Correr
+  if (cod.startsWith('028.') || desc.includes('TRILHO')) {
+    return ['Corte de Trilho', 'Montagem de Trilho'];
+  }
+  // Resistência de Piso
+  if (cod.startsWith('029.') || desc.includes('RESIST PISO')) {
+    return ['Montagem Portas Emendadas'];
+  }
+  // Abrigo de Doca Retrátil
+  if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) {
+    return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
+  }
+  // Kit Gaxeta
+  if (cod.startsWith('025.') || desc.includes('KIT GAXETA')) {
+    return ['Montagem Portas Emendadas'];
+  }
+  // Batentes
+  if (cod.startsWith('020.') && (desc.includes('BAT') || desc.includes('BATENTE'))) {
+    return ['Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+  }
+  // Portas Vai-Vem
+  if (desc.includes('VAI VEM') || desc.includes('VV')) {
+    return ['Corte', 'Dobra', 'Preparação Vai Vem', 'Montagem Vai Vem'];
+  }
+  // Âncoras
+  if (cod.startsWith('021.') || desc.includes('ANCORA')) {
+    return typeof op === 'object' && op?.requer_solda
+      ? ['Corte', 'Dobra', 'Solda e Montagem']
+      : ['Corte', 'Dobra'];
+  }
+  // Rota Padrão Fábrica (Portas Convencionais)
+  return ['Corte', 'Dobra', 'Injeção de Folhas', 'Montagem'];
+}
+
 // Funções de Classificação de Produtos Industriais
 export function isQuadroEstante(op: any): boolean {
   const code = extractValidationCode(op);

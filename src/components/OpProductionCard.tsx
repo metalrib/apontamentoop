@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
-import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
@@ -33,7 +33,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   const deadline = calculateDeadlineInfo(order.data_entrega);
 
   // Rota e Badge de Linha Padrão vs Especial sob Medida
-  const { rule, steps } = getRouteForOp(order);
+  const { rule } = getRouteForOp(order);
+  const steps = obterEtapasDaRota(order);
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
   const isAncora = isAncoraOrder(order);
   const totalPhysicalUnits = obterQuantidadeTotal(order);

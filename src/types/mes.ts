@@ -230,7 +230,7 @@ export const ROUTE_RULES: RouteRule[] = [
   }
 ];
 
-export const DEFAULT_ROUTE = ["Corte", "Dobra", "Preparação", "Injeção"];
+export const DEFAULT_ROUTE = ["Corte", "Dobra", "Injeção de Folhas", "Montagem"];
 
 export type FactoryStatus =
   | 'Produzindo Hoje'

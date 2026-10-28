@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators } from '../services/mesStorage';
 import { db, ref, update } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
@@ -831,7 +831,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                   </thead>
                   <tbody className="divide-y divide-blue-950">
                     {filteredOrders.map((op) => {
-                      const { rule, steps } = getRouteForOp(op);
+                      const { rule } = getRouteForOp(op);
+                      const steps = obterEtapasDaRota(op);
                       const evalResult = getRouteEvaluation(op, apontamentos, steps);
                       const lastStep = steps[steps.length - 1];
                       const finishedCount = evalResult[lastStep]?.finalizadas || 0;
@@ -1161,7 +1162,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         {activeTab === 'tv_status' && (() => {
           const checkOp100Percent = (op: ProductionOrder): boolean => {
             if (op.status === 'FINALIZADA') return true;
-            const { steps } = getRouteForOp(op);
+            const steps = obterEtapasDaRota(op);
             if (!steps || steps.length === 0) return false;
             const evaluation = getRouteEvaluation(op, apontamentos, steps);
             const total = Math.max(1, Math.round(op.quantidade_total || 1));
