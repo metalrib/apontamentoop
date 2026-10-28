@@ -261,8 +261,10 @@ export interface OpEtapaState {
 export interface ProductionOrder {
   op_numero: string;              // ex: OP 023010-01 ou 023010-01
   numero?: string;                 // ex: OP 023010-01
+  numeroOP?: string;              // alias compatível com Nomus
   descricao: string;              // ex: BAT GIRO 600A X 600L 4BAT C/ RESIST
   codigo?: string;                // ex: 020.0033
+  codigoProduto?: string;         // alias compatível com Nomus
   quantidade_total: number;       // ex: 4
   quantidade?: number;            // alias de quantidade
   quantidade_m2?: number;         // ex: 6.60 (quando em m²)

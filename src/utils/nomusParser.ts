@@ -342,9 +342,11 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     }
   }
 
-  // 3. Tratamento de agrupamentos e células vazias (&nbsp;)
+  // 3. Tratamento de agrupamentos e células vazias (&nbsp;) com memória carry-down
   let ultimaDataEntrega = '';
   let ultimoStatus = '';
+  let ultimaDescricaoValida = '';
+  let ultimoCodigoValido = '';
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
@@ -424,15 +426,36 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     }
     const statusNomus = ultimoStatus || 'Liberada';
 
-    // Descrição do Produto
-    let descricao = idxDescricao >= 0 && cells[idxDescricao] ? cleanCellText(cells[idxDescricao]) : '';
-    if (!descricao) {
-      descricao = `PRODUTO ${numero}`;
+    // Descrição do Produto (com memória carry-down para células mescladas)
+    const celulaDescricao = idxDescricao >= 0 && cells[idxDescricao] ? cells[idxDescricao] : null;
+    let descTexto = celulaDescricao?.textContent?.trim().replace(/\u00a0/g, ' ') || '';
+    if (descTexto) {
+      descTexto = cleanCellText(celulaDescricao);
     }
 
-    // Código do Produto
-    const rawCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cleanCellText(cells[idxCodigo]) : '';
-    const codigo = isValidDataValue(rawCodigo) ? rawCodigo : undefined;
+    if (descTexto && isValidDataValue(descTexto)) {
+      ultimaDescricaoValida = descTexto;
+    } else {
+      descTexto = ultimaDescricaoValida; // Herda a linha anterior
+    }
+
+    const fallbackDesc = numero.startsWith('OP') ? `PRODUTO ${numero}` : `PRODUTO OP ${numero}`;
+    const descricao = descTexto || fallbackDesc;
+
+    // Código do Produto (com memória carry-down para células mescladas)
+    const celulaCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cells[idxCodigo] : null;
+    let codTexto = celulaCodigo?.textContent?.trim().replace(/\u00a0/g, ' ') || '';
+    if (codTexto) {
+      codTexto = cleanCellText(celulaCodigo);
+    }
+
+    if (codTexto && isValidDataValue(codTexto)) {
+      ultimoCodigoValido = codTexto;
+    } else {
+      codTexto = ultimoCodigoValido; // Herda a linha anterior
+    }
+
+    const codigo = isValidDataValue(codTexto) ? codTexto : undefined;
 
     // Informações do Lote
     const rawLote = idxLote >= 0 && cells[idxLote] ? cleanCellText(cells[idxLote]) : '';
@@ -506,8 +529,10 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     orders.push({
       op_numero: numero,
       numero: numero,
+      numeroOP: numero,
       descricao: descricao.toUpperCase(),
       codigo: codigo,
+      codigoProduto: codigo || '',
       lote: lote,
       observacao: observacao,
       quantidade_total: quantidadeTotal,
