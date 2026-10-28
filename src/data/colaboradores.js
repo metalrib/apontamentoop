@@ -37,7 +37,7 @@ export const colaboradores = [
   { id: 'victor', nome: 'Victor', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },

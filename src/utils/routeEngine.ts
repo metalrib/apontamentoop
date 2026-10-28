@@ -14,6 +14,7 @@ import {
 import {
   verificarSeExigeEmenda,
   getRotaTrilhoCorrer,
+  getRotaEstanteCompleta,
   getRotaQuadroEstante,
   getRotaPeEstanteSemPintura,
   getRotaPeEstanteComPintura,
@@ -22,6 +23,7 @@ import {
   getRotaPerfilPP,
   getRotaKitGaxetaU,
   obterEtapasDaRota,
+  isEstanteCompleta,
   isQuadroEstante,
   isPeEstanteSemPintura,
   isPeEstanteComPintura,
@@ -38,6 +40,7 @@ import {
 export {
   verificarSeExigeEmenda,
   getRotaTrilhoCorrer,
+  getRotaEstanteCompleta,
   getRotaQuadroEstante,
   getRotaPeEstanteSemPintura,
   getRotaPeEstanteComPintura,
@@ -46,6 +49,7 @@ export {
   getRotaPerfilPP,
   getRotaKitGaxetaU,
   obterEtapasDaRota,
+  isEstanteCompleta,
   isQuadroEstante,
   isPeEstanteSemPintura,
   isPeEstanteComPintura,
@@ -147,7 +151,31 @@ function resolveBaseRoute(
 
   // MATRIZ OFICIAL DE ROTEAMENTO INDUSTRIAL ESPECIAL:
 
-  // 1. Estantes Walk-in: Quadro Estante Walk-in
+  // 1. Estantes Walk-in: Estante Completa (família 015.xxxx ou ESTANTE WALK-IN sem QUADRO)
+  if (isEstanteCompleta(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'ESTANTE COMPLETA',
+      label: 'Estante Walk-in Completa',
+      steps: ['Montagem Estante'],
+      badge: 'Estante Walk-in (Montagem T5)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 2. Estantes Walk-in: Pé da Estante com pintura (Montagem Estante T5)
+  if (isPeEstanteComPintura(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'PE ESTANTE COM PINTURA',
+      label: 'Pé de Estante Pintado',
+      steps: ['Montagem Estante'],
+      badge: 'Montagem Estante (T5)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 3. Estantes Walk-in: Quadro Estante Walk-in
   if (isQuadroEstante(opObj)) {
     const rule: RouteRule = {
       keyword: 'QUADRO ESTANTE',
@@ -159,25 +187,13 @@ function resolveBaseRoute(
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 2. Estantes Walk-in: Pé da Estante sem pintura (Serralheria T5)
+  // 4. Estantes Walk-in: Pé da Estante sem pintura (Serralheria T5)
   if (isPeEstanteSemPintura(opObj)) {
     const rule: RouteRule = {
       keyword: 'PE ESTANTE SEM PINTURA',
       label: 'Pé de Estante (Sem Pintura)',
       steps: getRotaPeEstanteSemPintura(),
       badge: 'Serralheria Estante',
-      isStandardLine: true
-    };
-    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
-  }
-
-  // 3. Estantes Walk-in: Pé da Estante com pintura (Montagem Cortina T5)
-  if (isPeEstanteComPintura(opObj)) {
-    const rule: RouteRule = {
-      keyword: 'PE ESTANTE COM PINTURA',
-      label: 'Pé de Estante (Com Pintura)',
-      steps: getRotaPeEstanteComPintura(),
-      badge: 'Montagem Final (Cortina)',
       isStandardLine: true
     };
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
@@ -734,7 +750,7 @@ export function isBatchTracking(
     return true;
   }
   // - Estantes Walk-in, Abrigo de Doca e Perfis PP
-  if (isQuadroEstante(order) || isPeEstanteSemPintura(order) || isPeEstanteComPintura(order) || isAbrigoDoca(order) || isPerfilPP(order)) {
+  if (isEstanteCompleta(order) || isQuadroEstante(order) || isPeEstanteSemPintura(order) || isPeEstanteComPintura(order) || isAbrigoDoca(order) || isPerfilPP(order)) {
     return true;
   }
 

@@ -176,7 +176,28 @@ export function fetchOperators(): Operator[] {
         const primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
         const nome = op.nome || op.name || '';
         const especialista = Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming);
-        const terminais = Array.isArray(op.terminais) ? op.terminais : [];
+        const terminais = Array.isArray(op.terminais) ? [...op.terminais] : [];
+
+        // Garante permissão oficial de Montagem Estante no T5 para a colaboradora Gabriele
+        const isGabriele = op.id === 'gabriele' || nome.toLowerCase().includes('gabriele');
+        if (isGabriele) {
+          if (!uniqueSectors.includes('Montagem Estante')) {
+            uniqueSectors.push('Montagem Estante');
+          }
+          if (!terminais.includes('T5')) {
+            terminais.push('T5');
+          }
+        }
+
+        const setoresPorTerm = op.setoresPorTerminal ? { ...op.setoresPorTerminal } : undefined;
+        if (isGabriele && setoresPorTerm) {
+          if (!setoresPorTerm.T5) {
+            setoresPorTerm.T5 = [];
+          }
+          if (!setoresPorTerm.T5.includes('Montagem Estante')) {
+            setoresPorTerm.T5.push('Montagem Estante');
+          }
+        }
 
         return {
           ...op,
@@ -187,7 +208,7 @@ export function fetchOperators(): Operator[] {
           setor: primarySetor,
           setores: uniqueSectors,
           sectors: uniqueSectors,
-          setoresPorTerminal: op.setoresPorTerminal || undefined,
+          setoresPorTerminal: setoresPorTerm || op.setoresPorTerminal || undefined,
           terminais,
           especialista,
           ativo: op.ativo !== false,

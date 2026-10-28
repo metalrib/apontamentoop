@@ -182,6 +182,12 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: ["Corte de Trilho p/ Porta Correr", "Montagem de Trilho p/ Porta Correr"]
   },
   {
+    keyword: "ESTANTE COMPLETA",
+    label: "Estante Walk-in Completa",
+    steps: ["Montagem Estante"],
+    badge: "Estante Walk-in (Montagem T5)"
+  },
+  {
     keyword: "QUADRO ESTANTE",
     label: "Quadro Estante Walk-in",
     steps: ["Laser", "Dobra", "Solda", "Montagem Estante"],
@@ -195,9 +201,9 @@ export const ROUTE_RULES: RouteRule[] = [
   },
   {
     keyword: "PE ESTANTE COM PINTURA",
-    label: "Pé de Estante (Com Pintura)",
-    steps: ["Cortina"],
-    badge: "Montagem Final (Cortina)"
+    label: "Pé de Estante Pintado",
+    steps: ["Montagem Estante"],
+    badge: "Montagem Estante (T5)"
   },
   {
     keyword: "RESIST PISO",
@@ -350,7 +356,7 @@ const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
   T2: ['Preparação', 'Injetora de folhas'],
   T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Portas Emendadas'],
   T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias', 'Finalização Vai Vem'],
-  T5: ['Elétrica', 'Router', 'Solda e Montagem', 'Preparação Vai Vem', 'Cortina']
+  T5: ['Montagem Estante', 'Elétrica', 'Router', 'Solda e Montagem', 'Preparação Vai Vem', 'Cortina']
 };
 
 function extractInitials(nome: string): string {

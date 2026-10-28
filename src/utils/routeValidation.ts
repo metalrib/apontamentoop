@@ -114,6 +114,13 @@ export function getRotaTrilhoCorrer(): string[] {
 }
 
 /**
+ * Retorna as etapas oficiais da Estante Walk-in Completa.
+ */
+export function getRotaEstanteCompleta(): string[] {
+  return ['Montagem Estante'];
+}
+
+/**
  * Retorna as etapas oficiais do Quadro Estante Walk-in.
  */
 export function getRotaQuadroEstante(): string[] {
@@ -128,10 +135,10 @@ export function getRotaPeEstanteSemPintura(): string[] {
 }
 
 /**
- * Retorna as etapas oficiais do Pé da Estante com pintura (Montagem Cortina T5).
+ * Retorna as etapas oficiais do Pé da Estante com pintura (Montagem Estante T5).
  */
 export function getRotaPeEstanteComPintura(): string[] {
-  return ['Cortina'];
+  return ['Montagem Estante'];
 }
 
 /**
@@ -169,66 +176,116 @@ export function getRotaKitGaxetaU(): string[] {
 export function obterEtapasDaRota(op: any): string[] {
   const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
   const cod = String(typeof op === 'object' && op ? (op?.codigoProduto || op?.codigo || op?.cod || '') : '');
+  const normDesc = desc.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // Perfis PP
-  if (cod.startsWith('022.') || desc.includes('PERFIL PP') || desc.startsWith('PERFIL')) {
+  // 1. Estante Walk-In Completa (família 015.xxxx como 015.0012, 015.0008 ou descrição com ESTANTE WALK-IN sem QUADRO)
+  if (
+    cod.startsWith('015.') ||
+    ((normDesc.includes('ESTANTE WALK-IN') || normDesc.includes('ESTANTE WALK IN') || (normDesc.includes('ESTANTE') && normDesc.includes('WALK'))) &&
+      !normDesc.includes('QUADRO') &&
+      !normDesc.includes('PE ESTANTE') &&
+      !normDesc.includes('PE DA ESTANTE'))
+  ) {
+    return ['Montagem Estante'];
+  }
+
+  // 2. Pé Estante Walk-In Pintado (Preta ou Branca) (código 090.0001 ou descrição com PÉ ESTANTE sem SEM PINTURA)
+  if (
+    cod === '090.0001' ||
+    ((normDesc.includes('PE ESTANTE') || normDesc.includes('PE DA ESTANTE') || (normDesc.includes('PE') && normDesc.includes('ESTANTE'))) &&
+      !normDesc.includes('SEM PINTURA') &&
+      !normDesc.includes('S/ PINTURA') &&
+      !normDesc.includes('S/PINTURA') &&
+      !normDesc.includes('S PINTURA'))
+  ) {
+    return ['Montagem Estante'];
+  }
+
+  // 3. Perfis PP
+  if (cod.startsWith('022.') || normDesc.includes('PERFIL PP') || normDesc.startsWith('PERFIL')) {
     return ['Corte', 'Dobra'];
   }
-  // Quadro Estante Walk-in
-  if (cod === '090.0004' || cod === '090.0005' || cod.startsWith('015.') || desc.includes('QUADRO ESTANTE')) {
+
+  // 4. Quadro Estante Walk-in
+  if (
+    cod === '090.0004' ||
+    cod === '090.0005' ||
+    normDesc.includes('QUADRO ESTANTE') ||
+    (normDesc.includes('QUADRO') && normDesc.includes('ESTANTE'))
+  ) {
     return ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
   }
-  // Pé Estante sem pintura
+
+  // 5. Pé Estante sem pintura
   if (
     cod === '090.0002' ||
-    (desc.includes('PÉ ESTANTE') && desc.includes('SEM PINTURA')) ||
-    (desc.includes('PE ESTANTE') && desc.includes('SEM PINTURA'))
+    ((normDesc.includes('PE ESTANTE') || normDesc.includes('PE DA ESTANTE') || (normDesc.includes('PE') && normDesc.includes('ESTANTE'))) &&
+      (normDesc.includes('SEM PINTURA') || normDesc.includes('S/ PINTURA') || normDesc.includes('S/PINTURA') || normDesc.includes('S PINTURA')))
   ) {
     return ['Corte', 'Solda', 'Montagem Estante'];
   }
-  // Pé Estante com pintura
-  if (cod === '090.0001' || desc.includes('PÉ ESTANTE') || desc.includes('PE ESTANTE')) {
-    return ['Cortina'];
-  }
-  // Trilhos p/ Porta Correr
-  if (cod.startsWith('028.') || desc.includes('TRILHO')) {
+
+  // 6. Trilhos p/ Porta Correr
+  if (cod.startsWith('028.') || normDesc.includes('TRILHO')) {
     return ['Corte de Trilho', 'Montagem de Trilho'];
   }
-  // Resistência de Piso
-  if (cod.startsWith('029.') || desc.includes('RESIST PISO')) {
+
+  // 7. Resistência de Piso
+  if (cod.startsWith('029.') || normDesc.includes('RESIST PISO')) {
     return ['Montagem Portas Emendadas'];
   }
-  // Abrigo de Doca Retrátil
-  if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) {
+
+  // 8. Abrigo de Doca Retrátil
+  if (cod.startsWith('014.') || normDesc.includes('ABRIGO DOCA')) {
     return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
   }
-  // Kit Gaxeta
-  if (cod.startsWith('025.') || desc.includes('KIT GAXETA')) {
+
+  // 9. Kit Gaxeta
+  if (cod.startsWith('025.') || normDesc.includes('KIT GAXETA')) {
     return ['Montagem Portas Emendadas'];
   }
-  // Batentes
-  if (cod.startsWith('020.') && (desc.includes('BAT') || desc.includes('BATENTE'))) {
+
+  // 10. Batentes
+  if ((cod.startsWith('020.') && (normDesc.includes('BAT') || normDesc.includes('BATENTE'))) || normDesc.includes('BATENTE')) {
     return ['Preparação de Batentes', 'Injeção e Finalização de Batentes'];
   }
-  // Portas Vai-Vem
-  if (desc.includes('VAI VEM') || desc.includes('VV')) {
+
+  // 11. Portas Vai-Vem
+  if (normDesc.includes('VAI VEM') || normDesc.includes('VV')) {
     return ['Corte', 'Dobra', 'Preparação Vai Vem', 'Montagem Vai Vem'];
   }
-  // Âncoras
-  if (cod.startsWith('021.') || desc.includes('ANCORA')) {
+
+  // 12. Âncoras
+  if (cod.startsWith('021.') || normDesc.includes('ANCORA')) {
     return typeof op === 'object' && op?.requer_solda
       ? ['Corte', 'Dobra', 'Solda e Montagem']
       : ['Corte', 'Dobra'];
   }
+
   // Rota Padrão Fábrica (Portas Convencionais)
   return ['Corte', 'Dobra', 'Injeção de Folhas', 'Montagem'];
 }
 
 // Funções de Classificação de Produtos Industriais
+export function isEstanteCompleta(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao);
+  if (code.startsWith('015.')) return true;
+  if (
+    (norm.includes('ESTANTE WALK-IN') || norm.includes('ESTANTE WALK IN') || (norm.includes('ESTANTE') && norm.includes('WALK'))) &&
+    !norm.includes('QUADRO') &&
+    !norm.includes('PE ESTANTE') &&
+    !norm.includes('PE DA ESTANTE')
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function isQuadroEstante(op: any): boolean {
   const code = extractValidationCode(op);
   const norm = normalizeValidationText(op?.descricao);
-  if (code === '090.0004' || code === '090.0005' || code.startsWith('015.')) return true;
+  if (code === '090.0004' || code === '090.0005') return true;
   if (norm.includes('QUADRO ESTANTE') || (norm.includes('QUADRO') && norm.includes('ESTANTE'))) return true;
   return false;
 }
@@ -361,7 +418,21 @@ export function validarPostoIndustrial(
 ): { valido: boolean; motivo?: string } {
   if (!postoSelecionado) return { valido: true };
 
-  // 1. ESTANTES WALK-IN: QUADRO ESTANTE
+  // 1. ESTANTES WALK-IN: ESTANTE COMPLETA (015.xxxx / ESTANTE WALK-IN sem QUADRO)
+  if (isEstanteCompleta(op)) {
+    if (postoSelecionado !== 'Montagem Estante') {
+      return {
+        valido: false,
+        motivo: 'Estante Walk-In Completa possui rota de etapa única exclusiva no posto "Montagem Estante" (Terminal 5).'
+      };
+    }
+    if (terminalId && terminalId !== 5) {
+      return { valido: false, motivo: 'A Montagem de Estante Walk-in deve ser realizada no Terminal 5.' };
+    }
+    return { valido: true };
+  }
+
+  // 2. ESTANTES WALK-IN: QUADRO ESTANTE
   if (isQuadroEstante(op)) {
     const rota = getRotaQuadroEstante();
     if (!rota.includes(postoSelecionado)) {
@@ -388,7 +459,7 @@ export function validarPostoIndustrial(
     return { valido: true };
   }
 
-  // 2. ESTANTES WALK-IN: PÉ DA ESTANTE SEM PINTURA
+  // 3. ESTANTES WALK-IN: PÉ DA ESTANTE SEM PINTURA
   if (isPeEstanteSemPintura(op)) {
     const rota = getRotaPeEstanteSemPintura();
     if (!rota.includes(postoSelecionado)) {
@@ -409,16 +480,16 @@ export function validarPostoIndustrial(
     return { valido: true };
   }
 
-  // 3. ESTANTES WALK-IN: PÉ DA ESTANTE COM PINTURA
+  // 4. ESTANTES WALK-IN: PÉ DA ESTANTE COM PINTURA (PRETA OU BRANCA)
   if (isPeEstanteComPintura(op)) {
-    if (postoSelecionado !== 'Cortina') {
+    if (postoSelecionado !== 'Montagem Estante' && postoSelecionado !== 'Cortina') {
       return {
         valido: false,
-        motivo: 'Pé da Estante com pintura possui rota única de montagem final no posto Cortina (Terminal 5).'
+        motivo: 'Pé da Estante com pintura possui rota única no posto "Montagem Estante" (Terminal 5).'
       };
     }
     if (terminalId && terminalId !== 5) {
-      return { valido: false, motivo: 'A montagem final de Pé de Estante com pintura deve ser feita no Terminal 5 (posto Cortina).' };
+      return { valido: false, motivo: 'A montagem de Pé de Estante com pintura deve ser feita no Terminal 5.' };
     }
     return { valido: true };
   }
@@ -513,7 +584,13 @@ export function validarPostoIndustrial(
   if (postoSelecionado.includes('Trilho p/ Porta Correr') && !isTrilhoCorrer(op)) {
     return { valido: false, motivo: 'Este posto é exclusivo para fabricação de Trilhos de Portas de Correr.' };
   }
-  if (postoSelecionado === 'Montagem Estante' && !isQuadroEstante(op) && !isPeEstanteSemPintura(op)) {
+  if (
+    postoSelecionado === 'Montagem Estante' &&
+    !isQuadroEstante(op) &&
+    !isPeEstanteSemPintura(op) &&
+    !isEstanteCompleta(op) &&
+    !isPeEstanteComPintura(op)
+  ) {
     return { valido: false, motivo: 'O posto Montagem Estante é exclusivo para fabricação de Estantes Walk-in.' };
   }
   if (postoSelecionado === 'Montagem Abrigo Doca' && !isAbrigoDoca(op)) {
