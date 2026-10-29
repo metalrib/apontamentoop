@@ -8,6 +8,7 @@ import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
 import { OpChatModal } from './OpChatModal';
 import { TeamManagementModal } from './TeamManagementModal';
+import { TeamProductivity } from './TeamProductivity';
 import {
   Factory,
   Layers,
@@ -1106,56 +1107,15 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
         {/* ABA 4: PRODUTIVIDADE DA EQUIPE */}
         {activeTab === 'productivity' && (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {operatorsList.map((op) => {
-                const operatorApts = apontamentos.filter((a) => a.operador === op.name);
-                const finished = operatorApts.filter((a) => a.status === 'FINALIZADO');
-                const inProgress = operatorApts.filter((a) => a.status === 'EM_ANDAMENTO');
-
-                const totalMinutes = finished.reduce((acc, curr) => acc + (curr.duracao_minutos || 0), 0);
-                const avgMinutes = finished.length > 0 ? (totalMinutes / finished.length).toFixed(1) : '—';
-
-                return (
-                  <div
-                    key={op.id}
-                    className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl flex flex-col justify-between shadow-lg"
-                  >
-                    <div>
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="w-12 h-12 rounded-xl bg-[#1C2F8A] text-white flex items-center justify-center font-bold text-base border border-blue-400/40">
-                          {op.initials}
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-white text-base">{op.name}</h4>
-                          <span className="text-[11px] font-mono text-slate-400">{op.badge} · {op.role}</span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1 text-xs font-mono text-slate-300">
-                        <div className="flex justify-between py-1 border-b border-blue-950">
-                          <span className="text-slate-400">Unidades Finalizadas:</span>
-                          <span className="font-bold text-emerald-400">{finished.length}</span>
-                        </div>
-                        <div className="flex justify-between py-1 border-b border-blue-950">
-                          <span className="text-slate-400">Em Andamento Agora:</span>
-                          <span className="font-bold text-amber-400">{inProgress.length}</span>
-                        </div>
-                        <div className="flex justify-between py-1">
-                          <span className="text-slate-400">Tempo Médio de Ciclo:</span>
-                          <span className="font-bold text-blue-300">{avgMinutes} min</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-blue-950 text-[11px] font-mono text-slate-500">
-                      Setores: {op.sectors.join(', ')}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <TeamProductivity
+            operators={operatorsList}
+            apontamentos={apontamentos}
+            orders={orders}
+            onSelectOp={(opNum) => {
+              onSelectOpForTotem(opNum);
+              onSwitchToTotem();
+            }}
+          />
         )}
 
         {/* ABA 5: STATUS DE PRODUÇÃO / TV ANDON */}
