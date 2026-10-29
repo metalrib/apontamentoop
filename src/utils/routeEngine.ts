@@ -447,51 +447,10 @@ export function getRouteForOp(
   input: string | { descricao: string; codigo?: string; requer_solda?: boolean; requer_laser?: boolean; etapas?: any; codigoProduto?: string; cod?: string },
   explicitCodigo?: string
 ): { rule: RouteRule; steps: string[]; badge: string; isStandardLine: boolean } {
-  const op = typeof input === 'object' && input !== null ? input : null;
-  const codNorm = String(explicitCodigo || op?.codigoProduto || op?.cod || op?.codigo || '').trim();
-  const descNorm = String(op?.descricao || (typeof input === 'string' ? input : '')).toUpperCase();
-
-  // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG) -> 5 ETAPAS OBRIGATÓRIAS
-  const ehSuperCong = 
-    codNorm.startsWith('007.') || 
-    codNorm.startsWith('003.') || 
-    codNorm.startsWith('007') || 
-    codNorm.startsWith('003') || 
-    descNorm.includes('007.') || 
-    descNorm.includes('003.') || 
-    descNorm.includes('SUPER CONG');
-
-  if (ehSuperCong) {
-    const isGiro = codNorm.startsWith('003.') || codNorm.startsWith('003') || descNorm.includes('PT GIR') || descNorm.includes('GIRO');
-    const steps = isGiro
-      ? ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Instalação de Gaxeta', 'Montagem de Portas Giratória']
-      : ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem Portas de Correr Padrão e Especial'];
-    const rule: RouteRule = {
-      keyword: isGiro ? 'PT GIR ESPECIAL' : 'PT COR ESPECIAL',
-      label: isGiro ? 'Rota 12 - Porta Especial Giratória Super Cong' : 'Rota 13/14 - Porta Especial de Correr Super Cong',
-      steps,
-      badge: 'Especial sob Medida (Fabricação Completa)',
-      isStandardLine: false
-    };
-    return { rule, steps: [...steps], badge: rule.badge!, isStandardLine: false };
-  }
-
-  // Se a OP já possuir array explícito de etapas válidas
-  if (Array.isArray(op?.etapas) && op.etapas.length > 0 && typeof op.etapas[0] === 'string') {
-    const rule: RouteRule = {
-      keyword: 'PERSONALIZADA',
-      label: 'Rota de Produção da OP',
-      steps: [...op.etapas],
-      badge: 'Rota Definida',
-      isStandardLine: false
-    };
-    return { rule, steps: [...op.etapas], badge: rule.badge!, isStandardLine: false };
-  }
-
   const resolved = resolveBaseRoute(input, explicitCodigo);
   const requerLaser = typeof input === 'object' && input !== null && Boolean(input.requer_laser);
 
-  // Define as etapas oficiais dinâmicas a partir do gerador centralizado por produto
+  // Define as etapas oficiais dinâmicas a partir do gerador centralizado por produto (Matriz Oficial Metalrib)
   const dynamicSteps = obterEtapasDaRota(input);
   const stepsCopy = dynamicSteps.length > 0 ? [...dynamicSteps] : [...resolved.steps];
 
@@ -509,6 +468,13 @@ export function getRouteForOp(
           stepsCopy.unshift('Laser');
         }
       }
+    }
+  }
+
+  // Âncoras com Solda sob Demanda
+  if (isAncoraOrder(input, explicitCodigo) && typeof input === 'object' && input !== null && Boolean((input as ProductionOrder).requer_solda)) {
+    if (!stepsCopy.some(s => s.toUpperCase().includes('SOLDA'))) {
+      stepsCopy.push('Solda e Montagem');
     }
   }
 

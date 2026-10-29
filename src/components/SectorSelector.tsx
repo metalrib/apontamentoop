@@ -23,46 +23,9 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
 }) => {
   const [blockedWarning, setBlockedWarning] = useState<string | null>(null);
   const qtdTotal = obterQuantidadeTotal(order);
-  // DETERMINAÇÃO DE ROTAS PERMITIDAS (SOBREPOSIÇÃO OBRIGATÓRIA SUPER CONG)
-  const codNorm = String(order.codigoProduto || (order as any).cod || order.codigo || '').trim();
-  const descNorm = String(order.descricao || (order as any).produto || '').toUpperCase();
-
-  const ehSuperCong = 
-    codNorm.startsWith('007.') || 
-    codNorm.startsWith('003.') || 
-    codNorm.startsWith('007') || 
-    codNorm.startsWith('003') || 
-    descNorm.includes('007.') || 
-    descNorm.includes('003.') || 
-    descNorm.includes('SUPER CONG');
-
-  let steps: string[];
-
-  if (ehSuperCong) {
-    if (codNorm.startsWith('003.') || codNorm.startsWith('003') || descNorm.includes('PT GIR') || descNorm.includes('GIRO')) {
-      steps = [
-        'Corte',
-        'Dobra',
-        'Preparação de Folhas',
-        'Injeção de Folhas',
-        'Instalação de Gaxeta',
-        'Montagem de Portas Giratória'
-      ];
-    } else {
-      steps = [
-        'Corte',
-        'Dobra',
-        'Preparação de Folhas',
-        'Injeção de Folhas',
-        'Montagem Portas de Correr Padrão e Especial'
-      ];
-    }
-  } else if (Array.isArray(order.etapas) && order.etapas.length > 0) {
-    steps = order.etapas;
-  } else {
-    const routeData = getRouteForOp(order);
-    steps = routeData.steps;
-  }
+  // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
+  const routeData = getRouteForOp(order);
+  const steps = routeData.steps;
 
   const evaluation = getRouteEvaluation(order, apontamentos, steps);
 

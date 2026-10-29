@@ -1894,48 +1894,10 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
   let etapaAtual = (order as any).etapaAtual || 'Corte';
   let status = order.status || 'EM_PRODUCAO';
 
-  if (
-    codStr.startsWith('007.') ||
-    codStr.startsWith('003.') ||
-    codStr.startsWith('007') ||
-    codStr.startsWith('003') ||
-    descUpper.includes('007.') ||
-    descUpper.includes('003.') ||
-    descUpper.includes('SUPER CONG') ||
-    descUpper.includes('SUPER CONGELADO')
-  ) {
-    if (
-      codStr.startsWith('003.') ||
-      codStr.startsWith('003') ||
-      descUpper.includes('003.') ||
-      descUpper.includes('PT GIR') ||
-      descUpper.includes('GIRO')
-    ) {
-      etapas = [
-        'Corte',
-        'Dobra',
-        'Preparação de Folhas',
-        'Injeção de Folhas',
-        'Instalação de Gaxeta',
-        'Montagem de Portas Giratória'
-      ];
-    } else {
-      etapas = [
-        'Corte',
-        'Dobra',
-        'Preparação de Folhas',
-        'Injeção de Folhas',
-        'Montagem Portas de Correr Padrão e Especial'
-      ];
-    }
-    etapaAtual = 'Corte';
-    status = 'Aguardando Início em: Corte';
-  } else if (!etapas || !Array.isArray(etapas) || etapas.length === 0) {
-    const rotasCalculadas = obterEtapasDaRota(order);
-    etapas = rotasCalculadas;
-    etapaAtual = rotasCalculadas[0] || 'Corte';
-    status = `Aguardando Início em: ${etapaAtual}`;
-  }
+  const rotasCalculadas = obterEtapasDaRota(order);
+  etapas = rotasCalculadas;
+  etapaAtual = rotasCalculadas[0] || 'Corte';
+  status = `Aguardando Início em: ${etapaAtual}`;
 
   const cleanOrder = {
     ...order,
@@ -2105,48 +2067,10 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
     let status = o.status || 'EM_PRODUCAO';
 
     // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
-    if (
-      codStr.startsWith('007.') ||
-      codStr.startsWith('003.') ||
-      codStr.startsWith('007') ||
-      codStr.startsWith('003') ||
-      descUpper.includes('007.') ||
-      descUpper.includes('003.') ||
-      descUpper.includes('SUPER CONG') ||
-      descUpper.includes('SUPER CONGELADO')
-    ) {
-      if (
-        codStr.startsWith('003.') ||
-        codStr.startsWith('003') ||
-        descUpper.includes('003.') ||
-        descUpper.includes('PT GIR') ||
-        descUpper.includes('GIRO')
-      ) {
-        etapas = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Instalação de Gaxeta',
-          'Montagem de Portas Giratória'
-        ];
-      } else {
-        etapas = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Montagem Portas de Correr Padrão e Especial'
-        ];
-      }
-      etapaAtual = 'Corte';
-      status = 'Aguardando Início em: Corte';
-    } else if (!etapas || !Array.isArray(etapas) || etapas.length === 0) {
-      const rotasCalculadas = obterEtapasDaRota(o);
-      etapas = rotasCalculadas;
-      etapaAtual = rotasCalculadas[0] || 'Corte';
-      status = `Aguardando Início em: ${etapaAtual}`;
-    }
+    const rotasCalculadas = obterEtapasDaRota(o);
+    etapas = rotasCalculadas;
+    etapaAtual = rotasCalculadas[0] || 'Corte';
+    status = `Aguardando Início em: ${etapaAtual}`;
 
     const cleanOrder = JSON.parse(JSON.stringify({
       ...o,

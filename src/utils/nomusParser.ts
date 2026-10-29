@@ -550,50 +550,11 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     const codStr = String(novaOp.codigoProduto || (novaOp as any).cod || novaOp.codigo || '').trim();
 
     // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
-    if (
-      codStr.startsWith('007.') ||
-      codStr.startsWith('003.') ||
-      codStr.startsWith('007') ||
-      codStr.startsWith('003') ||
-      descUpper.includes('007.') ||
-      descUpper.includes('003.') ||
-      descUpper.includes('SUPER CONG') ||
-      descUpper.includes('SUPER CONGELADO')
-    ) {
-      if (
-        codStr.startsWith('003.') ||
-        codStr.startsWith('003') ||
-        descUpper.includes('003.') ||
-        descUpper.includes('PT GIR') ||
-        descUpper.includes('GIRO')
-      ) {
-        novaOp.etapas = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Instalação de Gaxeta',
-          'Montagem de Portas Giratória'
-        ];
-      } else {
-        novaOp.etapas = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Montagem Portas de Correr Padrão e Especial'
-        ];
-      }
-      novaOp.etapaAtual = 'Corte';
-      novaOp.statusEtapa = 'Aguardando Início em: Corte';
-      novaOp.status = 'Aguardando Início em: Corte';
-    } else {
-      const rotasCalculadas = obterEtapasDaRota(novaOp);
-      novaOp.etapas = rotasCalculadas;
-      novaOp.etapaAtual = rotasCalculadas[0] || 'Corte';
-      novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
-      novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
-    }
+    const rotasCalculadas = obterEtapasDaRota(novaOp);
+    novaOp.etapas = rotasCalculadas;
+    novaOp.etapaAtual = rotasCalculadas[0] || 'Corte';
+    novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
+    novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
 
     orders.push(novaOp);
   }
@@ -606,40 +567,12 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
 
   const finalOrders = Array.from(uniqueMap.values());
 
-  // SOBREPOSIÇÃO OBRIGATÓRIA DE ROTA INDUSTRIAL (FABRICAÇÃO COMPLETA)
+  // SOBREPOSIÇÃO OBRIGATÓRIA DE ROTA INDUSTRIAL (MATRIZ OFICIAL METALRIB)
   finalOrders.forEach((op: any) => {
-    const codNorm = String(op.codigoProduto || op.cod || op.codigo || '').trim();
-    const descNorm = String(op.descricao || op.produto || '').toUpperCase();
-
-    const ehSuperCong = 
-      codNorm.startsWith('007.') || 
-      codNorm.startsWith('003.') || 
-      descNorm.includes('SUPER CONG');
-
-    if (ehSuperCong) {
-      if (codNorm.startsWith('003.') || descNorm.includes('PT GIR')) {
-        // Porta de Giro Super Congelada (6 etapas)
-        op.etapas = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Instalação de Gaxeta',
-          'Montagem de Portas Giratória'
-        ];
-      } else {
-        // Porta de Correr Super Congelada (ex: OP 024048-01 e OP 024049-01)
-        op.etapas = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Montagem Portas de Correr Padrão e Especial'
-        ];
-      }
-      op.etapaAtual = 'Corte';
-      op.statusEtapa = 'Aguardando Início em: Corte';
-    }
+    const rotas = obterEtapasDaRota(op);
+    op.etapas = rotas;
+    op.etapaAtual = rotas[0] || 'Corte';
+    op.statusEtapa = `Aguardando Início em: ${op.etapaAtual}`;
   });
 
   if (finalOrders.length === 0) {

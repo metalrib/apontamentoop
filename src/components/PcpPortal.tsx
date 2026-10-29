@@ -252,48 +252,10 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       let status = op.status || 'EM_PRODUCAO';
 
       // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
-      if (
-        codStr.startsWith('007.') ||
-        codStr.startsWith('003.') ||
-        codStr.startsWith('007') ||
-        codStr.startsWith('003') ||
-        descUpper.includes('007.') ||
-        descUpper.includes('003.') ||
-        descUpper.includes('SUPER CONG') ||
-        descUpper.includes('SUPER CONGELADO')
-      ) {
-        if (
-          codStr.startsWith('003.') ||
-          codStr.startsWith('003') ||
-          descUpper.includes('003.') ||
-          descUpper.includes('PT GIR') ||
-          descUpper.includes('GIRO')
-        ) {
-          etapas = [
-            'Corte',
-            'Dobra',
-            'Preparação de Folhas',
-            'Injeção de Folhas',
-            'Instalação de Gaxeta',
-            'Montagem de Portas Giratória'
-          ];
-        } else {
-          etapas = [
-            'Corte',
-            'Dobra',
-            'Preparação de Folhas',
-            'Injeção de Folhas',
-            'Montagem Portas de Correr Padrão e Especial'
-          ];
-        }
-        etapaAtual = 'Corte';
-        status = 'Aguardando Início em: Corte';
-      } else if (!etapas || !Array.isArray(etapas) || etapas.length === 0) {
-        const rotasCalculadas = obterEtapasDaRota(op);
-        etapas = rotasCalculadas;
-        etapaAtual = rotasCalculadas[0] || 'Corte';
-        status = `Aguardando Início em: ${etapaAtual}`;
-      }
+      const rotasCalculadas = obterEtapasDaRota(op);
+      etapas = rotasCalculadas;
+      etapaAtual = rotasCalculadas[0] || 'Corte';
+      status = `Aguardando Início em: ${etapaAtual}`;
 
       op.etapas = etapas;
       op.etapaAtual = etapaAtual;

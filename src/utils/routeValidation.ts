@@ -187,10 +187,94 @@ export function getRotaBatente(): string[] {
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
 export function obterEtapasDaRota(op: any): string[] {
-  const cod = String(op?.codigoProduto || op?.cod || op?.codigo || '').trim();
-  const desc = String(op?.descricao || op?.produto || '').toUpperCase();
+  let cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const matchCode = cod.match(/^(\d{3})\.?(\d{4})$/);
+  if (matchCode) {
+    cod = `${matchCode[1]}.${matchCode[2]}`;
+  }
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
 
-  // 1. LINHA WALK-IN, PERFIS E ACESSÓRIOS
+  // 1. ÂNCORAS DE FIXAÇÃO (021.xxxx ou descrição ANCORA)
+  if (cod.startsWith('021.') || desc.startsWith('ANCORA') || desc.includes('ANCORA')) {
+    return ['Corte', 'Dobra'];
+  }
+
+  // 2. TRILHOS (028.xxxx)
+  if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
+    return ['Corte de Trilho', 'Montagem de Trilho'];
+  }
+
+  // 3. FOLHAS AVULSAS (020.0009 a 020.0031 ou início FOLHA)
+  const isFolhaGiro = cod >= '020.0009' && cod <= '020.0021';
+  const isFolhaCorrer = cod >= '020.0022' && cod <= '020.0031';
+  if (isFolhaGiro || isFolhaCorrer || desc.startsWith('FOLHA ') || desc.startsWith('FOLHA')) {
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Folhas',
+      'Injeção de Folhas'
+    ];
+  }
+
+  // 4. BATENTES AVULSOS (020.0032 a 020.0057 ou início BAT )
+  const isBatenteCode = (cod >= '020.0032' && cod <= '020.0057') || ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod);
+  if (isBatenteCode || desc.startsWith('BAT ') || desc.startsWith('BATENTE ') || desc.startsWith('BATENTE')) {
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Batentes',
+      'Injeção e Finalização de Batentes'
+    ];
+  }
+
+  // 5. SUPER CONGELADOS / ESPECIAIS SOB MEDIDA (FABRICAÇÃO INTEGRAL)
+  const ehSuperCong = 
+    cod.startsWith('007.') || 
+    cod.startsWith('003.') || 
+    desc.includes('SUPER CONG') ||
+    desc.includes('SUPER CONGELADO');
+
+  if (ehSuperCong) {
+    if (cod.startsWith('003.') || desc.includes('PT GIR') || desc.includes('GIRO')) {
+      return [
+        'Corte',
+        'Dobra',
+        'Preparação de Folhas',
+        'Injeção de Folhas',
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória'
+      ];
+    }
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Folhas',
+      'Injeção de Folhas',
+      'Montagem Portas de Correr Padrão e Especial'
+    ];
+  }
+
+  // 6. PORTAS MONTADAS PADRÃO (GIRO, CORRER E VAI-VEM)
+  if (cod.startsWith('001.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO') || desc.includes('PORTA GIRATORIA') || desc.includes('PORTA GIRATÓRIA')) {
+    return [
+      'Instalação de Gaxeta',
+      'Montagem de Portas Giratória'
+    ];
+  }
+
+  if (cod.startsWith('011.') || desc.startsWith('VAI VEM') || desc.startsWith('PT VAI VEM') || desc.includes('PORTA VAI-VEM') || desc.includes('PORTA VAI VEM') || desc.includes('PORTA VAI E VEM')) {
+    return [
+      'Montagem Porta Vai-Vem'
+    ];
+  }
+
+  if (cod.startsWith('002.') || cod.startsWith('005.') || desc.startsWith('PT COR') || desc.includes('PORTA DE CORRER') || desc.includes('PORTA CORRER')) {
+    return [
+      'Montagem Portas de Correr Padrão e Especial'
+    ];
+  }
+
+  // 7. LINHAS WALK-IN E DEMAIS ESPECÍFICOS
   if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) {
     return ['Corte', 'Dobra'];
   }
@@ -203,9 +287,6 @@ export function obterEtapasDaRota(op: any): string[] {
   if (cod.startsWith('015.') || cod === '090.0001' || (desc.includes('ESTANTE') && !desc.includes('QUADRO'))) {
     return ['Montagem Estante'];
   }
-  if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
-    return ['Corte de Trilho', 'Montagem de Trilho'];
-  }
   if (cod.startsWith('029.') || cod.startsWith('025.') || desc.includes('RESIST PISO') || desc.includes('KIT GAXETA')) {
     return ['Montagem Portas Emendadas'];
   }
@@ -213,48 +294,7 @@ export function obterEtapasDaRota(op: any): string[] {
     return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
   }
 
-  // 2. BATENTES AVULSOS (ESTRITAMENTE CÓDIGO 020.xxxx OU COMEÇANDO COM "BATENTE")
-  if (cod.startsWith('020.') || desc.startsWith('BATENTE ') || desc.startsWith('BAT ')) {
-    return [
-      'Corte',
-      'Dobra',
-      'Preparação de Batentes',
-      'Injeção e Finalização de Batentes'
-    ];
-  }
-
-  // 3. PORTA GIRATÓRIA SUPER CONG (003.xxxx ou PT GIR SUPER CONG) -> 6 ETAPAS
-  if (cod.startsWith('003.') || (desc.includes('SUPER CONG') && (desc.includes('PT GIR') || desc.includes('GIRO')))) {
-    return [
-      'Corte',
-      'Dobra',
-      'Preparação de Folhas',
-      'Injeção de Folhas',
-      'Instalação de Gaxeta',
-      'Montagem de Portas Giratória'
-    ];
-  }
-
-  // 4. PORTA DE CORRER SUPER CONG / ESPECIAIS (007.xxxx ou PT COR SUPER CONG) -> 5 ETAPAS (SEM GAXETA)
-  if (cod.startsWith('007.') || desc.includes('SUPER CONG')) {
-    return [
-      'Corte',
-      'Dobra',
-      'Preparação de Folhas',
-      'Injeção de Folhas',
-      'Montagem Portas de Correr Padrão e Especial'
-    ];
-  }
-
-  // 5. PORTAS DE GIRO PADRÃO (001.xxxx ou PT GIR) -> 2 ETAPAS
-  if (cod.startsWith('001.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO')) {
-    return [
-      'Instalação de Gaxeta',
-      'Montagem de Portas Giratória'
-    ];
-  }
-
-  // 6. TODAS AS DEMAIS PORTAS DE CORRER (002.xxxx, 005.xxxx, PT COR RESF, etc.) -> APENAS MONTAGEM (NÃO TEM GAXETA)
+  // 8. FALLBACK GERAL (FÁBRICA)
   return [
     'Montagem Portas de Correr Padrão e Especial'
   ];
@@ -347,7 +387,7 @@ export function isBatente(op: any): boolean {
   const norm = normalizeValidationText(op?.descricao || (typeof op === 'string' ? op : ''));
   const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
 
-  // Blindagem: se for porta frigorífica, NUNCA é batente avulso
+  // Blindagem: se for porta frigorífica ou folha avulsa, NUNCA é batente avulso
   if (
     code.startsWith('001.') ||
     code.startsWith('002.') ||
@@ -363,13 +403,20 @@ export function isBatente(op: any): boolean {
     norm.startsWith('PT COR') ||
     norm.includes('PORTA GIRO') ||
     norm.includes('PORTA GIRATORIA') ||
-    norm.includes('PORTA DE CORRER')
+    norm.includes('PORTA DE CORRER') ||
+    desc.startsWith('FOLHA') ||
+    norm.startsWith('FOLHA') ||
+    (code >= '020.0009' && code <= '020.0031')
   ) {
     return false;
   }
 
+  const isBatenteCode =
+    (code >= '020.0032' && code <= '020.0057') ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code);
+
   return (
-    code.startsWith('020.') ||
+    isBatenteCode ||
     desc.startsWith('BATENTE') ||
     desc.startsWith('BAT ') ||
     norm.startsWith('BATENTE') ||
