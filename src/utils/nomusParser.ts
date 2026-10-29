@@ -33,6 +33,7 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
   text: string;
   badgeClass: string;
   className: string;
+  isHistoric?: boolean;
 } {
   if (!dataEntrega || dataEntrega === '—' || !dataEntrega.trim()) {
     const text = '📅 Sem Prazo';
@@ -43,7 +44,8 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
       label: text,
       text,
       badgeClass: cls,
-      className: cls
+      className: cls,
+      isHistoric: false
     };
   }
 
@@ -57,7 +59,22 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
     if (diffDays > 0) {
-      // Vencida: Exibir Badge Vermelho com os dias exatos de atraso
+      // Trava de Alerta de Atraso Antigo (> 60 dias): Renderiza badge neutro/cinza
+      if (diffDays > 60) {
+        const text = 'Lote Anterior';
+        const cls = 'bg-slate-800 text-slate-400 border border-slate-700';
+        return {
+          isDelayed: false,
+          daysDiff: -diffDays,
+          label: text,
+          text,
+          badgeClass: cls,
+          className: cls,
+          isHistoric: true
+        };
+      }
+
+      // Vencida recente (<= 60 dias): Exibir Badge Vermelho com os dias exatos de atraso
       const text = `⚠ ${diffDays}d atraso`;
       const cls = 'bg-red-950/80 text-red-400 border border-red-800';
       return {
@@ -66,7 +83,8 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
         label: text,
         text,
         badgeClass: cls,
-        className: cls
+        className: cls,
+        isHistoric: false
       };
     } else if (diffDays === 0) {
       // Entrega Hoje
@@ -78,7 +96,8 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
         label: text,
         text,
         badgeClass: cls,
-        className: cls
+        className: cls,
+        isHistoric: false
       };
     } else {
       // No Prazo (Futura): Exibe a data de entrega ou quantos dias faltam
@@ -90,7 +109,8 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
         label: text,
         text,
         badgeClass: cls,
-        className: cls
+        className: cls,
+        isHistoric: false
       };
     }
   }
@@ -103,7 +123,8 @@ export function calculateDeadlineInfo(dataEntrega?: string): {
     label: text,
     text,
     badgeClass: cls,
-    className: cls
+    className: cls,
+    isHistoric: false
   };
 }
 

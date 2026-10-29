@@ -18,10 +18,143 @@ import {
   Monitor,
   Activity,
   User,
-  Tag
+  Tag,
+  ChevronRight
 } from 'lucide-react';
 import { MetalribLogo } from './MetalribLogo';
 import { playClick, playBarcodeBeep, playBlockedError } from '../utils/audio';
+
+export interface TerminalFilterItem {
+  id: string;
+  label: string;
+  shortLabel: string;
+  terminalCode?: 'T1' | 'T2' | 'T3' | 'T4' | 'T5';
+}
+
+export const TERMINAL_FILTERS: TerminalFilterItem[] = [
+  { id: 'ALL', label: 'Todos', shortLabel: 'Todos' },
+  { id: 'T1', label: 'T1 - Chaparia', shortLabel: 'T1', terminalCode: 'T1' },
+  { id: 'T2', label: 'T2 - Injeção/Prep', shortLabel: 'T2', terminalCode: 'T2' },
+  { id: 'T3', label: 'T3 - Router/Gaxeta', shortLabel: 'T3', terminalCode: 'T3' },
+  { id: 'T4', label: 'T4 - Montagem Portas', shortLabel: 'T4', terminalCode: 'T4' },
+  { id: 'T5', label: 'T5 - Serralharia/Estruturas', shortLabel: 'T5', terminalCode: 'T5' }
+];
+
+/**
+ * Formata o número da OP garantindo prefixo único "OP XXXXXX-XX"
+ */
+export function formatOpNumber(raw?: string): string {
+  if (!raw) return '';
+  const clean = String(raw).replace(/^(\s*OP\s*)+/i, '').trim();
+  return `OP ${clean}`;
+}
+
+/**
+ * Identifica se a OP está ativa (em produção ou pendente, não finalizada)
+ */
+export function isOpActive(op: ProductionOrder): boolean {
+  if (op.status === 'FINALIZADA' || op.status_fabrica === 'Embalada') return false;
+  return true;
+}
+
+/**
+ * Identifica a etapa atual real da OP no chão de fábrica
+ */
+export function getOpEffectiveEtapa(op: ProductionOrder, apontamentos?: Apontamento[]): string {
+  // 1. Apontamento ativo em andamento neste momento
+  if (Array.isArray(apontamentos) && apontamentos.length > 0) {
+    const active = apontamentos.find(
+      (a) =>
+        a.status === 'EM_ANDAMENTO' &&
+        (a.op_numero === op.op_numero || a.op === op.op_numero || a.op_numero === op.numero)
+    );
+    if (active) {
+      return active.setor || active.etapa_rota || op.etapaAtual || 'Em Produção';
+    }
+  }
+
+  // 2. Se a OP já tem etapaAtual definida
+  if (op.etapaAtual && typeof op.etapaAtual === 'string' && op.etapaAtual.trim()) {
+    const clean = op.etapaAtual.replace(/^Aguardando\s+In[ií]cio\s+em:\s*/i, '').trim();
+    if (clean) return clean;
+  }
+
+  // 3. Se a OP tem statusEtapa
+  if (op.statusEtapa && typeof op.statusEtapa === 'string' && op.statusEtapa.trim()) {
+    const clean = op.statusEtapa.replace(/^Aguardando\s+In[ií]cio\s+em:\s*/i, '').trim();
+    if (clean) return clean;
+  }
+
+  // 4. Se a OP tem status no formato "Aguardando Início em: X"
+  if (op.status && typeof op.status === 'string' && op.status.includes('Aguardando Início em:')) {
+    const clean = op.status.replace(/^Aguardando\s+In[ií]cio\s+em:\s*/i, '').trim();
+    if (clean) return clean;
+  }
+
+  // 5. Determina a primeira etapa da rota calculada oficial
+  try {
+    const steps = obterEtapasDaRota(op);
+    if (steps && steps.length > 0) {
+      return steps[0];
+    }
+  } catch {
+    // fallback
+  }
+
+  return 'Aguardando Início';
+}
+
+/**
+ * Mapeia a OP para o seu respectivo terminal físico (T1 a T5) com base na etapa atual
+ */
+export function getTerminalForOp(op: ProductionOrder, apontamentos?: Apontamento[]): 'T1' | 'T2' | 'T3' | 'T4' | 'T5' {
+  const etapa = getOpEffectiveEtapa(op, apontamentos);
+  const norm = etapa
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+
+  // T5 - Serralharia/Estruturas:
+  // ['Solda', 'Corte de Trilho', 'Montagem de Trilho', 'Montagem Abrigo Doca', 'Montagem Estante', 'Montagem Portas Emendadas']
+  if (
+    norm.includes('TRILHO') ||
+    norm.includes('ESTANTE') ||
+    norm.includes('ABRIGO') ||
+    norm.includes('DOCA') ||
+    norm.includes('EMENDADA') ||
+    norm.includes('SOLDA')
+  ) {
+    return 'T5';
+  }
+
+  // T3 - Router/Gaxeta:
+  // ['Router', 'Instalação de Gaxeta']
+  if (norm.includes('ROUTER') || norm.includes('GAXETA')) {
+    return 'T3';
+  }
+
+  // T2 - Injeção/Prep:
+  // ['Preparação de Folhas', 'Preparação de Batentes', 'Preparação de Vai Vem', 'Injeção de Folhas', 'Injeção e Finalização de Batentes']
+  if (norm.includes('INJE') || norm.includes('PREPARACAO')) {
+    return 'T2';
+  }
+
+  // T1 - Chaparia:
+  // ['Corte', 'Laser', 'Dobra']
+  if (norm.includes('CORTE') || norm.includes('LASER') || norm.includes('DOBRA')) {
+    return 'T1';
+  }
+
+  // T4 - Montagem Portas:
+  // ['Montagem de Portas Giratória', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Porta Vai-Vem', 'Montagem Office Door Giratória', 'Montagem Office Door Correr']
+  if (norm.includes('MONTAGEM')) {
+    return 'T4';
+  }
+
+  // Fallback padrão
+  return 'T1';
+}
 
 interface MobilePcpTrackerProps {
   orders: Record<string, ProductionOrder>;
@@ -40,6 +173,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>(initialOpNumber || '');
   const [selectedOp, setSelectedOp] = useState<ProductionOrder | null>(null);
+  const [selectedTerminal, setSelectedTerminal] = useState<string>('ALL');
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
   const [scannerError, setScannerError] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -52,14 +186,23 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
     }
   }, [initialOpNumber, orders]);
 
+  const orderList = Object.values(orders);
+
   // Busca e seleção por número digitado
   const handleSelectOpByNumber = (opNum: string) => {
     playClick();
     const cleanNum = opNum.replace(/^(\s*OP\s*)+/i, '').trim();
-    const found = orders[cleanNum] || orders[opNum];
+    const found =
+      orders[cleanNum] ||
+      orders[opNum] ||
+      orderList.find(
+        (o) =>
+          (o.op_numero && o.op_numero.replace(/^(\s*OP\s*)+/i, '').trim() === cleanNum) ||
+          (o.numero && o.numero.replace(/^(\s*OP\s*)+/i, '').trim() === cleanNum)
+      );
     if (found) {
       setSelectedOp(found);
-      setSearchTerm(found.op_numero);
+      setSearchTerm(cleanNum);
     } else {
       setSelectedOp(null);
     }
@@ -116,31 +259,76 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
     };
   }, [isScannerOpen]);
 
-  // Lista de OPs para sugestão rápida
-  const orderList = Object.values(orders);
-  const filteredOrderSuggestions = searchTerm.trim()
-    ? orderList.filter((op) => {
-        const query = searchTerm.toLowerCase();
-        return (
-          op.op_numero.toLowerCase().includes(query) ||
-          op.descricao.toLowerCase().includes(query) ||
-          (op.codigo && op.codigo.toLowerCase().includes(query))
-        );
-      }).slice(0, 10)
-    : orderList.slice(0, 8);
+  // Contagem de OPs ativas por terminal (T1 a T5)
+  const activeOrders = orderList.filter(isOpActive);
 
-  // Análise da OP selecionada
+  const countsByTerminal: Record<string, number> = {
+    ALL: activeOrders.length,
+    T1: 0,
+    T2: 0,
+    T3: 0,
+    T4: 0,
+    T5: 0
+  };
+
+  activeOrders.forEach((op) => {
+    const term = getTerminalForOp(op, apontamentos);
+    if (countsByTerminal[term] !== undefined) {
+      countsByTerminal[term]++;
+    }
+  });
+
+  // Lista de Ordens filtradas localmente de forma reativa
+  const filteredOrders = orderList.filter((op) => {
+    const isActive = isOpActive(op);
+    const hasSearch = searchTerm.trim().length > 0;
+
+    // Se não há pesquisa manual digitada, oculta OPs finalizadas
+    if (!hasSearch && !isActive) {
+      return false;
+    }
+
+    // Filtro de Terminal selecionado (T1 a T5 ou Todos)
+    if (selectedTerminal !== 'ALL') {
+      const term = getTerminalForOp(op, apontamentos);
+      if (term !== selectedTerminal) {
+        return false;
+      }
+    }
+
+    // Filtro de Pesquisa de Texto
+    if (hasSearch) {
+      const query = searchTerm.toLowerCase().trim();
+      const cleanQuery = query.replace(/^(\s*OP\s*)+/i, '').trim();
+      const opNum = (op.op_numero || op.numero || '').toLowerCase();
+      const desc = (op.descricao || '').toLowerCase();
+      const cod = (op.codigo || op.codigoProduto || '').toLowerCase();
+      const client = (op.cliente || '').toLowerCase();
+
+      return (
+        opNum.includes(query) ||
+        opNum.includes(cleanQuery) ||
+        desc.includes(query) ||
+        cod.includes(query) ||
+        client.includes(query)
+      );
+    }
+
+    return true;
+  });
+
+  // Análise da OP selecionada em detalhe
   const routeData = selectedOp ? getRouteForOp(selectedOp) : null;
   const steps = selectedOp ? obterEtapasDaRota(selectedOp) : [];
   const evaluation = selectedOp && steps.length > 0 ? getRouteEvaluation(selectedOp, apontamentos, steps) : null;
   const deadline = selectedOp ? calculateDeadlineInfo(selectedOp.data_entrega) : null;
 
-  // Descobre status em tempo real da OP
+  // Descobre status em tempo real da OP selecionada
   const activeApontamento = selectedOp
     ? apontamentos.find(
         (a) =>
           a.status === 'EM_ANDAMENTO' &&
-          (a.op_numero === selectedOp.op_numero || a.op_numero === selectedOp.numero)
+          (a.op_numero === selectedOp.op_numero || a.op === selectedOp.op_numero || a.op_numero === selectedOp.numero)
       )
     : null;
 
@@ -182,7 +370,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
 
       {/* Conteúdo Principal */}
       <div className="flex-1 p-3.5 flex flex-col gap-3">
-        {/* Barra de Pesquisa Fixa com Botão de Câmera */}
+        {/* Barra de Pesquisa com Botão de Bipar Câmera */}
         <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-2 flex items-center gap-2 shadow-lg">
           <div className="relative flex-1 flex items-center">
             <Search className="w-4 h-4 text-slate-400 absolute left-2.5 pointer-events-none" />
@@ -192,20 +380,22 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
               onChange={(e) => {
                 setSearchTerm(e.target.value);
                 const val = e.target.value.trim();
-                if (orders[val]) {
-                  setSelectedOp(orders[val]);
+                const cleanVal = val.replace(/^(\s*OP\s*)+/i, '').trim();
+                if (orders[val] || orders[cleanVal]) {
+                  setSelectedOp(orders[val] || orders[cleanVal]);
                 }
               }}
               placeholder="Digite o número da OP..."
-              className="w-full pl-8 pr-3 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
+              className="w-full pl-8 pr-8 py-2 bg-slate-950/80 border border-slate-800 rounded-xl text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition"
             />
             {searchTerm && (
               <button
+                type="button"
                 onClick={() => {
                   setSearchTerm('');
                   setSelectedOp(null);
                 }}
-                className="absolute right-2 text-slate-400 hover:text-white p-1"
+                className="absolute right-2 text-slate-400 hover:text-white p-1 rounded-md"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -223,6 +413,45 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
             <Camera className="w-4 h-4 text-blue-200" />
             <span className="hidden xs:inline">📷 Bipar</span>
           </button>
+        </div>
+
+        {/* 2. SELETOR HORIZONTAL DE TERMINAIS NO TOPO (T1 A T5) */}
+        <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 -mx-3.5 px-3.5 scroll-smooth select-none">
+          {TERMINAL_FILTERS.map((term) => {
+            const count = countsByTerminal[term.id] || 0;
+            const isActive = selectedTerminal === term.id;
+            return (
+              <button
+                key={term.id}
+                type="button"
+                onClick={() => {
+                  playClick();
+                  setSelectedTerminal(term.id);
+                  if (selectedOp) {
+                    setSelectedOp(null);
+                  }
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold transition-all whitespace-nowrap flex items-center gap-1.5 shrink-0 cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-600 text-white border border-blue-400 shadow-md shadow-blue-900/40 ring-1 ring-blue-400/40 scale-[1.02]'
+                    : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <span>{term.label}</span>
+                <span
+                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                    isActive
+                      ? 'bg-blue-800/90 text-white'
+                      : count > 0
+                      ? 'bg-slate-800 text-cyan-300 border border-slate-700'
+                      : 'bg-slate-950 text-slate-500'
+                  }`}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Modal de Câmera para Código de Barras */}
@@ -263,16 +492,33 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
           </div>
         )}
 
-        {/* Card de Rastreio Resumido da OP */}
+        {/* Card de Rastreio Resumido da OP Selecionada */}
         {selectedOp && routeData && evaluation && deadline ? (
           <div className="space-y-3 animate-in fade-in duration-200">
+            {/* Botão Voltar para a Lista */}
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedOp(null)}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs font-bold font-mono flex items-center gap-1.5 cursor-pointer transition active:scale-95 shadow-sm"
+              >
+                <ArrowLeft className="w-4 h-4 text-blue-400" />
+                <span>Voltar à Lista de OPs</span>
+              </button>
+
+              <span className="text-[11px] font-mono text-slate-400">
+                Posto: <strong className="text-blue-400">{getTerminalForOp(selectedOp, apontamentos)}</strong>
+              </span>
+            </div>
+
             {/* 1. Header do Item Rastreado */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 shadow-xl relative overflow-hidden">
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-600 via-sky-400 to-emerald-400" />
 
               <div className="flex items-center justify-between gap-2 mb-2">
+                {/* 1. Prefixo Duplicado Corrigido: exibe apenas "OP XXXXXX-XX" */}
                 <div className="px-3 py-1 bg-[#1C2F8A] border border-blue-400/80 rounded-xl text-white font-mono font-black text-lg shadow-sm">
-                  OP {selectedOp.op_numero}
+                  {formatOpNumber(selectedOp.op_numero || selectedOp.numero)}
                 </div>
 
                 <div className="flex items-center gap-1.5">
@@ -280,14 +526,20 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                     {selectedOp.quantidade_total || 1} {selectedOp.unidade_medida || 'PC'}
                   </span>
 
+                  {/* 2. Trava de Alerta de Atraso Antigo (> 60 dias) */}
                   {deadline.isDelayed ? (
                     <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-red-950/80 text-red-400 border border-red-800 flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" />
+                      <AlertTriangle className="w-3 h-3 text-red-400" />
                       {deadline.text}
+                    </span>
+                  ) : deadline.isHistoric || deadline.text === 'Lote Anterior' ? (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">
+                      <Clock className="w-3 h-3 text-slate-400" />
+                      Lote Anterior
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-950/80 text-emerald-400 border border-emerald-800 flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
+                      <Calendar className="w-3 h-3 text-emerald-400" />
                       No Prazo
                     </span>
                   )}
@@ -299,7 +551,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
               </div>
 
               <div className="flex items-center justify-between text-xs font-mono text-slate-400">
-                <span>Cód: <strong className="text-slate-300">{selectedOp.codigo || '—'}</strong></span>
+                <span>Cód: <strong className="text-slate-300">{selectedOp.codigo || selectedOp.codigoProduto || '—'}</strong></span>
                 <span>Entrega: <strong className="text-slate-300">{selectedOp.data_entrega || '—'}</strong></span>
               </div>
             </div>
@@ -344,6 +596,18 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                   <span>Aguardando apontamento de operador na fábrica</span>
                 </div>
               )}
+
+              {/* 3. Identificação do Posto/Etapa Atual em Destaque */}
+              <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-800/80">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/80 border border-cyan-500/40 text-xs font-mono text-cyan-300 shadow-sm">
+                  <Activity className="w-3.5 h-3.5 text-cyan-400" />
+                  <span className="text-slate-400">Etapa Atual:</span>
+                  <strong className="text-white font-bold">{getOpEffectiveEtapa(selectedOp, apontamentos)}</strong>
+                </span>
+                <span className="text-[11px] font-mono text-slate-400">
+                  Posto Físico: <strong className="text-blue-400 font-bold">{getTerminalForOp(selectedOp, apontamentos)}</strong>
+                </span>
+              </div>
             </div>
 
             {/* 3. Linha do Tempo da Rota (Timeline Vertical) */}
@@ -366,7 +630,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                   // Busca dados do apontamento para este passo
                   const aptsForStep = apontamentos.filter(
                     (a) =>
-                      (a.op_numero === selectedOp.op_numero || a.op_numero === selectedOp.numero) &&
+                      (a.op_numero === selectedOp.op_numero || a.op === selectedOp.op_numero || a.op_numero === selectedOp.numero) &&
                       (a.etapa_rota === step || a.setor.toLowerCase().includes(step.toLowerCase()))
                   );
                   const lastApt = aptsForStep[aptsForStep.length - 1];
@@ -447,46 +711,122 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
             </div>
           </div>
         ) : (
-          /* Sugestão Rápida / OPs Recentes */
+          /* Lista de Cards de OPs Filtradas */
           <div className="space-y-2">
-            <div className="text-xs font-mono font-bold text-slate-400 uppercase tracking-wider px-1">
-              {searchTerm ? 'Resultados da Pesquisa' : 'Ordens de Produção Recentes'}
+            <div className="flex items-center justify-between px-1 text-xs font-mono text-slate-400">
+              <span className="font-bold uppercase tracking-wider">
+                {selectedTerminal === 'ALL'
+                  ? searchTerm
+                    ? 'Resultados da Pesquisa'
+                    : 'Ordens de Produção Ativas'
+                  : `Posto ${TERMINAL_FILTERS.find((t) => t.id === selectedTerminal)?.label || selectedTerminal}`}
+              </span>
+              <span className="text-[11px] font-bold text-cyan-400">
+                {filteredOrders.length} {filteredOrders.length === 1 ? 'OP' : 'OPs'}
+              </span>
             </div>
 
-            <div className="space-y-2">
-              {filteredOrderSuggestions.map((op) => {
-                const dl = calculateDeadlineInfo(op.data_entrega);
-                return (
-                  <button
-                    key={op.op_numero}
-                    onClick={() => handleSelectOpByNumber(op.op_numero)}
-                    className="w-full p-3 bg-slate-900 hover:bg-slate-850 active:scale-[0.99] border border-slate-800 rounded-xl text-left transition flex items-center justify-between gap-3 cursor-pointer"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold text-blue-400 text-sm">
-                          OP {op.op_numero}
-                        </span>
-                        <span className="text-[10px] font-mono bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded">
-                          {op.quantidade_total || 1} {op.unidade_medida || 'PC'}
-                        </span>
-                        {dl.isDelayed && (
-                          <span className="text-[10px] font-bold text-red-400 bg-red-950/60 px-1.5 py-0.5 rounded border border-red-900">
-                            {dl.text}
+            {filteredOrders.length === 0 ? (
+              <div className="p-8 text-center bg-slate-900/60 border border-slate-800 rounded-2xl text-slate-400 font-mono text-xs">
+                <Activity className="w-6 h-6 text-slate-600 mx-auto mb-2" />
+                <p className="font-semibold text-slate-300">Nenhuma ordem de produção encontrada.</p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  {searchTerm
+                    ? 'Verifique os termos da busca ou limpe o campo.'
+                    : 'Não há ordens ativas nesta etapa no momento.'}
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredOrders.map((op) => {
+                  const dl = calculateDeadlineInfo(op.data_entrega);
+                  const opEffectiveEtapa = getOpEffectiveEtapa(op, apontamentos);
+                  const terminalForOp = getTerminalForOp(op, apontamentos);
+                  const isRunning = apontamentos.some(
+                    (a) =>
+                      a.status === 'EM_ANDAMENTO' &&
+                      (a.op_numero === op.op_numero || a.op === op.op_numero || a.op_numero === op.numero)
+                  );
+
+                  return (
+                    <button
+                      key={op.op_numero}
+                      onClick={() => handleSelectOpByNumber(op.op_numero)}
+                      className={`w-full p-3 bg-slate-900 hover:bg-slate-850 active:scale-[0.99] border rounded-2xl text-left transition flex flex-col gap-2 cursor-pointer shadow-md ${
+                        isRunning
+                          ? 'border-cyan-500/50 ring-1 ring-cyan-500/30 bg-cyan-950/20'
+                          : 'border-slate-800'
+                      }`}
+                    >
+                      {/* Linha 1: Badge OP (sem duplicação "OP OP"), Quantidade e Prazo */}
+                      <div className="flex items-center justify-between gap-2 w-full">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-mono font-black text-blue-400 text-sm tracking-wide bg-[#1C2F8A]/30 border border-blue-400/40 px-2.5 py-0.5 rounded-lg shrink-0 shadow-sm">
+                            {formatOpNumber(op.op_numero || op.numero)}
                           </span>
-                        )}
+                          <span className="text-[10px] font-mono font-bold bg-slate-800/90 text-amber-300 px-2 py-0.5 rounded-md border border-slate-700 shrink-0">
+                            {op.quantidade_total || 1} {op.unidade_medida || 'PC'}
+                          </span>
+                        </div>
+
+                        {/* Trava de Alerta de Atraso Antigo (> 60 dias) */}
+                        <div className="shrink-0">
+                          {dl.isDelayed ? (
+                            <span className="text-[10px] font-bold text-red-400 bg-red-950/70 px-2 py-0.5 rounded-md border border-red-900 flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3 text-red-400" />
+                              {dl.text}
+                            </span>
+                          ) : dl.isHistoric || dl.text === 'Lote Anterior' ? (
+                            <span className="text-[10px] font-bold text-slate-400 bg-slate-800/90 px-2 py-0.5 rounded-md border border-slate-700 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-slate-500" />
+                              Lote Anterior
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-900 flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-emerald-400" />
+                              No Prazo
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="text-xs text-slate-300 truncate font-sans mt-0.5">
+
+                      {/* Linha 2: Descrição e Código do Produto */}
+                      <div className="text-xs font-semibold text-slate-200 line-clamp-2 leading-tight">
                         {op.descricao}
                       </div>
-                    </div>
-                    <div className="text-slate-500 font-mono text-xs">
-                      →
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+
+                      {/* Linha 3: Identificação do Posto/Etapa Atual em Destaque sutil e Terminal */}
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80 w-full text-xs font-mono">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono border ${
+                              isRunning
+                                ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200 shadow-sm'
+                                : 'bg-slate-950/80 border-slate-800 text-slate-300'
+                            }`}
+                          >
+                            <Activity
+                              className={`w-3 h-3 ${isRunning ? 'text-cyan-400 animate-spin' : 'text-cyan-400'}`}
+                            />
+                            <span className="text-slate-400 text-[10px]">Etapa Atual:</span>
+                            <strong className="text-white font-bold truncate">
+                              {opEffectiveEtapa}
+                            </strong>
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800/80 text-blue-300 border border-slate-700">
+                            {terminalForOp}
+                          </span>
+                          <span className="text-slate-500 text-xs">→</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
