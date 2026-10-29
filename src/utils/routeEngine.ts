@@ -558,7 +558,7 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return true;
   }
 
-  if (normStep === 'PREPARACAO VAI VEM') {
+  if (normStep.includes('PREPARACAO') && normStep.includes('VAI VEM')) {
     return normSector.includes('PREPARACAO') && normSector.includes('VAI VEM') && !normSector.includes('FINALIZACAO');
   }
 
@@ -672,6 +672,12 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
   // Trilhos (Corte e Montagem)
   if (normA.includes('TRILHO') && normB.includes('TRILHO')) {
     if (normA.includes('CORTE') && normB.includes('CORTE')) return true;
+    if (normA.includes('MONTAGEM') && normB.includes('MONTAGEM')) return true;
+    return true;
+  }
+
+  // Office Door
+  if (normA.includes('OFFICE DOOR') && normB.includes('OFFICE DOOR')) {
     if (normA.includes('MONTAGEM') && normB.includes('MONTAGEM')) return true;
     return true;
   }
