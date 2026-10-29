@@ -24,6 +24,7 @@ import {
   getRotaKitGaxetaU,
   getRotaBatente,
   obterEtapasDaRota,
+  isEligibleForRouter,
   isEstanteCompleta,
   isQuadroEstante,
   isPeEstanteSemPintura,
@@ -52,6 +53,7 @@ export {
   getRotaKitGaxetaU,
   getRotaBatente,
   obterEtapasDaRota,
+  isEligibleForRouter,
   isEstanteCompleta,
   isQuadroEstante,
   isPeEstanteSemPintura,
@@ -475,6 +477,25 @@ export function getRouteForOp(
   if (isAncoraOrder(input, explicitCodigo) && typeof input === 'object' && input !== null && Boolean((input as ProductionOrder).requer_solda)) {
     if (!stepsCopy.some(s => s.toUpperCase().includes('SOLDA'))) {
       stepsCopy.push('Solda e Montagem');
+    }
+  }
+
+  // Encaminhar para Router sob Demanda (Vai-Vem e Office Door)
+  const opObj = typeof input === 'object' && input !== null ? (input as any) : null;
+  const isEligible = isEligibleForRouter(input);
+  const temRouter = isEligible && (
+    Boolean(opObj?.encaminhar_router) ||
+    Boolean(opObj?.requer_router) ||
+    (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Router')) ||
+    opObj?.etapaAtual === 'Router'
+  );
+
+  if (temRouter && !stepsCopy.includes('Router')) {
+    const injIdx = stepsCopy.findIndex((s: string) => s.includes('Injeção') || s.includes('Injecao'));
+    if (injIdx !== -1) {
+      stepsCopy.splice(injIdx + 1, 0, 'Router');
+    } else {
+      stepsCopy.push('Router');
     }
   }
 

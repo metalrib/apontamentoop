@@ -279,6 +279,8 @@ export interface ProductionOrder {
   pausada?: boolean;
   requer_solda?: boolean; // Inclusão sob demanda de Solda e Montagem (Terminal 5) para Âncoras
   requer_laser?: boolean; // Inclusão sob demanda de Laser CNC no Terminal 1 antes da Dobra
+  encaminhar_router?: boolean; // Inclusão condicional da etapa Router após Injeção para Vai-Vem e Office Door
+  requer_router?: boolean; // Alias de encaminhar_router
   etapas?: string[] | Record<string, OpEtapaState>; // Lista de etapas oficiais ou estado individual isolado de cada etapa
   etapaAtual?: string;
   statusEtapa?: string;

@@ -1,6 +1,6 @@
 import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
 import { deducePhysicalUnitsFromM2 } from '../utils/nomusParser';
-import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
+import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, ref, set, get, onValue, update, push } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
@@ -1349,7 +1349,11 @@ export async function startUnit(params: {
  * Finaliza a unidade em andamento
  * Calcula duracao_minutos e regista hora_fim
  */
-export async function finishUnit(apontamentoId: string, opNumero: string): Promise<Apontamento> {
+export async function finishUnit(
+  apontamentoId: string,
+  opNumero: string,
+  options?: { encaminharRouter?: boolean }
+): Promise<Apontamento> {
   ensureInitialData();
   const cleanOp = opNumero.trim().toUpperCase();
   const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
@@ -1452,29 +1456,89 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
             dataConclusao: new Date().toISOString()
           };
 
-          if (currentStepIndex >= 0) {
-            for (let i = currentStepIndex + 1; i < steps.length; i++) {
-              const nextStep = steps[i];
-              if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
-                targetOrder.etapas[nextStep] = {
-                  status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
-                  concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+          const isInjecaoStep = Boolean(
+            matchedStep.toLowerCase().includes('injeção') ||
+            matchedStep.toLowerCase().includes('injecao') ||
+            item.setor.toLowerCase().includes('injeção') ||
+            item.setor.toLowerCase().includes('injecao')
+          );
+          const eligibleRouter = isEligibleForRouter(targetOrder);
+
+          if (isInjecaoStep && eligibleRouter) {
+            if (options?.encaminharRouter) {
+              targetOrder.encaminhar_router = true;
+              targetOrder.requer_router = true;
+
+              if (Array.isArray(targetOrder.etapas)) {
+                const idx = targetOrder.etapas.findIndex((e: any) =>
+                  typeof e === 'string' ? e.includes('Injeção') : (e.nome || e.step || '').includes('Injeção')
+                );
+                if (idx !== -1 && !targetOrder.etapas.includes('Router')) {
+                  targetOrder.etapas.splice(idx + 1, 0, 'Router');
+                }
+              }
+              if (targetOrder.etapas && typeof targetOrder.etapas === 'object' && !Array.isArray(targetOrder.etapas)) {
+                targetOrder.etapas['Router'] = {
+                  status: 'PENDENTE',
+                  concluidas: 0
                 };
               }
-            }
-          }
 
-          const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
-          if (isLastStep) {
-            targetOrder.status = 'FINALIZADA';
-            targetOrder.status_fabrica = 'Embalada';
-            targetOrder.qtde_produzida = totalUnits;
+              targetOrder.etapaAtual = 'Router';
+              targetOrder.statusEtapa = 'Aguardando Início em: Router';
+              targetOrder.status = 'Aguardando Início em: Router';
+              targetOrder.status_fabrica = 'Produzindo Hoje';
+            } else {
+              targetOrder.encaminhar_router = false;
+              targetOrder.requer_router = false;
+              const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
+              if (nextStep) {
+                targetOrder.etapaAtual = nextStep;
+                targetOrder.statusEtapa = `Aguardando Início em: ${nextStep}`;
+                targetOrder.status = `Aguardando Início em: ${nextStep}`;
+              } else {
+                targetOrder.status = 'EM_PRODUCAO';
+              }
+              targetOrder.status_fabrica = 'Produzindo Hoje';
+            }
+          } else {
+            if (currentStepIndex >= 0) {
+              for (let i = currentStepIndex + 1; i < steps.length; i++) {
+                const nextStep = steps[i];
+                if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
+                  targetOrder.etapas[nextStep] = {
+                    status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
+                    concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+                  };
+                }
+              }
+            }
+
+            const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
+            if (isLastStep) {
+              targetOrder.status = 'FINALIZADA';
+              targetOrder.status_fabrica = 'Embalada';
+              targetOrder.qtde_produzida = totalUnits;
+            } else {
+              const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
+              if (nextStep) {
+                targetOrder.etapaAtual = nextStep;
+                targetOrder.statusEtapa = `Aguardando Início em: ${nextStep}`;
+                targetOrder.status = `Aguardando Início em: ${nextStep}`;
+              } else {
+                targetOrder.status = 'EM_PRODUCAO';
+              }
+              targetOrder.status_fabrica = 'Produzindo Hoje';
+            }
           }
         } else {
           targetOrder.etapas[matchedStep] = {
             status: 'EM_PRODUCAO',
             concluidas: finishedCount
           };
+          targetOrder.status = 'EM_PRODUCAO';
+          targetOrder.etapaAtual = matchedStep;
+          targetOrder.statusEtapa = `Produzindo: ${matchedStep}`;
         }
 
         ordersMap[matchedOpKey] = targetOrder;
@@ -1487,6 +1551,10 @@ export async function finishUnit(apontamentoId: string, opNumero: string): Promi
             status_fabrica: targetOrder.status_fabrica,
             etapas: targetOrder.etapas,
             progressoPostos: targetOrder.progressoPostos,
+            etapaAtual: targetOrder.etapaAtual,
+            statusEtapa: targetOrder.statusEtapa,
+            encaminhar_router: targetOrder.encaminhar_router ?? false,
+            requer_router: targetOrder.requer_router ?? false,
             qtde_produzida: targetOrder.qtde_produzida || 0,
             data_atualizacao: new Date().toISOString()
           });
@@ -1649,7 +1717,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 export async function finishBatch(
   apontamentoId: string,
   opNumero: string,
-  options?: { quantidadeRefugo?: number; quantidadeProduzida?: number }
+  options?: { quantidadeRefugo?: number; quantidadeProduzida?: number; encaminharRouter?: boolean }
 ): Promise<Apontamento> {
   ensureInitialData();
   const cleanOp = opNumero.trim().toUpperCase();
@@ -1768,27 +1836,81 @@ export async function finishBatch(
           dataConclusao: new Date().toISOString()
         };
 
-        // As etapas subsequentes permanecem rigorosamente PENDENTES com 0 peças feitas
-        if (currentStepIndex >= 0) {
-          for (let i = currentStepIndex + 1; i < steps.length; i++) {
-            const nextStep = steps[i];
-            if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
-              targetOrder.etapas[nextStep] = {
-                status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
-                concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+        const isInjecaoStep = Boolean(
+          matchedStep.toLowerCase().includes('injeção') ||
+          matchedStep.toLowerCase().includes('injecao') ||
+          item.setor.toLowerCase().includes('injeção') ||
+          item.setor.toLowerCase().includes('injecao')
+        );
+        const eligibleRouter = isEligibleForRouter(targetOrder);
+
+        if (isInjecaoStep && eligibleRouter) {
+          if (options?.encaminharRouter) {
+            targetOrder.encaminhar_router = true;
+            targetOrder.requer_router = true;
+
+            if (Array.isArray(targetOrder.etapas)) {
+              const idx = targetOrder.etapas.findIndex((e: any) =>
+                typeof e === 'string' ? e.includes('Injeção') : (e.nome || e.step || '').includes('Injeção')
+              );
+              if (idx !== -1 && !targetOrder.etapas.includes('Router')) {
+                targetOrder.etapas.splice(idx + 1, 0, 'Router');
+              }
+            }
+            if (targetOrder.etapas && typeof targetOrder.etapas === 'object' && !Array.isArray(targetOrder.etapas)) {
+              targetOrder.etapas['Router'] = {
+                status: 'PENDENTE',
+                concluidas: 0
               };
             }
-          }
-        }
 
-        const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
-        if (isLastStep) {
-          targetOrder.status = 'FINALIZADA';
-          targetOrder.status_fabrica = 'Embalada';
-          targetOrder.qtde_produzida = totalUnits - refugo;
+            targetOrder.etapaAtual = 'Router';
+            targetOrder.statusEtapa = 'Aguardando Início em: Router';
+            targetOrder.status = 'Aguardando Início em: Router';
+            targetOrder.status_fabrica = 'Produzindo Hoje';
+          } else {
+            targetOrder.encaminhar_router = false;
+            targetOrder.requer_router = false;
+            const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
+            if (nextStep) {
+              targetOrder.etapaAtual = nextStep;
+              targetOrder.statusEtapa = `Aguardando Início em: ${nextStep}`;
+              targetOrder.status = `Aguardando Início em: ${nextStep}`;
+            } else {
+              targetOrder.status = 'EM_PRODUCAO';
+            }
+            targetOrder.status_fabrica = 'Produzindo Hoje';
+          }
         } else {
-          targetOrder.status = 'EM_PRODUCAO';
-          targetOrder.status_fabrica = 'Produzindo Hoje';
+          // As etapas subsequentes permanecem rigorosamente PENDENTES com 0 peças feitas
+          if (currentStepIndex >= 0) {
+            for (let i = currentStepIndex + 1; i < steps.length; i++) {
+              const nextStep = steps[i];
+              if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
+                targetOrder.etapas[nextStep] = {
+                  status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
+                  concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+                };
+              }
+            }
+          }
+
+          const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
+          if (isLastStep) {
+            targetOrder.status = 'FINALIZADA';
+            targetOrder.status_fabrica = 'Embalada';
+            targetOrder.qtde_produzida = totalUnits - refugo;
+          } else {
+            const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
+            if (nextStep) {
+              targetOrder.etapaAtual = nextStep;
+              targetOrder.statusEtapa = `Aguardando Início em: ${nextStep}`;
+              targetOrder.status = `Aguardando Início em: ${nextStep}`;
+            } else {
+              targetOrder.status = 'EM_PRODUCAO';
+            }
+            targetOrder.status_fabrica = 'Produzindo Hoje';
+          }
         }
 
         ordersMap[matchedOpKey] = targetOrder;
@@ -1801,6 +1923,10 @@ export async function finishBatch(
             status_fabrica: targetOrder.status_fabrica,
             etapas: targetOrder.etapas,
             progressoPostos: targetOrder.progressoPostos,
+            etapaAtual: targetOrder.etapaAtual,
+            statusEtapa: targetOrder.statusEtapa,
+            encaminhar_router: targetOrder.encaminhar_router ?? false,
+            requer_router: targetOrder.requer_router ?? false,
             qtde_produzida: targetOrder.qtde_produzida || 0,
             data_atualizacao: new Date().toISOString()
           });

@@ -183,6 +183,35 @@ export function getRotaBatente(): string[] {
 }
 
 /**
+ * Identifica se a OP pertence a uma das famílias elegíveis para encaminhamento ao Router:
+ * 1. PORTA VAI E VEM (Cód iniciando com "011." ou descrição contendo "VAI VEM" / "VAI-VEM")
+ * 2. OFFICE DOOR GIRATÓRIA (Cód iniciando com "009." ou descrição contendo "OFFICE DOOR GIR" / "OFFICE DOOR")
+ * 3. OFFICE DOOR CORRER (Cód iniciando com "010." ou descrição contendo "OFFICE DOOR COR")
+ */
+export function isEligibleForRouter(op: any): boolean {
+  if (!op) return false;
+  const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+
+  // 1. PORTA VAI E VEM
+  if (cod.startsWith('011.') || desc.includes('VAI VEM') || desc.includes('VAI-VEM')) {
+    return true;
+  }
+
+  // 2. OFFICE DOOR GIRATÓRIA
+  if (cod.startsWith('009.') || desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE DOOR')) {
+    return true;
+  }
+
+  // 3. OFFICE DOOR CORRER
+  if (cod.startsWith('010.') || desc.includes('OFFICE DOOR COR')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Gerador Dinâmico Oficial de Etapas da Rota por Produto
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
@@ -194,32 +223,31 @@ export function obterEtapasDaRota(op: any): string[] {
   }
   const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
 
+  let steps: string[] = [];
+
   // 1. ÂNCORAS DE FIXAÇÃO (021.xxxx ou descrição ANCORA) -> Terminal 1 (Corte/Dobra)
   if (cod.startsWith('021.') || desc.startsWith('ANCORA') || desc.includes('ANCORA')) {
-    return ['Corte', 'Dobra'];
+    steps = ['Corte', 'Dobra'];
   }
 
   // 2. TRILHOS (028.xxxx)
-  if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
-    return ['Corte de Trilho', 'Montagem de Trilho'];
+  else if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
+    steps = ['Corte de Trilho', 'Montagem de Trilho'];
   }
 
   // 3. FOLHAS AVULSAS (020.0009 a 020.0031 ou início FOLHA)
-  const isFolhaGiro = cod >= '020.0009' && cod <= '020.0021';
-  const isFolhaCorrer = cod >= '020.0022' && cod <= '020.0031';
-  if (isFolhaGiro || isFolhaCorrer || desc.startsWith('FOLHA ') || desc.startsWith('FOLHA')) {
-    return ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas'];
+  else if ((cod >= '020.0009' && cod <= '020.0021') || (cod >= '020.0022' && cod <= '020.0031') || desc.startsWith('FOLHA ') || desc.startsWith('FOLHA')) {
+    steps = ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas'];
   }
 
   // 4. BATENTES AVULSOS (020.0032 a 020.0057 ou início BAT)
-  const isBatente = (cod >= '020.0032' && cod <= '020.0057') || ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod) || desc.startsWith('BAT ') || desc.startsWith('BATENTE');
-  if (isBatente) {
-    return ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+  else if ((cod >= '020.0032' && cod <= '020.0057') || ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod) || desc.startsWith('BAT ') || desc.startsWith('BATENTE')) {
+    steps = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
   }
 
   // 5. PORTA VAI E VEM (TODAS - PADRÃO OU FORA DE MEDIDA / FAMÍLIA 011.xxxx)
-  if (cod.startsWith('011.') || desc.includes('VAI VEM')) {
-    return [
+  else if (cod.startsWith('011.') || desc.includes('VAI VEM')) {
+    steps = [
       'Corte',
       'Preparação de Vai Vem',
       'Injeção de Folhas',
@@ -228,8 +256,8 @@ export function obterEtapasDaRota(op: any): string[] {
   }
 
   // 6. OFFICE DOOR (GIRO OU CORRER / FAMÍLIAS 009.xxxx E 010.xxxx) - SEMPRE ESPECIAL
-  if (cod.startsWith('009.') || desc.includes('OFFICE DOOR GIR')) {
-    return [
+  else if (cod.startsWith('009.') || desc.includes('OFFICE DOOR GIR')) {
+    steps = [
       'Corte',
       'Dobra',
       'Preparação de Folhas',
@@ -238,8 +266,8 @@ export function obterEtapasDaRota(op: any): string[] {
       'Montagem Office Door Giratória'
     ];
   }
-  if (cod.startsWith('010.') || desc.includes('OFFICE DOOR COR')) {
-    return [
+  else if (cod.startsWith('010.') || desc.includes('OFFICE DOOR COR')) {
+    steps = [
       'Corte',
       'Dobra',
       'Preparação de Folhas',
@@ -249,91 +277,108 @@ export function obterEtapasDaRota(op: any): string[] {
   }
 
   // 7. VERIFICAÇÃO SE É INOX OU FORA DE MEDIDA / SUPER CONG
-  const ehInox = 
-    desc.includes('I304') || 
-    desc.includes('I430') || 
-    desc.includes('INOX') || 
-    cod.startsWith('002.') || 
-    cod.startsWith('004.') || 
-    cod.startsWith('006.') || 
-    cod.startsWith('008.');
+  else {
+    const ehInox = 
+      desc.includes('I304') || 
+      desc.includes('I430') || 
+      desc.includes('INOX') || 
+      cod.startsWith('002.') || 
+      cod.startsWith('004.') || 
+      cod.startsWith('006.') || 
+      cod.startsWith('008.');
 
-  const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011' || cod === '003.0011';
+    const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011' || cod === '003.0011';
 
-  // MEDIDAS PADRÃO METALRIB (COM FOLHA EM ESTOQUE)
-  const medidasPadrao = [
-    '600A X 600L',
-    '800A X 800L',
-    '1.000A X 1.000L',
-    '1.800A X 800L',
-    '2.000A X 1.000L',
-    '2.000A X 1.200L',
-    '600 X 600',
-    '800 X 800',
-    '1000A X 1000L',
-    '1000 X 1000',
-    '1.000 X 1.000',
-    '1800A X 800L',
-    '1800 X 800',
-    '1.800 X 800',
-    '2000A X 1000L',
-    '2000 X 1000',
-    '2.000 X 1.000',
-    '2000A X 1200L',
-    '2000 X 1200',
-    '2.000 X 1.200'
-  ];
-  const ehMedidaPadrao = medidasPadrao.some(m => desc.includes(m));
+    // MEDIDAS PADRÃO METALRIB (COM FOLHA EM ESTOQUE)
+    const medidasPadrao = [
+      '600A X 600L',
+      '800A X 800L',
+      '1.000A X 1.000L',
+      '1.800A X 800L',
+      '2.000A X 1.000L',
+      '2.000A X 1.200L',
+      '600 X 600',
+      '800 X 800',
+      '1000A X 1000L',
+      '1000 X 1000',
+      '1.000 X 1.000',
+      '1800A X 800L',
+      '1800 X 800',
+      '1.800 X 800',
+      '2000A X 1000L',
+      '2000 X 1000',
+      '2.000 X 1.000',
+      '2000A X 1200L',
+      '2000 X 1200',
+      '2.000 X 1.200'
+    ];
+    const ehMedidaPadrao = medidasPadrao.some(m => desc.includes(m));
 
-  // SE FOR INOX, SUPER CONG OU FORA DE MEDIDA -> FABRICAÇÃO COMPLETA DESDE O CORTE
-  const ehPortaEspecialCompleta = ehInox || ehSuperCong || (!ehMedidaPadrao && (desc.includes('PT COR') || desc.includes('PT GIR')));
+    // SE FOR INOX, SUPER CONG OU FORA DE MEDIDA -> FABRICAÇÃO COMPLETA DESDE O CORTE
+    const ehPortaEspecialCompleta = ehInox || ehSuperCong || (!ehMedidaPadrao && (desc.includes('PT COR') || desc.includes('PT GIR')));
 
-  if (ehPortaEspecialCompleta) {
-    // SE FOR GIRATÓRIA ESPECIAL (LEVA GAXETA):
-    if (desc.includes('PT GIR') || desc.includes('GIRO') || cod.startsWith('001.') || cod.startsWith('003.')) {
-      return [
-        'Corte',
-        'Dobra',
-        'Preparação de Folhas',
-        'Injeção de Folhas',
+    if (ehPortaEspecialCompleta) {
+      if (desc.includes('PT GIR') || desc.includes('GIRO') || cod.startsWith('001.') || cod.startsWith('003.')) {
+        steps = [
+          'Corte',
+          'Dobra',
+          'Preparação de Folhas',
+          'Injeção de Folhas',
+          'Instalação de Gaxeta',
+          'Montagem de Portas Giratória'
+        ];
+      } else {
+        steps = [
+          'Corte',
+          'Dobra',
+          'Preparação de Folhas',
+          'Injeção de Folhas',
+          'Montagem Portas de Correr Padrão e Especial'
+        ];
+      }
+    }
+    // 8. PORTAS GIRATÓRIAS PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 2 ETAPAS
+    else if (cod.startsWith('001.') || cod.startsWith('003.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO')) {
+      steps = [
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória'
       ];
     }
-    // SE FOR CORRER ESPECIAL (NÃO LEVA GAXETA):
-    return [
-      'Corte',
-      'Dobra',
-      'Preparação de Folhas',
-      'Injeção de Folhas',
-      'Montagem Portas de Correr Padrão e Especial'
-    ];
+    // 9. PORTAS DE CORRER PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 1 ETAPA (SEM GAXETA)
+    else if (cod.startsWith('005.') || cod.startsWith('007.') || desc.startsWith('PT COR') || desc.includes('PORTA CORRER') || desc.includes('PORTA DE CORRER')) {
+      steps = [
+        'Montagem Portas de Correr Padrão e Especial'
+      ];
+    }
+    // 10. DEMAIS ESPECÍFICOS
+    else if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) steps = ['Corte', 'Dobra'];
+    else if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) steps = ['Corte', 'Solda', 'Montagem Abrigo Doca'];
+    else if (cod.startsWith('015.') || cod === '090.0001') steps = ['Montagem Estante'];
+    else if (cod === '090.0004' || cod === '090.0005') steps = ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
+    else if (cod === '090.0002') steps = ['Corte', 'Solda', 'Montagem Estante'];
+    else if (cod.startsWith('029.') || cod.startsWith('025.')) steps = ['Montagem Portas Emendadas'];
+    else steps = ['Montagem Portas de Correr Padrão e Especial'];
   }
 
-  // 8. PORTAS GIRATÓRIAS PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 2 ETAPAS
-  if (cod.startsWith('001.') || cod.startsWith('003.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO')) {
-    return [
-      'Instalação de Gaxeta',
-      'Montagem de Portas Giratória'
-    ];
+  // Encaminhar para Router (sob demanda para Vai-Vem e Office Door)
+  const isEligible = isEligibleForRouter(op);
+  const temRouter = isEligible && (
+    Boolean(op?.encaminhar_router) ||
+    Boolean(op?.requer_router) ||
+    (Array.isArray(op?.etapas) && op.etapas.includes('Router')) ||
+    op?.etapaAtual === 'Router'
+  );
+
+  if (temRouter && !steps.includes('Router')) {
+    const injIdx = steps.findIndex((s: string) => s.includes('Injeção') || s.includes('Injecao'));
+    if (injIdx !== -1) {
+      steps.splice(injIdx + 1, 0, 'Router');
+    } else {
+      steps.push('Router');
+    }
   }
 
-  // 9. PORTAS DE CORRER PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 1 ETAPA (SEM GAXETA)
-  if (cod.startsWith('005.') || cod.startsWith('007.') || desc.startsWith('PT COR') || desc.includes('PORTA CORRER') || desc.includes('PORTA DE CORRER')) {
-    return [
-      'Montagem Portas de Correr Padrão e Especial'
-    ];
-  }
-
-  // 10. DEMAIS ESPECÍFICOS
-  if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) return ['Corte', 'Dobra'];
-  if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
-  if (cod.startsWith('015.') || cod === '090.0001') return ['Montagem Estante'];
-  if (cod === '090.0004' || cod === '090.0005') return ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
-  if (cod === '090.0002') return ['Corte', 'Solda', 'Montagem Estante'];
-  if (cod.startsWith('029.') || cod.startsWith('025.')) return ['Montagem Portas Emendadas'];
-
-  return ['Montagem Portas de Correr Padrão e Especial'];
+  return steps;
 }
 
 // Funções de Classificação de Produtos Industriais
@@ -567,11 +612,17 @@ export function validarPostoIndustrial(
       if (normStep.includes('MONTAGEM') && normPosto.includes('MONTAGEM')) return true;
       if (normStep.includes('OFFICE DOOR') && normPosto.includes('OFFICE DOOR')) return true;
       if (normStep.includes('VAI VEM') && normPosto.includes('VAI VEM')) return true;
+      if (normStep.includes('ROUTER') && normPosto.includes('ROUTER')) return true;
       return false;
     }) || (normPosto.includes('LASER') && Boolean(op?.requer_laser));
 
     if (isPostoValido) {
       return { valido: true };
+    } else {
+      return {
+        valido: false,
+        motivo: `O setor ${postoSelecionado} não consta na rota de produção desta peça (${etapasPermitidas.join(' ➔ ')}).`
+      };
     }
   }
 

@@ -381,21 +381,28 @@ export default function App() {
   };
 
   // Finalizar Unidade
-  const handleFinishUnit = async (apontamentoId: string) => {
+  const handleFinishUnit = async (apontamentoId: string, encaminharRouter?: boolean) => {
     if (!currentOp || !selectedSector) return;
     setIsLoading(true);
     try {
-      const finished = await finishUnit(apontamentoId, currentOp.op_numero);
+      const finished = await finishUnit(apontamentoId, currentOp.op_numero, { encaminharRouter });
       playSuccessFinish();
 
       // Recarrega apontamentos atualizados
       await loadData();
 
       // Dispara Toast de Auto-Limpeza de 3 segundos e LIMPA A TELA para o PASSO 1
-      setToastData({
-        message: `⏹ Unidade ${finished.unidade_numero} Finalizada com Sucesso!`,
-        details: `Duração: ${finished.duracao_minutos} min · Operador: ${finished.operador} · Setor: ${selectedSector}`
-      });
+      if (encaminharRouter) {
+        setToastData({
+          message: `⏹ Unidade ${finished.unidade_numero} Finalizada! OP encaminhada para o Router (Terminal 5).`,
+          details: `Duração: ${finished.duracao_minutos} min · Próxima Etapa: Router`
+        });
+      } else {
+        setToastData({
+          message: `⏹ Unidade ${finished.unidade_numero} Finalizada com Sucesso!`,
+          details: `Duração: ${finished.duracao_minutos} min · Operador: ${finished.operador} · Setor: ${selectedSector}`
+        });
+      }
 
       // PASSO 3: Retorna ao PASSO 1 imediatamente para o próximo colaborador
       handleResetScreen();
@@ -454,23 +461,30 @@ export default function App() {
   };
 
   // Finalizar Lote Completo
-  const handleFinishBatch = async (apontamentoId: string, quantidadeRefugo?: number) => {
+  const handleFinishBatch = async (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean) => {
     if (!currentOp || !selectedSector) return;
     setIsLoading(true);
     const opNum = currentOp.op_numero;
     const sector = selectedSector;
     try {
-      const finished = await finishBatch(apontamentoId, opNum, { quantidadeRefugo });
+      const finished = await finishBatch(apontamentoId, opNum, { quantidadeRefugo, encaminharRouter });
       playSuccessFinish();
       await loadData();
 
       const opNome = finished.colaborador || finished.operador || 'Operador';
       const duracaoTempo = finished.duracao || finished.duracao_minutos;
 
-      setToastData({
-        message: `✔ Lote de ${finished.quantidade_lote} peças concluído com sucesso por ${opNome}!`,
-        details: `Duração: ${duracaoTempo} min · Setor: ${sector}`
-      });
+      if (encaminharRouter) {
+        setToastData({
+          message: `✔ Lote de ${finished.quantidade_lote} peças concluído! OP encaminhada para o Router (Terminal 5).`,
+          details: `Duração: ${duracaoTempo} min · Próxima Etapa: Router`
+        });
+      } else {
+        setToastData({
+          message: `✔ Lote de ${finished.quantidade_lote} peças concluído com sucesso por ${opNome}!`,
+          details: `Duração: ${duracaoTempo} min · Setor: ${sector}`
+        });
+      }
 
       // Retorna imediatamente à tela inicial de bipar mantendo o toast visível
       handleResetScreen(true);

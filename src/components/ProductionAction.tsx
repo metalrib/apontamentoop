@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
-import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers } from 'lucide-react';
+import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 
 interface ProductionActionProps {
@@ -12,9 +12,9 @@ interface ProductionActionProps {
   selectedOperator: string | null;
   currentTerminal: TerminalConfig;
   onStartUnit: (unidadeNumero: number, etapaRota: string) => void;
-  onFinishUnit: (apontamentoId: string) => void;
+  onFinishUnit: (apontamentoId: string, encaminharRouter?: boolean) => void;
   onStartBatch?: (etapaRota: string, quantidadeTotal: number) => void;
-  onFinishBatch?: (apontamentoId: string, quantidadeRefugo?: number) => void;
+  onFinishBatch?: (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean) => void;
   isLoading?: boolean;
 }
 
@@ -56,6 +56,33 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     : null;
 
   const activeForCurrentOperator = isBatch ? activeBatch : activeUnitForCurrentOperator;
+
+  // Identifica se o setor selecionado é a Injeção
+  const isInjecaoSector = Boolean(
+    (selectedSector && (
+      selectedSector.toLowerCase().includes('injeção') ||
+      selectedSector.toLowerCase().includes('injecao') ||
+      selectedSector.toLowerCase().includes('injetora')
+    )) ||
+    (matchedStep && (
+      matchedStep.toLowerCase().includes('injeção') ||
+      matchedStep.toLowerCase().includes('injecao') ||
+      matchedStep.toLowerCase().includes('injetora')
+    ))
+  );
+
+  // Verifica se o produto pertence às famílias elegíveis para o Router
+  const isEligibleRouter = isEligibleForRouter(order);
+  const showRouterOption = isInjecaoSector && isEligibleRouter;
+
+  const [showRouterModal, setShowRouterModal] = useState<boolean>(false);
+  const [encaminharRouter, setEncaminharRouter] = useState<boolean>(
+    Boolean(order.encaminhar_router || order.requer_router)
+  );
+
+  useEffect(() => {
+    setEncaminharRouter(Boolean(order.encaminhar_router || order.requer_router));
+  }, [order.op_numero, order.encaminhar_router, order.requer_router]);
 
   // Identifica se o setor selecionado é o Corte no Terminal 1
   const isCorteSector = Boolean(
@@ -195,11 +222,47 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             </div>
           </div>
 
+          {/* Opção Condicional Exclusiva na Injeção: Encaminhar para Router */}
+          {showRouterOption && (
+            <div
+              onClick={() => {
+                playClick();
+                setEncaminharRouter(!encaminharRouter);
+              }}
+              className={`mb-2 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+                encaminharRouter
+                  ? 'bg-amber-950/40 border-amber-500/70 text-amber-200 shadow-sm'
+                  : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <input
+                  type="checkbox"
+                  id="send-to-router-toggle-batch"
+                  checked={encaminharRouter}
+                  onChange={() => {}}
+                  className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                />
+                <label htmlFor="send-to-router-toggle-batch" className="text-xs font-mono font-medium cursor-pointer">
+                  <span>Encaminhar para Router</span>{' '}
+                  <span className="text-[11px] text-slate-500">(Terminal 5)</span>
+                </label>
+              </div>
+              {encaminharRouter && (
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+                  ⚙ Requer Router
+                </span>
+              )}
+            </div>
+          )}
+
           {/* BOTÃO CONCLUIR LOTE COMPLETO */}
           <button
             onClick={() => {
               playClick();
-              if (onFinishBatch) {
+              if (showRouterOption) {
+                setShowRouterModal(true);
+              } else if (onFinishBatch) {
                 onFinishBatch(activeForCurrentOperator.id, refugoInput);
               } else {
                 onFinishUnit(activeForCurrentOperator.id);
@@ -217,6 +280,121 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
               </>
             )}
           </button>
+
+          {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
+          {showRouterModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#0f172a] border border-cyan-500/40 rounded-2xl p-6 max-w-lg w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/30">
+                      <Layers className="w-5 h-5 text-cyan-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-white leading-tight">Encerramento da Injeção</h3>
+                      <p className="text-xs text-slate-400 font-mono">OP {order.op_numero} • {selectedSector || 'Injeção'}</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowRouterModal(false)}
+                    className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="mb-4 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                  <p className="text-xs font-mono text-cyan-400 font-bold mb-0.5">
+                    PRODUTO ESPECIAL SOB MEDIDA
+                  </p>
+                  <p className="text-sm text-white font-medium">
+                    {order.descricao || order.produto}
+                  </p>
+                  {order.codigoProduto && (
+                    <p className="text-xs text-slate-400 font-mono mt-0.5">
+                      Código: {order.codigoProduto}
+                    </p>
+                  )}
+                </div>
+
+                {/* OPÇÃO EM DESTAQUE: [ ] Encaminhar para Router */}
+                <div
+                  onClick={() => {
+                    playClick();
+                    setEncaminharRouter(!encaminharRouter);
+                  }}
+                  className={`p-4 rounded-xl border flex items-start gap-3.5 cursor-pointer select-none transition-all mb-6 ${
+                    encaminharRouter
+                      ? 'bg-amber-950/40 border-amber-500 text-amber-200 shadow-md shadow-amber-950/20 ring-1 ring-amber-500/50'
+                      : 'bg-slate-900 border-slate-700 hover:border-slate-600 text-slate-300'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    id="modal-encaminhar-router-batch"
+                    checked={encaminharRouter}
+                    onChange={(e) => {
+                      setEncaminharRouter(e.target.checked);
+                    }}
+                    className="w-5 h-5 mt-0.5 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                  />
+                  <div className="flex-1">
+                    <label
+                      htmlFor="modal-encaminhar-router-batch"
+                      className="font-bold text-base text-white cursor-pointer block"
+                    >
+                      Encaminhar para Router
+                    </label>
+                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                      {encaminharRouter ? (
+                        <span className="text-amber-300 font-medium">
+                          Marcado: A etapa Router será inserida imediatamente após a Injeção. A OP aguardará usinagem no Terminal 5 antes da montagem final.
+                        </span>
+                      ) : (
+                        <span>
+                          Desmarcado: A peça seguirá o fluxo normal direto para Montagem / Gaxeta, sem passar pelo Router.
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowRouterModal(false)}
+                    className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm rounded-xl transition-all cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playClick();
+                      setShowRouterModal(false);
+                      if (onFinishBatch) {
+                        onFinishBatch(activeForCurrentOperator.id, refugoInput, encaminharRouter);
+                      } else {
+                        onFinishUnit(activeForCurrentOperator.id, encaminharRouter);
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="flex-1 py-3 px-4 bg-teal-600 hover:bg-teal-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wide"
+                  >
+                    {isLoading ? (
+                      <span className="animate-spin text-base">↻</span>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-5 h-5" />
+                        <span>Finalizar Apontamento</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -237,11 +415,49 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           </div>
         </div>
 
+        {/* Opção Condicional Exclusiva na Injeção: Encaminhar para Router */}
+        {showRouterOption && (
+          <div
+            onClick={() => {
+              playClick();
+              setEncaminharRouter(!encaminharRouter);
+            }}
+            className={`mb-2 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+              encaminharRouter
+                ? 'bg-amber-950/40 border-amber-500/70 text-amber-200 shadow-sm'
+                : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                id="send-to-router-toggle-unit"
+                checked={encaminharRouter}
+                onChange={() => {}}
+                className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+              />
+              <label htmlFor="send-to-router-toggle-unit" className="text-xs font-mono font-medium cursor-pointer">
+                <span>Encaminhar para Router</span>{' '}
+                <span className="text-[11px] text-slate-500">(Terminal 5)</span>
+              </label>
+            </div>
+            {encaminharRouter && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+                ⚙ Requer Router
+              </span>
+            )}
+          </div>
+        )}
+
         {/* BOTÃO FINALIZAR UNIDADE */}
         <button
           onClick={() => {
             playClick();
-            onFinishUnit(activeForCurrentOperator.id);
+            if (showRouterOption) {
+              setShowRouterModal(true);
+            } else {
+              onFinishUnit(activeForCurrentOperator.id);
+            }
           }}
           disabled={isLoading}
           className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] transition-all text-white font-bold text-base rounded-xl flex items-center justify-center gap-2 shadow-md uppercase tracking-wide cursor-pointer"
@@ -255,6 +471,117 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             </>
           )}
         </button>
+
+        {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
+        {showRouterModal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#0f172a] border border-cyan-500/40 rounded-2xl p-6 max-w-lg w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-cyan-500/10 rounded-lg border border-cyan-500/30">
+                    <Layers className="w-5 h-5 text-cyan-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white leading-tight">Encerramento da Injeção</h3>
+                    <p className="text-xs text-slate-400 font-mono">OP {order.op_numero} • {selectedSector || 'Injeção'}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRouterModal(false)}
+                  className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="mb-4 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                <p className="text-xs font-mono text-cyan-400 font-bold mb-0.5">
+                  PRODUTO ESPECIAL SOB MEDIDA
+                </p>
+                <p className="text-sm text-white font-medium">
+                  {order.descricao || order.produto}
+                </p>
+                {order.codigoProduto && (
+                  <p className="text-xs text-slate-400 font-mono mt-0.5">
+                    Código: {order.codigoProduto}
+                  </p>
+                )}
+              </div>
+
+              {/* OPÇÃO EM DESTAQUE: [ ] Encaminhar para Router */}
+              <div
+                onClick={() => {
+                  playClick();
+                  setEncaminharRouter(!encaminharRouter);
+                }}
+                className={`p-4 rounded-xl border flex items-start gap-3.5 cursor-pointer select-none transition-all mb-6 ${
+                  encaminharRouter
+                    ? 'bg-amber-950/40 border-amber-500 text-amber-200 shadow-md shadow-amber-950/20 ring-1 ring-amber-500/50'
+                    : 'bg-slate-900 border-slate-700 hover:border-slate-600 text-slate-300'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  id="modal-encaminhar-router-unit"
+                  checked={encaminharRouter}
+                  onChange={(e) => {
+                    setEncaminharRouter(e.target.checked);
+                  }}
+                  className="w-5 h-5 mt-0.5 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <label
+                    htmlFor="modal-encaminhar-router-unit"
+                    className="font-bold text-base text-white cursor-pointer block"
+                  >
+                    Encaminhar para Router
+                  </label>
+                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                    {encaminharRouter ? (
+                      <span className="text-amber-300 font-medium">
+                        Marcado: A etapa Router será inserida imediatamente após a Injeção. A OP aguardará usinagem no Terminal 5 antes da montagem final.
+                      </span>
+                    ) : (
+                      <span>
+                        Desmarcado: A peça seguirá o fluxo normal direto para Montagem / Gaxeta, sem passar pelo Router.
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowRouterModal(false)}
+                  className="flex-1 py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm rounded-xl transition-all cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClick();
+                    setShowRouterModal(false);
+                    onFinishUnit(activeForCurrentOperator.id, encaminharRouter);
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 py-3 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white font-bold text-sm rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wide"
+                >
+                  {isLoading ? (
+                    <span className="animate-spin text-base">↻</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-5 h-5" />
+                      <span>Finalizar Apontamento</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
