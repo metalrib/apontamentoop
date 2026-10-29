@@ -22,6 +22,7 @@ import {
   getRotaAbrigoDoca,
   getRotaPerfilPP,
   getRotaKitGaxetaU,
+  getRotaBatente,
   obterEtapasDaRota,
   isEstanteCompleta,
   isQuadroEstante,
@@ -32,6 +33,7 @@ import {
   isPerfilPP,
   isKitGaxetaU,
   isTrilhoCorrer,
+  isBatente,
   isEtapaConcluida,
   validarPostoIndustrial,
   validarPostoTrilho
@@ -48,6 +50,7 @@ export {
   getRotaAbrigoDoca,
   getRotaPerfilPP,
   getRotaKitGaxetaU,
+  getRotaBatente,
   obterEtapasDaRota,
   isEstanteCompleta,
   isQuadroEstante,
@@ -58,6 +61,7 @@ export {
   isPerfilPP,
   isKitGaxetaU,
   isTrilhoCorrer,
+  isBatente,
   isEtapaConcluida,
   validarPostoIndustrial,
   validarPostoTrilho
@@ -276,15 +280,12 @@ function resolveBaseRoute(
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 3. Batentes Padrão (se o código estiver em CODIGOS_BATENTES_PADRAO)
-  // Rota: "Fabricação de Batente Padrão"
-  // Etapas: Corte - Guilhotina (T1) -> Dobra e Preparação (T1) -> Montagem e Injeção de Batentes (Terminal 3).
-  // Badge: "Batente de Linha Padrão".
-  if (code && CODIGOS_BATENTES_PADRAO.has(code)) {
+  // 3. Batentes Padrão (se o código estiver em CODIGOS_BATENTES_PADRAO ou for da família 020 / BAT)
+  if ((code && CODIGOS_BATENTES_PADRAO.has(code)) || isBatente(input)) {
     const rule: RouteRule = {
       keyword: 'BATENTE PADRAO',
       label: 'Fabricação de Batente Padrão',
-      steps: ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização Batentes'],
+      steps: ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'],
       badge: 'Batente de Linha Padrão',
       isStandardLine: true
     };

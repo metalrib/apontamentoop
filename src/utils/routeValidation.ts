@@ -170,6 +170,19 @@ export function getRotaKitGaxetaU(): string[] {
 }
 
 /**
+ * Retorna as etapas oficiais de Batentes (Família 020.xxxx ou BATENTE / BAT).
+ * Rota completa de 4 etapas: Corte -> Dobra -> Preparação de Batentes -> Injeção e Finalização de Batentes.
+ */
+export function getRotaBatente(): string[] {
+  return [
+    'Corte',
+    'Dobra',
+    'Preparação de Batentes',
+    'Injeção e Finalização de Batentes'
+  ];
+}
+
+/**
  * Gerador Dinâmico Oficial de Etapas da Rota por Produto
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
@@ -245,9 +258,14 @@ export function obterEtapasDaRota(op: any): string[] {
     return ['Montagem Portas Emendadas'];
   }
 
-  // 10. Batentes
-  if ((cod.startsWith('020.') && (normDesc.includes('BAT') || normDesc.includes('BATENTE'))) || normDesc.includes('BATENTE')) {
-    return ['Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+  // 10. Batentes (020.xxxx ou descrição com BATENTE / BAT)
+  if (cod.startsWith('020.') || desc.includes('BATENTE') || desc.includes('BAT ') || normDesc.includes('BATENTE') || normDesc.includes('BAT ')) {
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Batentes',
+      'Injeção e Finalização de Batentes'
+    ];
   }
 
   // 11. Portas Vai-Vem
@@ -345,6 +363,15 @@ export function isTrilhoCorrer(op: any): boolean {
   const norm = normalizeValidationText(op?.descricao);
   if (code.startsWith('028.') || (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code))) return true;
   if (norm.includes('TRILHO') && !norm.includes('TRILHO CORTINA')) return true;
+  return false;
+}
+
+export function isBatente(op: any): boolean {
+  const code = extractValidationCode(op);
+  const norm = normalizeValidationText(op?.descricao || (typeof op === 'string' ? op : ''));
+  const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
+  if (code.startsWith('020.')) return true;
+  if (desc.includes('BATENTE') || desc.includes('BAT ') || norm.includes('BATENTE') || norm.includes('BAT ') || norm.startsWith('BAT ') || norm.includes('BAT-')) return true;
   return false;
 }
 
