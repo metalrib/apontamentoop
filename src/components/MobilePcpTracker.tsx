@@ -156,6 +156,41 @@ export function getTerminalForOp(op: ProductionOrder, apontamentos?: Apontamento
   return 'T1';
 }
 
+/**
+ * Encurta o nome da etapa para exibição compacta no badge [T# • Etapa]
+ */
+export function getShortStepName(stepName: string): string {
+  if (!stepName) return 'Aguardando';
+  const clean = stepName.replace(/^Aguardando\s+In[ií]cio\s+em:\s*/i, '').trim();
+  const upper = clean.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  if (upper.includes('CORTE DE TRILHO')) return 'Corte Trilho';
+  if (upper.includes('MONTAGEM DE TRILHO')) return 'Mont. Trilho';
+  if (upper.includes('CORTE')) return 'Corte';
+  if (upper.includes('LASER')) return 'Laser';
+  if (upper.includes('DOBRA')) return 'Dobra';
+  if (upper.includes('SOLDA')) return 'Solda';
+  if (upper.includes('ROUTER')) return 'Router';
+  if (upper.includes('GAXETA')) return 'Gaxeta';
+  if (upper.includes('PREPARACAO') && upper.includes('FOLHA')) return 'Prep. Folhas';
+  if (upper.includes('PREPARACAO') && upper.includes('BAT')) return 'Prep. Bat.';
+  if (upper.includes('PREPARACAO') && upper.includes('VAI')) return 'Prep. Vai-Vem';
+  if (upper.includes('PREPARACAO')) return 'Preparação';
+  if (upper.includes('INJE') && upper.includes('BAT')) return 'Inj. Batente';
+  if (upper.includes('INJE')) return 'Injeção';
+  if (upper.includes('MONTAGEM') && upper.includes('GIRAT')) return 'Mont. Giro';
+  if (upper.includes('MONTAGEM') && upper.includes('CORR')) return 'Mont. Correr';
+  if (upper.includes('MONTAGEM') && upper.includes('VAI')) return 'Mont. Vai-Vem';
+  if (upper.includes('MONTAGEM') && upper.includes('OFFICE') && upper.includes('GIR')) return 'Mont. Off. Gir';
+  if (upper.includes('MONTAGEM') && upper.includes('OFFICE') && upper.includes('COR')) return 'Mont. Off. Cor';
+  if (upper.includes('MONTAGEM') && upper.includes('ESTANTE')) return 'Mont. Estante';
+  if (upper.includes('MONTAGEM') && (upper.includes('ABRIGO') || upper.includes('DOCA'))) return 'Mont. Doca';
+  if (upper.includes('MONTAGEM') && upper.includes('EMENDADA')) return 'Mont. Emendada';
+  if (upper.includes('MONTAGEM')) return 'Montagem';
+
+  return clean.length > 14 ? clean.slice(0, 12) + '...' : clean;
+}
+
 interface MobilePcpTrackerProps {
   orders: Record<string, ProductionOrder>;
   apontamentos: Apontamento[];
@@ -737,11 +772,12 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                 </p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {filteredOrders.map((op) => {
                   const dl = calculateDeadlineInfo(op.data_entrega);
                   const opEffectiveEtapa = getOpEffectiveEtapa(op, apontamentos);
                   const terminalForOp = getTerminalForOp(op, apontamentos);
+                  const shortStep = getShortStepName(opEffectiveEtapa);
                   const isRunning = apontamentos.some(
                     (a) =>
                       a.status === 'EM_ANDAMENTO' &&
@@ -752,75 +788,49 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                     <button
                       key={op.op_numero}
                       onClick={() => handleSelectOpByNumber(op.op_numero)}
-                      className={`w-full p-3 bg-slate-900 hover:bg-slate-850 active:scale-[0.99] border rounded-2xl text-left transition flex flex-col gap-2 cursor-pointer shadow-md ${
+                      className={`w-full p-2.5 bg-slate-900/90 hover:bg-slate-850 active:scale-[0.99] border rounded-xl text-left transition flex flex-col gap-1 cursor-pointer group shadow-sm ${
                         isRunning
-                          ? 'border-cyan-500/50 ring-1 ring-cyan-500/30 bg-cyan-950/20'
-                          : 'border-slate-800'
+                          ? 'border-cyan-500/50 bg-cyan-950/20 ring-1 ring-cyan-500/20'
+                          : 'border-slate-800/80 hover:border-slate-700'
                       }`}
                     >
-                      {/* Linha 1: Badge OP (sem duplicação "OP OP"), Quantidade e Prazo */}
+                      {/* LINHA SUPERIOR: OP + Qtd à esquerda, Atraso + [T# • Etapa] à direita */}
                       <div className="flex items-center justify-between gap-2 w-full">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="font-mono font-black text-blue-400 text-sm tracking-wide bg-[#1C2F8A]/30 border border-blue-400/40 px-2.5 py-0.5 rounded-lg shrink-0 shadow-sm">
+                        {/* Lado Esquerdo */}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-mono font-black text-blue-400 text-xs tracking-wide bg-[#1C2F8A]/30 border border-blue-400/40 px-2 py-0.5 rounded-md shrink-0 shadow-sm">
                             {formatOpNumber(op.op_numero || op.numero)}
                           </span>
-                          <span className="text-[10px] font-mono font-bold bg-slate-800/90 text-amber-300 px-2 py-0.5 rounded-md border border-slate-700 shrink-0">
+                          <span className="text-[10px] font-mono font-bold bg-slate-800/90 text-amber-300 px-1.5 py-0.5 rounded border border-slate-700 shrink-0">
                             {op.quantidade_total || 1} {op.unidade_medida || 'PC'}
                           </span>
                         </div>
 
-                        {/* Trava de Alerta de Atraso Antigo (> 60 dias) */}
-                        <div className="shrink-0">
+                        {/* Lado Direito */}
+                        <div className="flex items-center gap-1.5 shrink-0">
                           {dl.isDelayed ? (
-                            <span className="text-[10px] font-bold text-red-400 bg-red-950/70 px-2 py-0.5 rounded-md border border-red-900 flex items-center gap-1">
-                              <AlertTriangle className="w-3 h-3 text-red-400" />
-                              {dl.text}
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-red-950/80 text-red-400 border border-red-800/80 shrink-0 whitespace-nowrap flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse shrink-0" />
+                              {Math.abs(dl.daysDiff)}d
                             </span>
                           ) : dl.isHistoric || dl.text === 'Lote Anterior' ? (
-                            <span className="text-[10px] font-bold text-slate-400 bg-slate-800/90 px-2 py-0.5 rounded-md border border-slate-700 flex items-center gap-1">
-                              <Clock className="w-3 h-3 text-slate-500" />
-                              Lote Anterior
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800/90 text-slate-400 border border-slate-700 shrink-0 whitespace-nowrap">
+                              Lote Ant.
                             </span>
-                          ) : (
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-900 flex items-center gap-1">
-                              <Calendar className="w-3 h-3 text-emerald-400" />
-                              No Prazo
-                            </span>
-                          )}
+                          ) : null}
+
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-800 text-cyan-300 border border-slate-700/80 shrink-0 whitespace-nowrap">
+                            {terminalForOp} • {shortStep}
+                          </span>
                         </div>
                       </div>
 
-                      {/* Linha 2: Descrição e Código do Produto */}
-                      <div className="text-xs font-semibold text-slate-200 line-clamp-2 leading-tight">
-                        {op.descricao}
-                      </div>
-
-                      {/* Linha 3: Identificação do Posto/Etapa Atual em Destaque sutil e Terminal */}
-                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-800/80 w-full text-xs font-mono">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-mono border ${
-                              isRunning
-                                ? 'bg-cyan-500/20 border-cyan-400/50 text-cyan-200 shadow-sm'
-                                : 'bg-slate-950/80 border-slate-800 text-slate-300'
-                            }`}
-                          >
-                            <Activity
-                              className={`w-3 h-3 ${isRunning ? 'text-cyan-400 animate-spin' : 'text-cyan-400'}`}
-                            />
-                            <span className="text-slate-400 text-[10px]">Etapa Atual:</span>
-                            <strong className="text-white font-bold truncate">
-                              {opEffectiveEtapa}
-                            </strong>
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800/80 text-blue-300 border border-slate-700">
-                            {terminalForOp}
-                          </span>
-                          <span className="text-slate-500 text-xs">→</span>
-                        </div>
+                      {/* LINHA INFERIOR: Descrição em linha única com truncate e chevron discreto */}
+                      <div className="flex items-center justify-between gap-2 w-full text-xs min-w-0">
+                        <p className="text-xs text-slate-300 font-medium truncate flex-1 min-w-0 pr-1">
+                          {op.descricao}
+                        </p>
+                        <ChevronRight className="w-4 h-4 text-slate-500 shrink-0 group-hover:text-slate-300 group-hover:translate-x-0.5 transition-transform" />
                       </div>
                     </button>
                   );
