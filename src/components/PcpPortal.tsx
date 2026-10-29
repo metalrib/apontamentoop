@@ -274,6 +274,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
             'Dobra',
             'Preparação de Folhas',
             'Injeção de Folhas',
+            'Instalação de Gaxeta',
             'Montagem de Portas Giratória'
           ];
         } else {

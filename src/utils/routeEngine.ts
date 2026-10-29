@@ -334,10 +334,14 @@ function resolveBaseRoute(
       ? 'Montagem de Portas Giratória'
       : 'Montagem Portas de Correr Padrão e Especial';
 
+    const steps = isGiro
+      ? ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Instalação de Gaxeta', montagemStep]
+      : ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep];
+
     const rule: RouteRule = {
       keyword: isGiro ? 'PT GIR ESPECIAL' : 'PT COR ESPECIAL',
       label: isGiro ? 'Rota 12 - Porta Especial Giratória Super Cong' : 'Rota 13/14 - Porta Especial de Correr Super Cong',
-      steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep],
+      steps,
       badge: 'Especial sob Medida (Fabricação Completa)',
       isStandardLine: false
     };
@@ -460,7 +464,7 @@ export function getRouteForOp(
   if (ehSuperCong) {
     const isGiro = codNorm.startsWith('003.') || codNorm.startsWith('003') || descNorm.includes('PT GIR') || descNorm.includes('GIRO');
     const steps = isGiro
-      ? ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem de Portas Giratória']
+      ? ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Instalação de Gaxeta', 'Montagem de Portas Giratória']
       : ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem Portas de Correr Padrão e Especial'];
     const rule: RouteRule = {
       keyword: isGiro ? 'PT GIR ESPECIAL' : 'PT COR ESPECIAL',

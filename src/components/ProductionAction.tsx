@@ -52,6 +52,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
         'Dobra',
         'Preparação de Folhas',
         'Injeção de Folhas',
+        'Instalação de Gaxeta',
         'Montagem de Portas Giratória'
       ];
     } else {

@@ -45,6 +45,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
         'Dobra',
         'Preparação de Folhas',
         'Injeção de Folhas',
+        'Instalação de Gaxeta',
         'Montagem de Portas Giratória'
       ];
     } else {

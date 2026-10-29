@@ -187,68 +187,56 @@ export function getRotaBatente(): string[] {
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
 export function obterEtapasDaRota(op: any): string[] {
-  const rawCod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.codProduto || '').trim();
-  const rawDesc = String(op?.descricao || op?.produto || op?.nome || (typeof op === 'string' ? op : '')).toUpperCase();
-  const cod = rawCod;
-  const desc = rawDesc;
-  const normDesc = desc.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const cod = String(op?.codigoProduto || op?.cod || op?.codigo || '').trim();
+  const desc = String(op?.descricao || op?.produto || '').toUpperCase();
 
-  // 1. PRODUTOS ESPECÍFICOS DIRETOS
+  // 1. LINHA WALK-IN, PERFIS E ACESSÓRIOS
   if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) {
     return ['Corte', 'Dobra'];
   }
-
-  if (
-    cod.startsWith('015.') || 
-    cod === '090.0001' || 
-    (desc.includes('ESTANTE WALK') && !desc.includes('QUADRO'))
-  ) {
-    return ['Montagem Estante'];
-  }
-
   if (cod === '090.0004' || cod === '090.0005' || desc.includes('QUADRO ESTANTE')) {
     return ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
   }
-
-  if (
-    cod === '090.0002' || 
-    ((desc.includes('PÉ ESTANTE') || normDesc.includes('PE ESTANTE')) && desc.includes('SEM PINTURA'))
-  ) {
+  if (cod === '090.0002' || (desc.includes('PÉ ESTANTE') && desc.includes('SEM PINTURA')) || (desc.includes('PE ESTANTE') && desc.includes('SEM PINTURA'))) {
     return ['Corte', 'Solda', 'Montagem Estante'];
   }
-
+  if (cod.startsWith('015.') || cod === '090.0001' || (desc.includes('ESTANTE') && !desc.includes('QUADRO'))) {
+    return ['Montagem Estante'];
+  }
   if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
     return ['Corte de Trilho', 'Montagem de Trilho'];
   }
-
   if (cod.startsWith('029.') || cod.startsWith('025.') || desc.includes('RESIST PISO') || desc.includes('KIT GAXETA')) {
     return ['Montagem Portas Emendadas'];
   }
-
   if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) {
     return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
   }
 
-  // 2. TODA A FAMÍLIA SUPER CONG (007.xxxx, 003.xxxx ou texto SUPER CONG): 5 ETAPAS COMPLETAS
-  if (
-    cod.startsWith('007.') || 
-    cod.startsWith('003.') || 
-    desc.includes('SUPER CONG') ||
-    desc.includes('SUPER CONGELADO') ||
-    desc.includes('PORTA ESPECIAL')
-  ) {
-    // Se for Porta de Giro Super Congelada (ex: 003.0011 / PT GIR SUPER CONG):
-    if (desc.includes('PT GIR') || desc.includes('GIRO') || cod.startsWith('003.') || cod.startsWith('001.')) {
-      return [
-        'Corte',
-        'Dobra',
-        'Preparação de Folhas',
-        'Injeção de Folhas',
-        'Montagem de Portas Giratória'
-      ];
-    }
+  // 2. BATENTES AVULSOS (ESTRITAMENTE CÓDIGO 020.xxxx OU COMEÇANDO COM "BATENTE")
+  if (cod.startsWith('020.') || desc.startsWith('BATENTE ') || desc.startsWith('BAT ')) {
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Batentes',
+      'Injeção e Finalização de Batentes'
+    ];
+  }
 
-    // Se for Porta de Correr Super Congelada (ex: 007.0011 / PT COR SUPER CONG / OP 024048-01 e OP 024049-01):
+  // 3. PORTA GIRATÓRIA SUPER CONG (003.xxxx ou PT GIR SUPER CONG) -> 6 ETAPAS
+  if (cod.startsWith('003.') || (desc.includes('SUPER CONG') && (desc.includes('PT GIR') || desc.includes('GIRO')))) {
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Folhas',
+      'Injeção de Folhas',
+      'Instalação de Gaxeta',
+      'Montagem de Portas Giratória'
+    ];
+  }
+
+  // 4. PORTA DE CORRER SUPER CONG / ESPECIAIS (007.xxxx ou PT COR SUPER CONG) -> 5 ETAPAS (SEM GAXETA)
+  if (cod.startsWith('007.') || desc.includes('SUPER CONG')) {
     return [
       'Corte',
       'Dobra',
@@ -258,40 +246,16 @@ export function obterEtapasDaRota(op: any): string[] {
     ];
   }
 
-  // 3. PORTAS DE GIRO PADRÃO (Família 001.xxxx / PT GIR) -> 2 ETAPAS DIRETAS NA MONTAGEM
-  const ehPortaGiroPadrao = 
-    cod.startsWith('001.') || 
-    desc.startsWith('PT GIR') || 
-    desc.startsWith('PORTA GIRO') || 
-    desc.includes('PORTA GIRATÓRIA') ||
-    desc.includes('PORTA GIRATORIA');
-
-  if (ehPortaGiroPadrao) {
+  // 5. PORTAS DE GIRO PADRÃO (001.xxxx ou PT GIR) -> 2 ETAPAS
+  if (cod.startsWith('001.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO')) {
     return [
       'Instalação de Gaxeta',
       'Montagem de Portas Giratória'
     ];
   }
 
-  // 4. BATENTES AVULSOS (ESTRITAMENTE 020.xxxx OU INÍCIO "BATENTE") -> 4 ETAPAS
-  // NUNCA pesquisar substring solta "BAT" para não colidir com "3BAT"/"4BAT" de portas
-  const ehBatenteAvulso = 
-    cod.startsWith('020.') || 
-    desc.startsWith('BATENTE') || 
-    desc.startsWith('BAT ');
-
-  if (ehBatenteAvulso) {
-    return [
-      'Corte',
-      'Dobra',
-      'Preparação de Batentes',
-      'Injeção e Finalização de Batentes'
-    ];
-  }
-
-  // 5. PORTAS DE CORRER PADRÃO (Família 002.xxxx / PT COR PADRÃO) E DEMAIS PORTAS
+  // 6. TODAS AS DEMAIS PORTAS DE CORRER (002.xxxx, 005.xxxx, PT COR RESF, etc.) -> APENAS MONTAGEM (NÃO TEM GAXETA)
   return [
-    'Instalação de Gaxeta',
     'Montagem Portas de Correr Padrão e Especial'
   ];
 }
@@ -499,7 +463,7 @@ export function validarPostoIndustrial(
   if (ehSuperCong) {
     const isGiro = codNorm.startsWith('003.') || codNorm.startsWith('003') || descNorm.includes('PT GIR') || descNorm.includes('GIRO');
     const rotaPermitida = isGiro
-      ? ['Corte', 'Dobra', 'Laser', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem de Portas Giratória']
+      ? ['Corte', 'Dobra', 'Laser', 'Preparação de Folhas', 'Injeção de Folhas', 'Instalação de Gaxeta', 'Montagem de Portas Giratória']
       : ['Corte', 'Dobra', 'Laser', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem Portas de Correr Padrão e Especial'];
 
     const normPosto = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -511,6 +475,7 @@ export function validarPostoIndustrial(
       if (normStep.includes('LASER') && normPosto.includes('LASER')) return true;
       if (normStep.includes('PREPARACAO') && normPosto.includes('PREPARACAO')) return true;
       if (normStep.includes('INJECAO') && normPosto.includes('INJECAO')) return true;
+      if (normStep.includes('GAXETA') && normPosto.includes('GAXETA')) return true;
       if (normStep.includes('MONTAGEM') && normPosto.includes('MONTAGEM')) return true;
       return false;
     });

@@ -1916,6 +1916,7 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
         'Dobra',
         'Preparação de Folhas',
         'Injeção de Folhas',
+        'Instalação de Gaxeta',
         'Montagem de Portas Giratória'
       ];
     } else {
@@ -2126,6 +2127,7 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
           'Dobra',
           'Preparação de Folhas',
           'Injeção de Folhas',
+          'Instalação de Gaxeta',
           'Montagem de Portas Giratória'
         ];
       } else {

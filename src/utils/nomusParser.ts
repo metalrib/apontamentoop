@@ -572,6 +572,7 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
           'Dobra',
           'Preparação de Folhas',
           'Injeção de Folhas',
+          'Instalação de Gaxeta',
           'Montagem de Portas Giratória'
         ];
       } else {
@@ -617,12 +618,13 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
 
     if (ehSuperCong) {
       if (codNorm.startsWith('003.') || descNorm.includes('PT GIR')) {
-        // Porta de Giro Super Congelada
+        // Porta de Giro Super Congelada (6 etapas)
         op.etapas = [
           'Corte',
           'Dobra',
           'Preparação de Folhas',
           'Injeção de Folhas',
+          'Instalação de Gaxeta',
           'Montagem de Portas Giratória'
         ];
       } else {
