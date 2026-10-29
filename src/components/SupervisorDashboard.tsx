@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, obterEtapasDaRota } from '../utils/routeEngine';
 import { resetFactoryData, addProductionOrder, getSavedFirebaseConfig, saveFirebaseConfig, FirebaseConnectionConfig } from '../services/mesStorage';
+import { TerminalsOverview } from './TerminalsOverview';
 import { X, Factory, RefreshCw, Download, Database, Plus, CheckCircle2, Clock, Monitor, ExternalLink } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
@@ -267,66 +268,11 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
 
           {/* TAB 2: TERMINAIS */}
           {activeTab === 'terminals' && (
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {TERMINALS.map((term) => {
-                  const activeInTerminal = apontamentos.filter(
-                    a => a.terminal_id === term.id && a.status === 'EM_ANDAMENTO'
-                  );
-
-                  return (
-                    <div
-                      key={term.id}
-                      className="p-5 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between"
-                    >
-                      <div>
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-slate-800 text-amber-400 flex items-center justify-center font-bold text-base border border-slate-700">
-                              T{term.id}
-                            </div>
-                            <div>
-                              <h3 className="font-bold text-white text-base">{term.name}</h3>
-                              <p className="text-xs text-slate-400 font-mono">{term.label}</p>
-                            </div>
-                          </div>
-
-                          <span
-                            className={`w-3 h-3 rounded-full ${
-                              activeInTerminal.length > 0
-                                ? 'bg-emerald-400 animate-pulse'
-                                : 'bg-slate-600'
-                            }`}
-                          />
-                        </div>
-
-                        {/* Setores vinculados */}
-                        <div className="space-y-1 mb-4">
-                          {term.sectors.map(s => (
-                            <div
-                              key={s}
-                              className="text-xs text-slate-300 bg-slate-950/60 px-2.5 py-1 rounded border border-slate-800/80"
-                            >
-                              {s}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="pt-3 border-t border-slate-800 text-xs font-mono">
-                        {activeInTerminal.length > 0 ? (
-                          <div className="text-emerald-400 font-bold">
-                            ● {activeInTerminal.length} unidade(s) sendo trabalhada(s) agora!
-                          </div>
-                        ) : (
-                          <div className="text-slate-500">Nenhum operador ativo no momento</div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
+            <TerminalsOverview
+              orders={orders}
+              apontamentos={apontamentos}
+              onSelectOp={onSelectOp}
+            />
           )}
 
           {/* TAB 3: LOGS DE APONTAMENTOS */}
