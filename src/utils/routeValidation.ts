@@ -258,8 +258,70 @@ export function obterEtapasDaRota(op: any): string[] {
     return ['Montagem Portas Emendadas'];
   }
 
-  // 10. Batentes (020.xxxx ou descrição com BATENTE / BAT)
-  if (cod.startsWith('020.') || desc.includes('BATENTE') || desc.includes('BAT ') || normDesc.includes('BATENTE') || normDesc.includes('BAT ')) {
+  // 10. PORTAS DE GIRO PADRÃO (Família 001.xxxx, 003.xxxx ou descrição iniciando com PT GIR / PORTA GIRO)
+  // NÃO passam por Corte, Dobra nem Injeção de Folhas. Vão direto para acabamento e montagem (2 etapas).
+  const ehPortaGiroPadrao =
+    !cod.startsWith('020.') &&
+    !desc.startsWith('BATENTE') &&
+    !desc.startsWith('BAT ') &&
+    !normDesc.startsWith('BATENTE') &&
+    !normDesc.startsWith('BAT ') &&
+    (cod.startsWith('001.') ||
+      cod.startsWith('003.') ||
+      desc.startsWith('PT GIR') ||
+      desc.startsWith('PORTA GIRO') ||
+      desc.includes('PORTA GIRATÓRIA') ||
+      normDesc.startsWith('PT GIR') ||
+      normDesc.startsWith('PORTA GIRO') ||
+      normDesc.includes('PORTA GIRATORIA'));
+
+  if (ehPortaGiroPadrao) {
+    if (verificarSeExigeEmenda(desc)) {
+      return ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Montagem Portas Emendadas'];
+    }
+    return [
+      'Instalação de Gaxeta',
+      'Montagem de Portas Giratória'
+    ];
+  }
+
+  // 11. PORTAS DE CORRER PADRÃO (Família 005.xxxx, 007.xxxx, 002.xxxx ou PT COR / PORTA DE CORRER)
+  const ehPortaCorrer =
+    !cod.startsWith('020.') &&
+    !desc.startsWith('BATENTE') &&
+    !desc.startsWith('BAT ') &&
+    !normDesc.startsWith('BATENTE') &&
+    !normDesc.startsWith('BAT ') &&
+    (cod.startsWith('005.') ||
+      cod.startsWith('007.') ||
+      cod.startsWith('002.') ||
+      desc.startsWith('PT COR') ||
+      desc.includes('PORTA DE CORRER') ||
+      desc.includes('PORTA CORRER') ||
+      normDesc.startsWith('PT COR') ||
+      normDesc.includes('PORTA DE CORRER') ||
+      normDesc.includes('PORTA CORRER'));
+    normDesc.startsWith('PT COR') ||
+    normDesc.includes('PORTA DE CORRER') ||
+    normDesc.includes('PORTA CORRER');
+
+  if (ehPortaCorrer) {
+    if (verificarSeExigeEmenda(desc)) {
+      return ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Montagem Portas Emendadas'];
+    }
+    return ['Montagem Portas de Correr Padrão e Especial'];
+  }
+
+  // 12. BATENTES AVULSOS (ESTRITAMENTE FAMÍLIA 020.xxxx OU QUE COMEÇAM COM "BATENTE" / "BAT ")
+  // NUNCA usar .includes('BAT') solto, pois '3BAT' e '4BAT' são atributos da porta frigorífica!
+  const ehBatenteAvulso =
+    cod.startsWith('020.') ||
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('BAT ') ||
+    normDesc.startsWith('BATENTE') ||
+    normDesc.startsWith('BAT ');
+
+  if (ehBatenteAvulso) {
     return [
       'Corte',
       'Dobra',
@@ -370,9 +432,35 @@ export function isBatente(op: any): boolean {
   const code = extractValidationCode(op);
   const norm = normalizeValidationText(op?.descricao || (typeof op === 'string' ? op : ''));
   const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
-  if (code.startsWith('020.')) return true;
-  if (desc.includes('BATENTE') || desc.includes('BAT ') || norm.includes('BATENTE') || norm.includes('BAT ') || norm.startsWith('BAT ') || norm.includes('BAT-')) return true;
-  return false;
+
+  // Blindagem: se for porta frigorífica, NUNCA é batente avulso
+  if (
+    code.startsWith('001.') ||
+    code.startsWith('002.') ||
+    code.startsWith('003.') ||
+    code.startsWith('005.') ||
+    code.startsWith('007.') ||
+    desc.startsWith('PT GIR') ||
+    desc.startsWith('PT COR') ||
+    desc.includes('PORTA GIRO') ||
+    desc.includes('PORTA GIRATÓRIA') ||
+    desc.includes('PORTA DE CORRER') ||
+    norm.startsWith('PT GIR') ||
+    norm.startsWith('PT COR') ||
+    norm.includes('PORTA GIRO') ||
+    norm.includes('PORTA GIRATORIA') ||
+    norm.includes('PORTA DE CORRER')
+  ) {
+    return false;
+  }
+
+  return (
+    code.startsWith('020.') ||
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('BAT ') ||
+    norm.startsWith('BATENTE') ||
+    norm.startsWith('BAT ')
+  );
 }
 
 /**
