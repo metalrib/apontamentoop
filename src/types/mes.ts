@@ -54,31 +54,22 @@ export interface RouteRule {
   isStandardLine?: boolean;
 }
 
-// Códigos Padrão de Linha (Exclusivamente Chapa Branca - Portas de Inox caem na rota Especial Completa)
+// Códigos Padrão de Linha (Exclusivamente Chapa Branca Resfriado - Portas Congeladas 003 e Especiais caem na rota Especial Completa)
 export const CODIGOS_PADRAO_GIRO = new Set([
   // Chapa Branca Resfriado (36)
   '001.0100', '001.0101', '001.0102', '001.0103', '001.0104', '001.0105', '001.0106', '001.0107',
   '001.0108', '001.0109', '001.0110', '001.0111', '001.0112', '001.0113', '001.0114', '001.0115',
   '001.0116', '001.0117', '001.0118', '001.0119', '001.0120', '001.0121', '001.0122', '001.0123',
   '001.0124', '001.0125', '001.0126', '001.0127', '001.0128', '001.0129', '001.0130', '001.0131',
-  '001.0135', '001.0136', '001.0137', '001.0138',
-
-  // Chapa Branca Congelado (36)
-  '003.0100', '003.0101', '003.0102', '003.0103', '003.0104', '003.0105', '003.0106', '003.0107',
-  '003.0108', '003.0109', '003.0110', '003.0111', '003.0112', '003.0113', '003.0114', '003.0115',
-  '003.0116', '003.0117', '003.0118', '003.0119', '003.0120', '003.0121', '003.0122', '003.0123',
-  '003.0124', '003.0125', '003.0126', '003.0127', '003.0128', '003.0129', '003.0130', '003.0131',
-  '003.0135', '003.0136', '003.0137', '003.0138'
+  '001.0135', '001.0136', '001.0137', '001.0138'
 ]);
 
 export const CODIGOS_PADRAO_CORRER = new Set([
-  // Chapa Branca Resfriado (12)
+  // Chapa Branca Resfriado / Padrão (Família 002 e 005)
+  '002.0100', '002.0101', '002.0102', '002.0103', '002.0104', '002.0105',
+  '002.0106', '002.0107', '002.0108', '002.0109', '002.0110', '002.0111',
   '005.0100', '005.0101', '005.0102', '005.0103', '005.0104', '005.0105',
-  '005.0106', '005.0107', '005.0108', '005.0109', '005.0110', '005.0111',
-
-  // Chapa Branca Congelado (12)
-  '007.0100', '007.0101', '007.0102', '007.0103', '007.0104', '007.0105',
-  '007.0106', '007.0107', '007.0108', '007.0109', '007.0110', '007.0111'
+  '005.0106', '005.0107', '005.0108', '005.0109', '005.0110', '005.0111'
 ]);
 
 // Trilhos LGT Alumínio (Porta de Correr)
@@ -131,15 +122,15 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT COR",
     label: "Rota 16 - Porta Padrão Correr",
-    steps: ["Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Instalação de Gaxeta", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Linha Padrão (Montagem Direta)",
     isStandardLine: true
   },
-  // Rota 13/14 - Porta Especial de Correr (Inox ou Medida Especial - T1 -> T2 -> T3)
+  // Rota 13/14 - Porta Especial de Correr (Inox, Super Cong 007 ou Medida Especial - T1 -> T2 -> T3)
   {
     keyword: "PT COR ESPECIAL",
     label: "Rota 13/14 - Porta Especial de Correr",
-    steps: ["Corte", "Dobra", "Preparação", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção de Folhas", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
@@ -283,12 +274,16 @@ export interface ProductionOrder {
   unidade_medida?: string;        // ex: PC ou M²
   data_criacao?: string;
   cliente?: string;
-  status: "PLANEJADA" | "EM_PRODUCAO" | "FINALIZADA";
+  status: "PLANEJADA" | "EM_PRODUCAO" | "FINALIZADA" | string;
   favorita?: boolean;
   pausada?: boolean;
   requer_solda?: boolean; // Inclusão sob demanda de Solda e Montagem (Terminal 5) para Âncoras
   requer_laser?: boolean; // Inclusão sob demanda de Laser CNC no Terminal 1 antes da Dobra
-  etapas?: Record<string, OpEtapaState>; // Estado individual isolado de cada etapa da rota
+  etapas?: string[] | Record<string, OpEtapaState>; // Lista de etapas oficiais ou estado individual isolado de cada etapa
+  etapaAtual?: string;
+  statusEtapa?: string;
+  cod?: string;
+  produto?: string;
   progressoPostos?: Record<string, { concluido?: boolean; concluidas?: number; dataConclusao?: string }>;
   ultimo_aviso?: {
     autor: string;

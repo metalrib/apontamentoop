@@ -318,7 +318,33 @@ function resolveBaseRoute(
     }
   }
 
-  // 5. Se for Porta Giratória
+  // 5. Linha Super Cong / Especiais Sob Medida (Giro e Correr) -> 5 Etapas Completas
+  const ehSuperCong =
+    (code && (code.startsWith('007.') || code.startsWith('003.'))) ||
+    norm.includes('SUPER CONG') ||
+    norm.includes('SUPER CONGELADO') ||
+    norm.includes('PORTA ESPECIAL');
+
+  if (ehSuperCong) {
+    const isGiro = norm.includes('PT GIR') || norm.includes('GIRO') || norm.includes('GIRATORIA') || (code && (code.startsWith('003.') || code.startsWith('001.')));
+    const exigeEmenda = verificarSeExigeEmenda(desc || '');
+    const montagemStep = exigeEmenda
+      ? 'Montagem Portas Emendadas'
+      : isGiro
+      ? 'Montagem de Portas Giratória'
+      : 'Montagem Portas de Correr Padrão e Especial';
+
+    const rule: RouteRule = {
+      keyword: isGiro ? 'PT GIR ESPECIAL' : 'PT COR ESPECIAL',
+      label: isGiro ? 'Rota 12 - Porta Especial Giratória Super Cong' : 'Rota 13/14 - Porta Especial de Correr Super Cong',
+      steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep],
+      badge: 'Especial sob Medida (Fabricação Completa)',
+      isStandardLine: false
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
+  }
+
+  // 6. Se for Porta Giratória Padrão
   if (norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || norm.includes('GIRATORIA')) {
     const exigeEmenda = verificarSeExigeEmenda(desc || '');
     const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem de Portas Giratória Padrão e Especial';
@@ -336,7 +362,7 @@ function resolveBaseRoute(
       const rule: RouteRule = {
         keyword: 'PT GIR ESPECIAL',
         label: exigeEmenda ? 'Rota 12 - Porta Giratória Emendada' : 'Rota 12 - Porta Especial Giratória',
-        steps: ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Instalação de Gaxeta', montagemStep],
+        steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep],
         badge: exigeEmenda ? 'Porta Emendada (Montagem T3)' : 'Especial sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
@@ -344,7 +370,7 @@ function resolveBaseRoute(
     }
   }
 
-  // 6. Se for Porta de Correr
+  // 7. Se for Porta de Correr Padrão
   if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER')) {
     const exigeEmenda = verificarSeExigeEmenda(desc || '');
     const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem Portas de Correr Padrão e Especial';
@@ -353,7 +379,7 @@ function resolveBaseRoute(
       const rule: RouteRule = {
         keyword: 'PT COR',
         label: 'Rota 16 - Porta Padrão Correr',
-        steps: [montagemStep],
+        steps: ['Instalação de Gaxeta', montagemStep],
         badge: 'Linha Padrão (Montagem Direta)',
         isStandardLine: true
       };
@@ -362,7 +388,7 @@ function resolveBaseRoute(
       const rule: RouteRule = {
         keyword: 'PT COR ESPECIAL',
         label: exigeEmenda ? 'Rota 13/14 - Porta de Correr Emendada' : 'Rota 13/14 - Porta Especial de Correr',
-        steps: ['Corte', 'Dobra', 'Preparação', 'Injeção', montagemStep],
+        steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep],
         badge: exigeEmenda ? 'Porta Emendada (Montagem T3)' : 'Especial sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
@@ -414,9 +440,50 @@ function resolveBaseRoute(
  * incorporando a etapa intermediária de Laser CNC caso requer_laser seja verdadeiro.
  */
 export function getRouteForOp(
-  input: string | { descricao: string; codigo?: string; requer_solda?: boolean; requer_laser?: boolean },
+  input: string | { descricao: string; codigo?: string; requer_solda?: boolean; requer_laser?: boolean; etapas?: any; codigoProduto?: string; cod?: string },
   explicitCodigo?: string
 ): { rule: RouteRule; steps: string[]; badge: string; isStandardLine: boolean } {
+  const op = typeof input === 'object' && input !== null ? input : null;
+  const codNorm = String(explicitCodigo || op?.codigoProduto || op?.cod || op?.codigo || '').trim();
+  const descNorm = String(op?.descricao || (typeof input === 'string' ? input : '')).toUpperCase();
+
+  // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG) -> 5 ETAPAS OBRIGATÓRIAS
+  const ehSuperCong = 
+    codNorm.startsWith('007.') || 
+    codNorm.startsWith('003.') || 
+    codNorm.startsWith('007') || 
+    codNorm.startsWith('003') || 
+    descNorm.includes('007.') || 
+    descNorm.includes('003.') || 
+    descNorm.includes('SUPER CONG');
+
+  if (ehSuperCong) {
+    const isGiro = codNorm.startsWith('003.') || codNorm.startsWith('003') || descNorm.includes('PT GIR') || descNorm.includes('GIRO');
+    const steps = isGiro
+      ? ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem de Portas Giratória']
+      : ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem Portas de Correr Padrão e Especial'];
+    const rule: RouteRule = {
+      keyword: isGiro ? 'PT GIR ESPECIAL' : 'PT COR ESPECIAL',
+      label: isGiro ? 'Rota 12 - Porta Especial Giratória Super Cong' : 'Rota 13/14 - Porta Especial de Correr Super Cong',
+      steps,
+      badge: 'Especial sob Medida (Fabricação Completa)',
+      isStandardLine: false
+    };
+    return { rule, steps: [...steps], badge: rule.badge!, isStandardLine: false };
+  }
+
+  // Se a OP já possuir array explícito de etapas válidas
+  if (Array.isArray(op?.etapas) && op.etapas.length > 0 && typeof op.etapas[0] === 'string') {
+    const rule: RouteRule = {
+      keyword: 'PERSONALIZADA',
+      label: 'Rota de Produção da OP',
+      steps: [...op.etapas],
+      badge: 'Rota Definida',
+      isStandardLine: false
+    };
+    return { rule, steps: [...op.etapas], badge: rule.badge!, isStandardLine: false };
+  }
+
   const resolved = resolveBaseRoute(input, explicitCodigo);
   const requerLaser = typeof input === 'object' && input !== null && Boolean(input.requer_laser);
 
@@ -646,6 +713,21 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
     return true;
   }
 
+  // Portas Giratórias
+  if (normA.includes('GIRATORIA') && normB.includes('GIRATORIA')) {
+    if (!normA.includes('GAXETA') && !normB.includes('GAXETA') && !normA.includes('EMENDADA') && !normB.includes('EMENDADA')) return true;
+  }
+
+  // Portas de Correr
+  if (normA.includes('CORRER') && normB.includes('CORRER')) {
+    if (!normA.includes('EMENDADA') && !normB.includes('EMENDADA') && !normA.includes('TRILHO') && !normB.includes('TRILHO')) return true;
+  }
+
+  // Instalação de Gaxeta
+  if (normA.includes('GAXETA') && normB.includes('GAXETA')) {
+    return true;
+  }
+
   // Montagem Geral (Portas Convencionais)
   if (normA === 'MONTAGEM' || normB === 'MONTAGEM') {
     if (normA.includes('MONTAGEM') && normB.includes('MONTAGEM') && !normA.includes('ESTANTE') && !normB.includes('ESTANTE') && !normA.includes('TRILHO') && !normB.includes('TRILHO')) return true;
@@ -664,7 +746,10 @@ export function initOrSyncOrderEtapas(
 ): ProductionOrder {
   const { steps } = getRouteForOp(order);
   const total = obterQuantidadeTotal(order);
-  const currentEtapas = { ...(order.etapas || {}) };
+  const rawEtapas = order.etapas && !Array.isArray(order.etapas) && typeof order.etapas === 'object'
+    ? order.etapas
+    : {};
+  const currentEtapas: Record<string, OpEtapaState> = {};
 
   steps.forEach((step) => {
     const stepApontamentos = apontamentos.filter((a) => {
@@ -696,8 +781,8 @@ export function initOrSyncOrderEtapas(
       ? Math.max(activeUnits, activeBatch.quantidade_lote || total)
       : activeUnits;
 
-    const existingKey = Object.keys(currentEtapas).find((k) => matchStepName(k, step));
-    const existing = existingKey ? currentEtapas[existingKey] : undefined;
+    const existingKey = Object.keys(rawEtapas).find((k) => matchStepName(k, step));
+    const existing = existingKey ? rawEtapas[existingKey] : undefined;
 
     if (!existing) {
       if (totalFinished >= total) {

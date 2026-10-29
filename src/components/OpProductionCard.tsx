@@ -15,7 +15,8 @@ import {
 } from 'lucide-react';
 
 interface OpProductionCardProps {
-  order: ProductionOrder;
+  order?: ProductionOrder;
+  op?: ProductionOrder;
   apontamentos?: Apontamento[];
   onOpenChat?: (order: ProductionOrder) => void;
   onSelectForTotem?: (opNumero: string) => void;
@@ -23,10 +24,19 @@ interface OpProductionCardProps {
 }
 
 export const OpProductionCard: React.FC<OpProductionCardProps> = ({
-  order,
+  order: propOrder,
+  op: propOp,
   apontamentos = [],
   onSelectForTotem
 }) => {
+  const op = (propOrder || propOp)!;
+  const order = op;
+
+  // 1. FORÇAR CÁLCULO DINÂMICO DAS ETAPAS (IGNORANDO DADOS ESTÁTICOS DO BANCO op.etapas)
+  const etapasCalculadas = obterEtapasDaRota(op);
+  const totalEtapas = etapasCalculadas.length;
+  const steps = etapasCalculadas;
+
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Cálculo de Prazo e Atraso
@@ -34,14 +44,13 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
 
   // Rota e Badge de Linha Padrão vs Especial sob Medida
   const { rule } = getRouteForOp(order);
-  const steps = obterEtapasDaRota(order);
-  const evaluation = getRouteEvaluation(order, apontamentos, steps);
+  const evaluation = getRouteEvaluation(order, apontamentos, etapasCalculadas);
   const isAncora = isAncoraOrder(order);
   const totalPhysicalUnits = obterQuantidadeTotal(order);
 
-  // Detecção de 100% Concluída Geral
-  const isAllStepsFinished = steps.length > 0 && steps.every((s) => {
-    const etapaState = order.etapas?.[s];
+  // Detecção de 100% Concluída Geral calculada dinamicamente
+  const isAllStepsFinished = totalEtapas > 0 && etapasCalculadas.every((s) => {
+    const etapaState = (!Array.isArray(order.etapas) && typeof order.etapas === 'object') ? order.etapas?.[s] : undefined;
     const evalResult = evaluation[s];
     return (etapaState && etapaState.status === 'CONCLUIDO') || (evalResult && evalResult.finalizadas >= totalPhysicalUnits);
   });
@@ -53,11 +62,11 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   );
 
   const nextWaitingStep = !isConcluidaGeral && !activeApt
-    ? steps.find((s) => {
-        const etapaState = order.etapas?.[s];
+    ? etapasCalculadas.find((s) => {
+        const etapaState = (!Array.isArray(order.etapas) && typeof order.etapas === 'object') ? order.etapas?.[s] : undefined;
         const evalResult = evaluation[s];
         return !((etapaState && etapaState.status === 'CONCLUIDO') || (evalResult && evalResult.finalizadas >= totalPhysicalUnits));
-      }) || steps[0]
+      }) || etapasCalculadas[0]
     : null;
 
   // Verifica se é estritamente Porta Vai e Vem faturada em M² com metragem fracionada
@@ -305,7 +314,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                 <Layers className="w-3.5 h-3.5 text-blue-400" />
                 <span>AVANÇO NA ROTA DE PRODUÇÃO:</span>
               </span>
-              <span className="text-slate-500 text-[10px]">{steps.length} etapas</span>
+              <span className="text-slate-500 text-[10px]">{totalEtapas} etapas</span>
             </div>
 
             {/* Linha de Destaque antes da listagem das etapas */}
@@ -330,7 +339,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
             )}
 
             <div className="space-y-1.5">
-              {steps.map((step, idx) => {
+              {etapasCalculadas.map((step, idx) => {
                 const evalResult = evaluation[step];
                 const finalizadas = evalResult?.finalizadas || 0;
                 const emAndamento = evalResult?.emAndamento || 0;
@@ -398,3 +407,6 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
     </div>
   );
 };
+
+export const StatusCard = OpProductionCard;
+export default OpProductionCard;

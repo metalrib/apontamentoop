@@ -1,6 +1,6 @@
 import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
 import { deducePhysicalUnitsFromM2 } from '../utils/nomusParser';
-import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal } from '../utils/routeEngine';
+import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { db, ref, set, get, onValue, update, push } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
@@ -798,13 +798,14 @@ export function initFirebaseRealtimeListeners(): void {
             const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
             if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
               const qtd = obterQuantidadeTotal(item);
-              ordersMap[opNumero] = {
+              const syncedItem = initOrSyncOrderEtapas({
                 ...item,
                 op_numero: opNumero,
                 numero: item.numero || opNumero,
                 quantidade_total: qtd,
                 quantidade: qtd
-              };
+              });
+              ordersMap[opNumero] = syncedItem;
             }
           }
         });
@@ -1066,13 +1067,14 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
           const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
           if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
             const qtd = obterQuantidadeTotal(item);
-            ordersMap[opNumero] = {
+            const syncedItem = initOrSyncOrderEtapas({
               ...item,
               op_numero: opNumero,
               numero: item.numero || opNumero,
               quantidade_total: qtd,
               quantidade: qtd
-            };
+            });
+            ordersMap[opNumero] = syncedItem;
           }
         }
       });
@@ -1884,12 +1886,70 @@ export async function clearAllApontamentos(): Promise<void> {
 export async function addProductionOrder(order: ProductionOrder): Promise<void> {
   ensureInitialData();
   const orders = await fetchProductionOrders();
-  orders[order.op_numero] = order;
+
+  const descUpper = String(order.descricao || '').toUpperCase();
+  const codStr = String(order.codigoProduto || (order as any).cod || order.codigo || '').trim();
+
+  let etapas = order.etapas;
+  let etapaAtual = (order as any).etapaAtual || 'Corte';
+  let status = order.status || 'EM_PRODUCAO';
+
+  if (
+    codStr.startsWith('007.') ||
+    codStr.startsWith('003.') ||
+    codStr.startsWith('007') ||
+    codStr.startsWith('003') ||
+    descUpper.includes('007.') ||
+    descUpper.includes('003.') ||
+    descUpper.includes('SUPER CONG') ||
+    descUpper.includes('SUPER CONGELADO')
+  ) {
+    if (
+      codStr.startsWith('003.') ||
+      codStr.startsWith('003') ||
+      descUpper.includes('003.') ||
+      descUpper.includes('PT GIR') ||
+      descUpper.includes('GIRO')
+    ) {
+      etapas = [
+        'Corte',
+        'Dobra',
+        'Preparação de Folhas',
+        'Injeção de Folhas',
+        'Montagem de Portas Giratória'
+      ];
+    } else {
+      etapas = [
+        'Corte',
+        'Dobra',
+        'Preparação de Folhas',
+        'Injeção de Folhas',
+        'Montagem Portas de Correr Padrão e Especial'
+      ];
+    }
+    etapaAtual = 'Corte';
+    status = 'Aguardando Início em: Corte';
+  } else if (!etapas || !Array.isArray(etapas) || etapas.length === 0) {
+    const rotasCalculadas = obterEtapasDaRota(order);
+    etapas = rotasCalculadas;
+    etapaAtual = rotasCalculadas[0] || 'Corte';
+    status = `Aguardando Início em: ${etapaAtual}`;
+  }
+
+  const cleanOrder = {
+    ...order,
+    etapas,
+    etapaAtual,
+    statusEtapa: status,
+    status
+  };
+
+  orders[order.op_numero] = cleanOrder;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
   try {
     const opKey = toFirebaseKey(order.op_numero);
     if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), order);
+      await update(ref(db, `ordens_producao/${opKey}`), cleanOrder);
     }
   } catch (err) {
     console.error('[Firebase] Erro ao adicionar ordem:', err);
@@ -2036,6 +2096,56 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
     const opKey = toFirebaseKey(rawKey);
     const qtd = obterQuantidadeTotal(o);
 
+    const descUpper = String(o.descricao || '').toUpperCase();
+    const codStr = String(o.codigoProduto || (o as any).cod || o.codigo || '').trim();
+
+    let etapas = o.etapas;
+    let etapaAtual = (o as any).etapaAtual || 'Corte';
+    let status = o.status || 'EM_PRODUCAO';
+
+    // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
+    if (
+      codStr.startsWith('007.') ||
+      codStr.startsWith('003.') ||
+      codStr.startsWith('007') ||
+      codStr.startsWith('003') ||
+      descUpper.includes('007.') ||
+      descUpper.includes('003.') ||
+      descUpper.includes('SUPER CONG') ||
+      descUpper.includes('SUPER CONGELADO')
+    ) {
+      if (
+        codStr.startsWith('003.') ||
+        codStr.startsWith('003') ||
+        descUpper.includes('003.') ||
+        descUpper.includes('PT GIR') ||
+        descUpper.includes('GIRO')
+      ) {
+        etapas = [
+          'Corte',
+          'Dobra',
+          'Preparação de Folhas',
+          'Injeção de Folhas',
+          'Montagem de Portas Giratória'
+        ];
+      } else {
+        etapas = [
+          'Corte',
+          'Dobra',
+          'Preparação de Folhas',
+          'Injeção de Folhas',
+          'Montagem Portas de Correr Padrão e Especial'
+        ];
+      }
+      etapaAtual = 'Corte';
+      status = 'Aguardando Início em: Corte';
+    } else if (!etapas || !Array.isArray(etapas) || etapas.length === 0) {
+      const rotasCalculadas = obterEtapasDaRota(o);
+      etapas = rotasCalculadas;
+      etapaAtual = rotasCalculadas[0] || 'Corte';
+      status = `Aguardando Início em: ${etapaAtual}`;
+    }
+
     const cleanOrder = JSON.parse(JSON.stringify({
       ...o,
       op_numero: o.op_numero || rawKey,
@@ -2043,6 +2153,10 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
       numeroOP: (o as any).numeroOP || rawKey,
       quantidade_total: qtd,
       quantidade: qtd,
+      etapas,
+      etapaAtual,
+      statusEtapa: status,
+      status,
       importadoEm: new Date().toISOString()
     }));
 

@@ -243,6 +243,62 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       const opKey = String(op.numeroOP || op.op_numero || op.numero || op.id || '').replace(/[.#$[\]/]/g, '_');
       if (!opKey) return;
       const qtd = obterQuantidadeTotal(op);
+
+      const descUpper = String(op.descricao || '').toUpperCase();
+      const codStr = String(op.codigoProduto || op.cod || op.codigo || '').trim();
+
+      let etapas = op.etapas;
+      let etapaAtual = op.etapaAtual || 'Corte';
+      let status = op.status || 'EM_PRODUCAO';
+
+      // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
+      if (
+        codStr.startsWith('007.') ||
+        codStr.startsWith('003.') ||
+        codStr.startsWith('007') ||
+        codStr.startsWith('003') ||
+        descUpper.includes('007.') ||
+        descUpper.includes('003.') ||
+        descUpper.includes('SUPER CONG') ||
+        descUpper.includes('SUPER CONGELADO')
+      ) {
+        if (
+          codStr.startsWith('003.') ||
+          codStr.startsWith('003') ||
+          descUpper.includes('003.') ||
+          descUpper.includes('PT GIR') ||
+          descUpper.includes('GIRO')
+        ) {
+          etapas = [
+            'Corte',
+            'Dobra',
+            'Preparação de Folhas',
+            'Injeção de Folhas',
+            'Montagem de Portas Giratória'
+          ];
+        } else {
+          etapas = [
+            'Corte',
+            'Dobra',
+            'Preparação de Folhas',
+            'Injeção de Folhas',
+            'Montagem Portas de Correr Padrão e Especial'
+          ];
+        }
+        etapaAtual = 'Corte';
+        status = 'Aguardando Início em: Corte';
+      } else if (!etapas || !Array.isArray(etapas) || etapas.length === 0) {
+        const rotasCalculadas = obterEtapasDaRota(op);
+        etapas = rotasCalculadas;
+        etapaAtual = rotasCalculadas[0] || 'Corte';
+        status = `Aguardando Início em: ${etapaAtual}`;
+      }
+
+      op.etapas = etapas;
+      op.etapaAtual = etapaAtual;
+      op.statusEtapa = status;
+      op.status = status;
+
       const cleanOp = JSON.parse(JSON.stringify({
         ...op,
         op_numero: op.op_numero || opKey,
@@ -250,6 +306,10 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         numeroOP: op.numeroOP || opKey,
         quantidade_total: qtd,
         quantidade: qtd,
+        etapas,
+        etapaAtual,
+        statusEtapa: status,
+        status,
         importadoEm: new Date().toISOString()
       }));
       updates[`ordens_producao/${opKey}`] = cleanOp;

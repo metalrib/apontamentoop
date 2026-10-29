@@ -187,139 +187,98 @@ export function getRotaBatente(): string[] {
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
 export function obterEtapasDaRota(op: any): string[] {
-  const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
-  const cod = String(typeof op === 'object' && op ? (op?.codigoProduto || op?.codigo || op?.cod || '') : '');
+  const rawCod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.codProduto || '').trim();
+  const rawDesc = String(op?.descricao || op?.produto || op?.nome || (typeof op === 'string' ? op : '')).toUpperCase();
+  const cod = rawCod;
+  const desc = rawDesc;
   const normDesc = desc.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // 1. Estante Walk-In Completa (família 015.xxxx como 015.0012, 015.0008 ou descrição com ESTANTE WALK-IN sem QUADRO)
-  if (
-    cod.startsWith('015.') ||
-    ((normDesc.includes('ESTANTE WALK-IN') || normDesc.includes('ESTANTE WALK IN') || (normDesc.includes('ESTANTE') && normDesc.includes('WALK'))) &&
-      !normDesc.includes('QUADRO') &&
-      !normDesc.includes('PE ESTANTE') &&
-      !normDesc.includes('PE DA ESTANTE'))
-  ) {
-    return ['Montagem Estante'];
-  }
-
-  // 2. Pé Estante Walk-In Pintado (Preta ou Branca) (código 090.0001 ou descrição com PÉ ESTANTE sem SEM PINTURA)
-  if (
-    cod === '090.0001' ||
-    ((normDesc.includes('PE ESTANTE') || normDesc.includes('PE DA ESTANTE') || (normDesc.includes('PE') && normDesc.includes('ESTANTE'))) &&
-      !normDesc.includes('SEM PINTURA') &&
-      !normDesc.includes('S/ PINTURA') &&
-      !normDesc.includes('S/PINTURA') &&
-      !normDesc.includes('S PINTURA'))
-  ) {
-    return ['Montagem Estante'];
-  }
-
-  // 3. Perfis PP
-  if (cod.startsWith('022.') || normDesc.includes('PERFIL PP') || normDesc.startsWith('PERFIL')) {
+  // 1. PRODUTOS ESPECÍFICOS DIRETOS
+  if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) {
     return ['Corte', 'Dobra'];
   }
 
-  // 4. Quadro Estante Walk-in
   if (
-    cod === '090.0004' ||
-    cod === '090.0005' ||
-    normDesc.includes('QUADRO ESTANTE') ||
-    (normDesc.includes('QUADRO') && normDesc.includes('ESTANTE'))
+    cod.startsWith('015.') || 
+    cod === '090.0001' || 
+    (desc.includes('ESTANTE WALK') && !desc.includes('QUADRO'))
   ) {
+    return ['Montagem Estante'];
+  }
+
+  if (cod === '090.0004' || cod === '090.0005' || desc.includes('QUADRO ESTANTE')) {
     return ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
   }
 
-  // 5. Pé Estante sem pintura
   if (
-    cod === '090.0002' ||
-    ((normDesc.includes('PE ESTANTE') || normDesc.includes('PE DA ESTANTE') || (normDesc.includes('PE') && normDesc.includes('ESTANTE'))) &&
-      (normDesc.includes('SEM PINTURA') || normDesc.includes('S/ PINTURA') || normDesc.includes('S/PINTURA') || normDesc.includes('S PINTURA')))
+    cod === '090.0002' || 
+    ((desc.includes('PÉ ESTANTE') || normDesc.includes('PE ESTANTE')) && desc.includes('SEM PINTURA'))
   ) {
     return ['Corte', 'Solda', 'Montagem Estante'];
   }
 
-  // 6. Trilhos p/ Porta Correr
-  if (cod.startsWith('028.') || normDesc.includes('TRILHO')) {
+  if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
     return ['Corte de Trilho', 'Montagem de Trilho'];
   }
 
-  // 7. Resistência de Piso
-  if (cod.startsWith('029.') || normDesc.includes('RESIST PISO')) {
+  if (cod.startsWith('029.') || cod.startsWith('025.') || desc.includes('RESIST PISO') || desc.includes('KIT GAXETA')) {
     return ['Montagem Portas Emendadas'];
   }
 
-  // 8. Abrigo de Doca Retrátil
-  if (cod.startsWith('014.') || normDesc.includes('ABRIGO DOCA')) {
+  if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) {
     return ['Corte', 'Solda', 'Montagem Abrigo Doca'];
   }
 
-  // 9. Kit Gaxeta
-  if (cod.startsWith('025.') || normDesc.includes('KIT GAXETA')) {
-    return ['Montagem Portas Emendadas'];
+  // 2. TODA A FAMÍLIA SUPER CONG (007.xxxx, 003.xxxx ou texto SUPER CONG): 5 ETAPAS COMPLETAS
+  if (
+    cod.startsWith('007.') || 
+    cod.startsWith('003.') || 
+    desc.includes('SUPER CONG') ||
+    desc.includes('SUPER CONGELADO') ||
+    desc.includes('PORTA ESPECIAL')
+  ) {
+    // Se for Porta de Giro Super Congelada (ex: 003.0011 / PT GIR SUPER CONG):
+    if (desc.includes('PT GIR') || desc.includes('GIRO') || cod.startsWith('003.') || cod.startsWith('001.')) {
+      return [
+        'Corte',
+        'Dobra',
+        'Preparação de Folhas',
+        'Injeção de Folhas',
+        'Montagem de Portas Giratória'
+      ];
+    }
+
+    // Se for Porta de Correr Super Congelada (ex: 007.0011 / PT COR SUPER CONG / OP 024048-01 e OP 024049-01):
+    return [
+      'Corte',
+      'Dobra',
+      'Preparação de Folhas',
+      'Injeção de Folhas',
+      'Montagem Portas de Correr Padrão e Especial'
+    ];
   }
 
-  // 10. PORTAS DE GIRO PADRÃO (Família 001.xxxx, 003.xxxx ou descrição iniciando com PT GIR / PORTA GIRO)
-  // NÃO passam por Corte, Dobra nem Injeção de Folhas. Vão direto para acabamento e montagem (2 etapas).
-  const ehPortaGiroPadrao =
-    !cod.startsWith('020.') &&
-    !desc.startsWith('BATENTE') &&
-    !desc.startsWith('BAT ') &&
-    !normDesc.startsWith('BATENTE') &&
-    !normDesc.startsWith('BAT ') &&
-    (cod.startsWith('001.') ||
-      cod.startsWith('003.') ||
-      desc.startsWith('PT GIR') ||
-      desc.startsWith('PORTA GIRO') ||
-      desc.includes('PORTA GIRATÓRIA') ||
-      normDesc.startsWith('PT GIR') ||
-      normDesc.startsWith('PORTA GIRO') ||
-      normDesc.includes('PORTA GIRATORIA'));
+  // 3. PORTAS DE GIRO PADRÃO (Família 001.xxxx / PT GIR) -> 2 ETAPAS DIRETAS NA MONTAGEM
+  const ehPortaGiroPadrao = 
+    cod.startsWith('001.') || 
+    desc.startsWith('PT GIR') || 
+    desc.startsWith('PORTA GIRO') || 
+    desc.includes('PORTA GIRATÓRIA') ||
+    desc.includes('PORTA GIRATORIA');
 
   if (ehPortaGiroPadrao) {
-    if (verificarSeExigeEmenda(desc)) {
-      return ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Montagem Portas Emendadas'];
-    }
     return [
       'Instalação de Gaxeta',
       'Montagem de Portas Giratória'
     ];
   }
 
-  // 11. PORTAS DE CORRER PADRÃO (Família 005.xxxx, 007.xxxx, 002.xxxx ou PT COR / PORTA DE CORRER)
-  const ehPortaCorrer =
-    !cod.startsWith('020.') &&
-    !desc.startsWith('BATENTE') &&
-    !desc.startsWith('BAT ') &&
-    !normDesc.startsWith('BATENTE') &&
-    !normDesc.startsWith('BAT ') &&
-    (cod.startsWith('005.') ||
-      cod.startsWith('007.') ||
-      cod.startsWith('002.') ||
-      desc.startsWith('PT COR') ||
-      desc.includes('PORTA DE CORRER') ||
-      desc.includes('PORTA CORRER') ||
-      normDesc.startsWith('PT COR') ||
-      normDesc.includes('PORTA DE CORRER') ||
-      normDesc.includes('PORTA CORRER'));
-    normDesc.startsWith('PT COR') ||
-    normDesc.includes('PORTA DE CORRER') ||
-    normDesc.includes('PORTA CORRER');
-
-  if (ehPortaCorrer) {
-    if (verificarSeExigeEmenda(desc)) {
-      return ['Corte', 'Dobra', 'Preparação', 'Injeção', 'Montagem Portas Emendadas'];
-    }
-    return ['Montagem Portas de Correr Padrão e Especial'];
-  }
-
-  // 12. BATENTES AVULSOS (ESTRITAMENTE FAMÍLIA 020.xxxx OU QUE COMEÇAM COM "BATENTE" / "BAT ")
-  // NUNCA usar .includes('BAT') solto, pois '3BAT' e '4BAT' são atributos da porta frigorífica!
-  const ehBatenteAvulso =
-    cod.startsWith('020.') ||
-    desc.startsWith('BATENTE') ||
-    desc.startsWith('BAT ') ||
-    normDesc.startsWith('BATENTE') ||
-    normDesc.startsWith('BAT ');
+  // 4. BATENTES AVULSOS (ESTRITAMENTE 020.xxxx OU INÍCIO "BATENTE") -> 4 ETAPAS
+  // NUNCA pesquisar substring solta "BAT" para não colidir com "3BAT"/"4BAT" de portas
+  const ehBatenteAvulso = 
+    cod.startsWith('020.') || 
+    desc.startsWith('BATENTE') || 
+    desc.startsWith('BAT ');
 
   if (ehBatenteAvulso) {
     return [
@@ -330,20 +289,11 @@ export function obterEtapasDaRota(op: any): string[] {
     ];
   }
 
-  // 11. Portas Vai-Vem
-  if (normDesc.includes('VAI VEM') || normDesc.includes('VV')) {
-    return ['Corte', 'Dobra', 'Preparação Vai Vem', 'Montagem Vai Vem'];
-  }
-
-  // 12. Âncoras
-  if (cod.startsWith('021.') || normDesc.includes('ANCORA')) {
-    return typeof op === 'object' && op?.requer_solda
-      ? ['Corte', 'Dobra', 'Solda e Montagem']
-      : ['Corte', 'Dobra'];
-  }
-
-  // Rota Padrão Fábrica (Portas Convencionais)
-  return ['Corte', 'Dobra', 'Injeção de Folhas', 'Montagem'];
+  // 5. PORTAS DE CORRER PADRÃO (Família 002.xxxx / PT COR PADRÃO) E DEMAIS PORTAS
+  return [
+    'Instalação de Gaxeta',
+    'Montagem Portas de Correr Padrão e Especial'
+  ];
 }
 
 // Funções de Classificação de Produtos Industriais
@@ -532,6 +482,43 @@ export function validarPostoIndustrial(
   terminalId?: number
 ): { valido: boolean; motivo?: string } {
   if (!postoSelecionado) return { valido: true };
+
+  // 0. LINHA SUPER CONGELADA (007.xxxx E 003.xxxx) -> 5 ETAPAS PERMITIDAS
+  const codNorm = String(op?.codigoProduto || op?.cod || op?.codigo || '').trim();
+  const descNorm = String(op?.descricao || op?.produto || '').toUpperCase();
+
+  const ehSuperCong = 
+    codNorm.startsWith('007.') || 
+    codNorm.startsWith('003.') || 
+    codNorm.startsWith('007') || 
+    codNorm.startsWith('003') || 
+    descNorm.includes('007.') || 
+    descNorm.includes('003.') || 
+    descNorm.includes('SUPER CONG');
+
+  if (ehSuperCong) {
+    const isGiro = codNorm.startsWith('003.') || codNorm.startsWith('003') || descNorm.includes('PT GIR') || descNorm.includes('GIRO');
+    const rotaPermitida = isGiro
+      ? ['Corte', 'Dobra', 'Laser', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem de Portas Giratória']
+      : ['Corte', 'Dobra', 'Laser', 'Preparação de Folhas', 'Injeção de Folhas', 'Montagem Portas de Correr Padrão e Especial'];
+
+    const normPosto = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const isPostoValido = rotaPermitida.some(step => {
+      const normStep = step.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      if (normPosto === normStep) return true;
+      if (normStep.includes('CORTE') && normPosto.includes('CORTE')) return true;
+      if (normStep.includes('DOBRA') && normPosto.includes('DOBRA')) return true;
+      if (normStep.includes('LASER') && normPosto.includes('LASER')) return true;
+      if (normStep.includes('PREPARACAO') && normPosto.includes('PREPARACAO')) return true;
+      if (normStep.includes('INJECAO') && normPosto.includes('INJECAO')) return true;
+      if (normStep.includes('MONTAGEM') && normPosto.includes('MONTAGEM')) return true;
+      return false;
+    });
+
+    if (isPostoValido) {
+      return { valido: true };
+    }
+  }
 
   // 1. ESTANTES WALK-IN: ESTANTE COMPLETA (015.xxxx / ESTANTE WALK-IN sem QUADRO)
   if (isEstanteCompleta(op)) {
