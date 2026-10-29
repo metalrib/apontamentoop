@@ -10,6 +10,7 @@ import { OpChatModal } from './OpChatModal';
 import { TeamManagementModal } from './TeamManagementModal';
 import { TeamProductivity } from './TeamProductivity';
 import { TerminalsOverview } from './TerminalsOverview';
+import { AppointmentsHistory } from './AppointmentsHistory';
 import {
   Factory,
   Layers,
@@ -870,177 +871,25 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         )}
 
         {/* ABA 3: HISTÓRICO DE APONTAMENTOS */}
-        {activeTab === 'apontamentos' && (() => {
-          const filteredApts = apontamentos.filter((apt) => {
-            if (!aptsSearchTerm.trim()) return true;
-            const term = aptsSearchTerm.toLowerCase();
-            const opVal = (apt.op || apt.op_numero || '').toLowerCase();
-            const opNome = (apt.colaborador || apt.operador || '').toLowerCase();
-            const setVal = (apt.setorFisico || apt.setor || '').toLowerCase();
-            const etVal = (apt.etapaRota || apt.etapa_rota || '').toLowerCase();
-            const termVal = (apt.terminal || `t${apt.terminal_id}`).toLowerCase();
-            const unVal = (apt.unidade || `un #${apt.unidade_numero}`).toLowerCase();
-            const modoVal = (apt.modo || '').toLowerCase();
-            return (
-              opVal.includes(term) ||
-              opNome.includes(term) ||
-              setVal.includes(term) ||
-              etVal.includes(term) ||
-              termVal.includes(term) ||
-              unVal.includes(term) ||
-              modoVal.includes(term)
-            );
-          });
-
-          return (
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono text-slate-400">
-                <div className="flex items-center gap-2">
-                  <span className="text-white font-bold">Histórico de Apontamentos em Tempo Real</span>
-                  <span className="hidden sm:inline"> — </span>
-                  <span className="hidden md:inline">Registros detalhados de cada início e término nos 5 terminais</span>
-                </div>
-
-                <div className="flex items-center gap-2.5">
-                  <span className="bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-slate-300 font-bold whitespace-nowrap">
-                    Total: {filteredApts.length} {filteredApts.length === 1 ? 'registro' : 'registros'}
-                  </span>
-
-                  {apontamentos.length > 0 && (
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setShowClearAptsModal(true);
-                      }}
-                      className="px-3.5 py-1.5 bg-rose-950/70 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/80 rounded-xl font-bold transition flex items-center gap-1.5 cursor-pointer active:scale-95 shadow-lg shadow-rose-950/50 whitespace-nowrap"
-                      title="Excluir todo o histórico de apontamentos"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                      <span>Excluir Histórico</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Barra de Pesquisa / Filtro no Histórico */}
-              {apontamentos.length > 0 && (
-                <div className="flex items-center gap-2 bg-[#0c142b] border border-blue-900/60 px-3 py-2 rounded-2xl shadow-inner">
-                  <Search className="w-4 h-4 text-blue-400 flex-shrink-0" />
-                  <input
-                    type="text"
-                    value={aptsSearchTerm}
-                    onChange={(e) => setAptsSearchTerm(e.target.value)}
-                    placeholder="Filtrar histórico por OP, Colaborador, Setor, Etapa ou Terminal..."
-                    className="w-full bg-transparent border-none text-xs font-mono text-white placeholder-slate-500 focus:outline-none"
-                  />
-                  {aptsSearchTerm && (
-                    <button
-                      onClick={() => setAptsSearchTerm('')}
-                      className="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded cursor-pointer"
-                      title="Limpar filtro"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              )}
-
-              <div className="border border-blue-900/60 rounded-2xl overflow-hidden bg-[#0c142b] shadow-2xl">
-                <table className="w-full text-left text-xs font-mono">
-                  <thead className="bg-[#090F21] text-slate-400 border-b border-blue-950">
-                    <tr>
-                      <th className="p-3">OP</th>
-                      <th className="p-3">UNIDADE</th>
-                      <th className="p-3">SETOR FÍSICO</th>
-                      <th className="p-3">ETAPA ROTA</th>
-                      <th className="p-3">COLABORADOR</th>
-                      <th className="p-3">TERMINAL</th>
-                      <th className="p-3">HORA INÍCIO</th>
-                      <th className="p-3">HORA FIM</th>
-                      <th className="p-3">DURAÇÃO</th>
-                      <th className="p-3 text-center">STATUS</th>
-                      <th className="p-3 text-right">AÇÕES</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-blue-950">
-                    {filteredApts.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="py-12 text-center text-slate-500 font-mono">
-                          {aptsSearchTerm
-                            ? 'Nenhum apontamento encontrado com os termos pesquisados.'
-                            : 'Nenhum apontamento registrado no momento.'}
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredApts.map((apt) => {
-                        const isBatch = apt.is_lote || apt.modo === 'LOTE' || apt.unidade_numero === 0;
-                        const unidadeDisplay = apt.unidade || (isBatch ? `Lote (${apt.quantidade_lote || ''} PC)` : `Un #${apt.unidade_numero}`);
-                        const setorDisplay = apt.setorFisico || apt.setor;
-                        const etapaDisplay = apt.etapaRota || apt.etapa_rota;
-                        const operadorDisplay = apt.colaborador || apt.operador;
-                        const terminalDisplay = apt.terminal || `T${apt.terminal_id}`;
-                        const inicioDisplay = apt.horaInicio || apt.hora_inicio;
-                        const fimDisplay = apt.horaFim || apt.hora_fim;
-                        const duracaoVal = apt.duracao !== undefined ? apt.duracao : apt.duracao_minutos;
-
-                        return (
-                          <tr key={apt.id} className="hover:bg-slate-900/60 transition">
-                            <td className="p-3 font-bold text-blue-300">{apt.op || apt.op_numero}</td>
-                            <td className="p-3 font-bold">
-                              {isBatch ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                  {unidadeDisplay}
-                                </span>
-                              ) : (
-                                <span className="text-white font-bold">{unidadeDisplay}</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-slate-200">{setorDisplay}</td>
-                            <td className="p-3 text-slate-400">{etapaDisplay}</td>
-                            <td className="p-3 font-semibold text-white">{operadorDisplay}</td>
-                            <td className="p-3 text-slate-400 font-bold">{terminalDisplay}</td>
-                            <td className="p-3 text-slate-300">
-                              {new Date(inicioDisplay).toLocaleTimeString('pt-BR')}
-                            </td>
-                            <td className="p-3 text-slate-300">
-                              {fimDisplay ? new Date(fimDisplay).toLocaleTimeString('pt-BR') : '—'}
-                            </td>
-                            <td className="p-3 font-bold text-slate-100">
-                              {duracaoVal !== undefined && duracaoVal !== null ? `${duracaoVal} min` : 'Em andamento'}
-                            </td>
-                            <td className="p-3 text-center">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  apt.status === 'FINALIZADO'
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
-                                }`}
-                              >
-                                {apt.status}
-                              </span>
-                            </td>
-                            <td className="p-3 text-right">
-                              <button
-                                onClick={() => {
-                                  playClick();
-                                  setApontamentoToDelete(apt);
-                                }}
-                                className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
-                                title={`Excluir este apontamento (${operadorDisplay} - OP ${apt.op || apt.op_numero})`}
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          );
-        })()}
+        {activeTab === 'apontamentos' && (
+          <AppointmentsHistory
+            apontamentos={apontamentos}
+            orders={orders}
+            onClearAll={async () => {
+              await clearAllApontamentos();
+              showToast('Histórico de apontamentos excluído com sucesso!', 'info');
+            }}
+            onDeleteOne={async (apt) => {
+              await deleteApontamento(apt.op_numero || apt.op || '', apt.id);
+              showToast(`Apontamento da OP ${apt.op || apt.op_numero} excluído!`, 'info');
+            }}
+            onSelectOp={(opNum) => {
+              onSelectOpForTotem(opNum);
+              onSwitchToTotem();
+            }}
+            onExportCsv={handleExportCsv}
+          />
+        )}
 
         {/* ABA 4: PRODUTIVIDADE DA EQUIPE */}
         {activeTab === 'productivity' && (
