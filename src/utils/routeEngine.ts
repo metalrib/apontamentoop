@@ -1014,7 +1014,63 @@ export function getRouteEvaluation(
       }
       prevFinalizadas = prevFinishedCount;
 
-      if (isBatch) {
+      // Verificação de início/andamento da etapa anterior
+      const prevActiveBatch = prevApontamentos.find(a => (a.is_lote || a.unidade_numero === 0) && a.status === 'EM_ANDAMENTO');
+      const prevActiveUnits = prevApontamentos.filter(a => a.status === 'EM_ANDAMENTO' && !a.is_lote && a.unidade_numero > 0).length;
+      const hasActivePrevApontamento = Boolean(
+        prevActiveBatch ||
+        prevActiveUnits > 0 ||
+        prevApontamentos.some(a => a.status === 'EM_ANDAMENTO' || a.status === 'FINALIZADO' || a.status === 'CONCLUIDO')
+      );
+
+      const prevEtapaStatus = prevEtapaState?.status;
+      const prevEtapaIniciadaOuConcluida = Boolean(
+        prevEtapaState && (
+          prevEtapaStatus === 'EM_PRODUCAO' ||
+          prevEtapaStatus === 'EM_ANDAMENTO' ||
+          prevEtapaStatus === 'CONCLUIDO' ||
+          prevEtapaStatus === 'FINALIZADO' ||
+          (prevEtapaState.concluidas && prevEtapaState.concluidas > 0)
+        )
+      );
+
+      const progressoPrev = (op as any)?.progressoPostos ? (op as any).progressoPostos[previousStep] : undefined;
+      const prevProgressoIniciado = Boolean(
+        progressoPrev && (
+          progressoPrev.iniciado ||
+          progressoPrev.concluido ||
+          (progressoPrev.concluidas && progressoPrev.concluidas > 0) ||
+          progressoPrev.status === 'EM_PRODUCAO' ||
+          progressoPrev.status === 'CONCLUIDO'
+        )
+      );
+
+      const prevEtapaAtualMatch = Boolean(
+        op.etapaAtual && (matchStepName(op.etapaAtual, previousStep) || doesSectorMatchStep(op.etapaAtual, previousStep))
+      );
+
+      const prevIsStartedOrConcluded = Boolean(
+        prevFinishedCount > 0 ||
+        hasActivePrevApontamento ||
+        prevEtapaIniciadaOuConcluida ||
+        prevProgressoIniciado ||
+        prevEtapaAtualMatch
+      );
+
+      const normStep = normalizeText(step);
+      const ehInjecaoBatenteOuFolha =
+        normStep.includes('INJECAO E FINALIZACAO DE BATENTES') ||
+        normStep.includes('INJECAO E FINALIZACAO BATENTES') ||
+        normStep.includes('INJECAO DE FOLHAS') ||
+        normStep.includes('INJETORA DE FOLHAS') ||
+        (normStep.includes('INJEC') && (normStep.includes('BATENTE') || normStep.includes('FOLHA')));
+
+      // REGRA INDUSTRIAL: Permite apontamento concorrente/paralelo em Batentes e Folhas (Preparação + Injeção).
+      // Assim que a Preparação for iniciada, a Injeção já é liberada sem aguardar o término do lote.
+      if (ehInjecaoBatenteOuFolha && prevIsStartedOrConcluded) {
+        canStart = true;
+        blockingReason = undefined;
+      } else if (isBatch) {
         if (prevFinishedCount === 0) {
           canStart = false;
           blockingReason = `Aguardando término do lote no setor anterior (${previousStep})`;

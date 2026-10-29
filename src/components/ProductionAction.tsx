@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -609,10 +609,58 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   // Caso 3: Início de Lote ou Próxima Unidade
   const nextUnitNumber = stepEval.nextUnitNumber;
   const routeValidation = selectedSector ? validarPostoIndustrial(order, selectedSector, apontamentos, currentTerminal.id) : { valido: true };
-  const isUnblocked = stepEval.canStartNextUnit && routeValidation.valido;
+
+  const normSelectedPosto = (selectedSector || matchedStep || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const ehInjecaoBatenteOuFolha =
+    normSelectedPosto.includes('INJECAO E FINALIZACAO DE BATENTES') ||
+    normSelectedPosto.includes('INJECAO E FINALIZACAO BATENTES') ||
+    normSelectedPosto.includes('INJECAO DE FOLHAS') ||
+    normSelectedPosto.includes('INJETORA DE FOLHAS') ||
+    (normSelectedPosto.includes('INJEC') && (normSelectedPosto.includes('BATENTE') || normSelectedPosto.includes('FOLHA')));
+
+  const prevStepName = stepEval.previousStepName;
+  const etapaAnteriorIniciadaOuConcluida = Boolean(
+    prevStepName && (
+      apontamentos.some(a =>
+        (a.op_numero === order.op_numero || a.op === order.op_numero) &&
+        (a.status === 'EM_ANDAMENTO' || a.status === 'FINALIZADO' || a.status === 'CONCLUIDO') &&
+        (matchStepName(a.etapa_rota || a.etapaRota, prevStepName) || doesSectorMatchStep(a.setorFisico || a.setor || '', prevStepName))
+      ) ||
+      (order.etapas && (!Array.isArray(order.etapas) && typeof order.etapas === 'object') && (
+        order.etapas[prevStepName]?.status === 'EM_PRODUCAO' ||
+        order.etapas[prevStepName]?.status === 'EM_ANDAMENTO' ||
+        order.etapas[prevStepName]?.status === 'CONCLUIDO' ||
+        order.etapas[prevStepName]?.status === 'FINALIZADO' ||
+        ((order.etapas[prevStepName]?.concluidas || 0) > 0)
+      )) ||
+      ((order as any).progressoPostos && (
+        (order as any).progressoPostos[prevStepName]?.iniciado ||
+        (order as any).progressoPostos[prevStepName]?.concluido ||
+        ((order as any).progressoPostos[prevStepName]?.concluidas || 0) > 0
+      )) ||
+      (order.etapaAtual && (matchStepName(order.etapaAtual, prevStepName) || doesSectorMatchStep(order.etapaAtual, prevStepName)))
+    )
+  );
+
+  let podeIniciar = stepEval.canStartNextUnit;
+  let bloqueadoPorSetorAnterior = !podeIniciar;
+
+  // Libera apontamento concorrente/paralelo para Injeção se Preparação já tiver iniciado
+  if (ehInjecaoBatenteOuFolha && etapaAnteriorIniciadaOuConcluida && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+    podeIniciar = true;
+    bloqueadoPorSetorAnterior = false;
+  }
+
+  const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
-    : stepEval.blockingReason || (stepEval.previousStepName ? `Aguardando etapa anterior (${stepEval.previousStepName})` : 'Bloqueado');
+    : bloqueadoPorSetorAnterior
+    ? stepEval.blockingReason || (prevStepName ? `Aguardando etapa anterior (${prevStepName})` : 'Bloqueado')
+    : undefined;
 
   // RENDERIZAÇÃO PARA ITENS EM LOTE (ESTADO 1: PENDENTE)
   if (isBatch) {
