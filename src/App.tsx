@@ -88,10 +88,8 @@ export default function App() {
         fetchProductionOrders(),
         fetchApontamentos()
       ]);
-      if (allOrders && Object.keys(allOrders).length > 0) {
-        setOrders((prev) => ({ ...prev, ...allOrders }));
-      }
-      setApontamentos(allApts);
+      setOrders(allOrders || {});
+      setApontamentos(allApts || []);
 
       // Sincroniza configuração de terminais e setores caso tenham sido editados no PCP
       const dynamicTerms = fetchTerminalsConfig();
@@ -109,39 +107,85 @@ export default function App() {
   useEffect(() => {
     // 1. Escuta permanente reativa do Firebase (/ordens_producao)
     const ordensRef = ref(db, 'ordens_producao');
-    const unsubFirebase = onValue(ordensRef, (snapshot) => {
+    const unsubFirebaseOrders = onValue(ordensRef, (snapshot) => {
       try {
-        if (snapshot.exists()) {
-          const dados = snapshot.val();
-          if (dados && typeof dados === 'object') {
-            const map: Record<string, ProductionOrder> = {};
-            snapshot.forEach((child) => {
-              const item = child.val();
-              if (item && typeof item === 'object') {
-                const key = child.key || '';
-                const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-                if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
-                  const qtd = obterQuantidadeTotal(item);
-                  map[opNumero] = {
-                    ...item,
-                    op_numero: opNumero,
-                    numero: item.numero || opNumero,
-                    quantidade_total: qtd,
-                    quantidade: qtd
-                  };
-                }
-              }
-            });
-            if (Object.keys(map).length > 0) {
-              setOrders(map);
-              try {
-                localStorage.setItem('mes_pcp_orders', JSON.stringify(map));
-              } catch {}
+        if (!snapshot.exists()) {
+          setOrders({});
+          try {
+            localStorage.setItem('mes_pcp_orders', JSON.stringify({}));
+          } catch {}
+          return;
+        }
+
+        const map: Record<string, ProductionOrder> = {};
+        snapshot.forEach((child) => {
+          const item = child.val();
+          if (item && typeof item === 'object') {
+            const key = child.key || '';
+            const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+            if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
+              const qtd = obterQuantidadeTotal(item);
+              map[opNumero] = {
+                ...item,
+                op_numero: opNumero,
+                numero: item.numero || opNumero,
+                quantidade_total: qtd,
+                quantidade: qtd
+              };
             }
           }
-        }
+        });
+        setOrders(map);
+        try {
+          localStorage.setItem('mes_pcp_orders', JSON.stringify(map));
+        } catch {}
       } catch (err) {
         console.error('[Firebase] Erro no listener reativo de ordens_producao:', err);
+      }
+    });
+
+    // 2. Escuta permanente reativa do Firebase (/historico_apontamentos)
+    const aptsRef = ref(db, 'historico_apontamentos');
+    const unsubFirebaseApts = onValue(aptsRef, (snapshot) => {
+      try {
+        if (!snapshot.exists()) {
+          setApontamentos([]);
+          try {
+            localStorage.setItem('mes_apontamentos', JSON.stringify({}));
+          } catch {}
+          return;
+        }
+
+        const val = snapshot.val();
+        if (val && typeof val === 'object') {
+          const tree: Record<string, Record<string, Apontamento>> = {};
+          const list: Apontamento[] = [];
+
+          Object.entries(val).forEach(([firebasePushKey, item]: [string, any]) => {
+            if (item && item.op_numero) {
+              const cleanOp = item.op_numero.trim().toUpperCase();
+              if (!tree[cleanOp]) tree[cleanOp] = {};
+              const aptId = item.id || firebasePushKey;
+              const existing = tree[cleanOp][aptId];
+              if (!existing || item.status === 'FINALIZADO' || (item.hora_fim && !existing.hora_fim)) {
+                const fullApt = { ...item, id: aptId, firebaseKey: firebasePushKey };
+                tree[cleanOp][aptId] = fullApt;
+              }
+            }
+          });
+
+          Object.values(tree).forEach((opMap) => {
+            Object.values(opMap).forEach((apt) => list.push(apt));
+          });
+
+          list.sort((a, b) => new Date(b.hora_inicio || b.horaInicio || 0).getTime() - new Date(a.hora_inicio || a.horaInicio || 0).getTime());
+          setApontamentos(list);
+          try {
+            localStorage.setItem('mes_apontamentos', JSON.stringify(tree));
+          } catch {}
+        }
+      } catch (err) {
+        console.error('[Firebase] Erro no listener reativo de historico_apontamentos:', err);
       }
     });
 
@@ -161,7 +205,8 @@ export default function App() {
     });
 
     return () => {
-      unsubFirebase();
+      unsubFirebaseOrders();
+      unsubFirebaseApts();
       window.removeEventListener('metalrib_sectors_updated', handleSectorsUpdated);
       unsubscribe();
     };
@@ -507,8 +552,13 @@ export default function App() {
         orders={orders}
         apontamentos={apontamentos}
         initialOpNumber={selectedOpNumber}
+        onRefresh={loadData}
         onSwitchToTotem={() => {
           playClick();
+          setSystemMode('totem');
+        }}
+        onSelectOpForTotem={(opNum) => {
+          handleSearchOp(opNum);
           setSystemMode('totem');
         }}
         onOpenSupervisor={() => setShowSupervisor(true)}

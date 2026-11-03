@@ -786,7 +786,9 @@ export function initFirebaseRealtimeListeners(): void {
     onValue(ordensRef, (snapshot) => {
       try {
         if (!snapshot.exists()) {
-          // Não apaga os dados locais se o Firebase ainda não possuir registros ou estiver conectando
+          // Nó ordens_producao vazio ou todas as OPs foram deletadas
+          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
+          broadcastUpdate();
           return;
         }
 
@@ -810,10 +812,8 @@ export function initFirebaseRealtimeListeners(): void {
           }
         });
 
-        if (Object.keys(ordersMap).length > 0) {
-          localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-          broadcastUpdate();
-        }
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+        broadcastUpdate();
       } catch (err) {
         console.error('[Firebase] Erro no listener de ordens_producao:', err);
       }
@@ -822,22 +822,26 @@ export function initFirebaseRealtimeListeners(): void {
     const aptsRef = ref(db, 'historico_apontamentos');
     onValue(aptsRef, (snapshot) => {
       try {
+        if (!snapshot.exists()) {
+          localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
+          broadcastUpdate();
+          return;
+        }
+
         const val = snapshot.val();
         if (val && typeof val === 'object') {
-          const rawLocal = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
-          let tree: Record<string, Record<string, Apontamento>> = {};
-          try {
-            tree = rawLocal ? JSON.parse(rawLocal) : {};
-          } catch {
-            tree = {};
-          }
+          const tree: Record<string, Record<string, Apontamento>> = {};
 
           Object.entries(val).forEach(([firebasePushKey, item]: [string, any]) => {
             if (item && item.op_numero) {
               const cleanOp = item.op_numero.trim().toUpperCase();
               if (!tree[cleanOp]) tree[cleanOp] = {};
               const aptId = item.id || firebasePushKey;
-              tree[cleanOp][aptId] = { ...item, id: aptId, firebaseKey: firebasePushKey };
+              const existing = tree[cleanOp][aptId];
+              // Dá prioridade absoluta para status FINALIZADO sobre EM_ANDAMENTO
+              if (!existing || item.status === 'FINALIZADO' || (item.hora_fim && !existing.hora_fim)) {
+                tree[cleanOp][aptId] = { ...item, id: aptId, firebaseKey: firebasePushKey };
+              }
             }
           });
 
@@ -1078,13 +1082,14 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
           }
         }
       });
-      if (Object.keys(ordersMap).length > 0) {
-        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-        return ordersMap;
-      }
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+      return ordersMap;
+    } else {
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
+      return {};
     }
   } catch (err) {
-    console.warn('[Firebase] Falha na leitura inicial de ordens_producao:', err);
+    console.warn('[Firebase] Falha na leitura de ordens_producao, usando cache local:', err);
   }
 
   const raw = localStorage.getItem(STORAGE_ORDERS_KEY);
@@ -1159,30 +1164,33 @@ export async function findOrder(opNumber: string): Promise<ProductionOrder | nul
 export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[]> {
   ensureInitialData();
 
-  let raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
-  if (!raw || raw === '{}') {
-    try {
-      const snapshot = await get(ref(db, 'historico_apontamentos'));
-      if (snapshot.exists()) {
-        const val = snapshot.val();
-        if (val && typeof val === 'object') {
-          const tree: Record<string, Record<string, Apontamento>> = {};
-          Object.entries(val).forEach(([firebasePushKey, item]: [string, any]) => {
-            if (item && item.op_numero) {
-              const cleanOp = item.op_numero.trim().toUpperCase();
-              if (!tree[cleanOp]) tree[cleanOp] = {};
-              const aptId = item.id || firebasePushKey;
+  try {
+    const snapshot = await get(ref(db, 'historico_apontamentos'));
+    if (snapshot.exists()) {
+      const val = snapshot.val();
+      if (val && typeof val === 'object') {
+        const tree: Record<string, Record<string, Apontamento>> = {};
+        Object.entries(val).forEach(([firebasePushKey, item]: [string, any]) => {
+          if (item && item.op_numero) {
+            const cleanOp = item.op_numero.trim().toUpperCase();
+            if (!tree[cleanOp]) tree[cleanOp] = {};
+            const aptId = item.id || firebasePushKey;
+            const existing = tree[cleanOp][aptId];
+            if (!existing || item.status === 'FINALIZADO' || (item.hora_fim && !existing.hora_fim)) {
               tree[cleanOp][aptId] = { ...item, id: aptId, firebaseKey: firebasePushKey };
             }
-          });
-          raw = JSON.stringify(tree);
-          localStorage.setItem(STORAGE_APONTAMENTOS_KEY, raw);
-        }
+          }
+        });
+        localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
       }
-    } catch (err) {
-      console.warn('[Firebase] Falha na leitura inicial de apontamentos:', err);
+    } else {
+      localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
     }
+  } catch (err) {
+    console.warn('[Firebase] Falha na leitura de apontamentos, usando cache:', err);
   }
+
+  const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
   let tree: Record<string, Record<string, Apontamento>> = {};
   if (raw) {
     try {
@@ -1262,7 +1270,8 @@ export async function startUnit(params: {
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
   firebasePut(`apontamentos/${cleanOp}/${uniqueId}`, novoApontamento);
   try {
-    push(ref(db, 'historico_apontamentos'), novoApontamento);
+    const aptKey = toFirebaseKey(uniqueId);
+    await set(ref(db, `historico_apontamentos/${aptKey}`), novoApontamento);
   } catch (err) {
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
@@ -1398,7 +1407,8 @@ export async function finishUnit(
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
   firebasePut(`apontamentos/${cleanOp}/${apontamentoId}`, updated);
   try {
-    push(ref(db, 'historico_apontamentos'), updated);
+    const aptKey = toFirebaseKey(apontamentoId);
+    await set(ref(db, `historico_apontamentos/${aptKey}`), updated);
   } catch (err) {
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
@@ -1627,7 +1637,8 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
   firebasePut(`apontamentos/${cleanOp}/${uniqueId}`, novoApontamento);
   try {
-    push(ref(db, 'historico_apontamentos'), novoApontamento);
+    const aptKey = toFirebaseKey(uniqueId);
+    await set(ref(db, `historico_apontamentos/${aptKey}`), novoApontamento);
   } catch (err) {
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
@@ -1786,7 +1797,8 @@ export async function finishBatch(
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
   firebasePut(`apontamentos/${cleanOp}/${apontamentoId}`, updated);
   try {
-    push(ref(db, 'historico_apontamentos'), updated);
+    const aptKey = toFirebaseKey(apontamentoId);
+    await set(ref(db, `historico_apontamentos/${aptKey}`), updated);
   } catch (err) {
     console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
   }
@@ -1964,7 +1976,8 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
       delete tree[cleanOp][apontamentoId];
       deleted = true;
     }
-  } else {
+  }
+  if (!deleted) {
     for (const opKey of Object.keys(tree)) {
       if (tree[opKey] && tree[opKey][apontamentoId]) {
         fbKey = (tree[opKey][apontamentoId] as any)?.firebaseKey;
@@ -1984,10 +1997,14 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
       firebasePut('apontamentos', tree);
     }
     try {
-      if (fbKey) {
-        set(ref(db, `historico_apontamentos/${fbKey}`), null);
+      const aptKey = toFirebaseKey(apontamentoId);
+      await set(ref(db, `historico_apontamentos/${aptKey}`), null);
+      if (fbKey && fbKey !== aptKey) {
+        await set(ref(db, `historico_apontamentos/${fbKey}`), null);
       }
-    } catch {}
+    } catch (err) {
+      console.warn('[Firebase] Erro ao deletar historico_apontamentos:', err);
+    }
     broadcastUpdate();
   }
   return deleted;
@@ -2001,7 +2018,7 @@ export async function clearAllApontamentos(): Promise<void> {
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
   firebaseDelete('apontamentos');
   try {
-    set(ref(db, 'historico_apontamentos'), null);
+    await set(ref(db, 'historico_apontamentos'), null);
   } catch {}
   broadcastUpdate();
 }
@@ -2047,24 +2064,50 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
 }
 
 /**
- * Remove uma OP individual do sistema
+ * Remove uma OP individual do sistema com sincronização definitiva no Firebase
  */
 export async function deleteProductionOrder(opNumero: string): Promise<void> {
   ensureInitialData();
+  const cleanInput = (opNumero || '').trim();
+  if (!cleanInput) return;
+  const normalizedSearch = cleanInput.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toLowerCase();
+
   const orders = await fetchProductionOrders();
-  if (orders[opNumero]) {
-    delete orders[opNumero];
-    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-    try {
-      const opKey = toFirebaseKey(opNumero);
-      if (opKey) {
-        await set(ref(db, `ordens_producao/${opKey}`), null);
-      }
-    } catch (err) {
-      console.error('[Firebase] Erro ao deletar ordem:', err);
+  let foundKey: string | undefined;
+  for (const k of Object.keys(orders)) {
+    const normK = k.trim().replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toLowerCase();
+    if (normK === normalizedSearch || k === cleanInput) {
+      foundKey = k;
+      break;
     }
-    broadcastUpdate();
   }
+
+  if (foundKey && orders[foundKey]) {
+    delete orders[foundKey];
+  }
+  if (orders[cleanInput]) {
+    delete orders[cleanInput];
+  }
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+
+  try {
+    const pureNum = cleanInput.replace(/^OP\s*/i, '').trim();
+    const keysToDelete = new Set([
+      toFirebaseKey(foundKey || ''),
+      toFirebaseKey(cleanInput),
+      toFirebaseKey(`OP ${pureNum}`),
+      toFirebaseKey(pureNum)
+    ]);
+
+    for (const k of keysToDelete) {
+      if (k) {
+        await set(ref(db, `ordens_producao/${k}`), null);
+      }
+    }
+  } catch (err) {
+    console.error('[Firebase] Erro ao deletar ordem:', err);
+  }
+  broadcastUpdate();
 }
 
 /**

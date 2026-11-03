@@ -11,7 +11,8 @@ import {
   ArrowRight,
   Monitor,
   Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  Trash2
 } from 'lucide-react';
 
 interface OpProductionCardProps {
@@ -27,7 +28,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   order: propOrder,
   op: propOp,
   apontamentos = [],
-  onSelectForTotem
+  onSelectForTotem,
+  onDelete
 }) => {
   const op = (propOrder || propOp)!;
   const order = op;
@@ -130,26 +132,42 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
           )}
         </div>
 
-        {/* Canto direito: Badge com a quantidade */}
-        {showPhysicalQuantitySelector ? (
-          <div className="bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[72px] shadow-inner shrink-0">
-            <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">
-              {Number(order.quantidade_m2 || totalPhysicalUnits).toFixed(2)} M²
-            </span>
-            <span className="text-xs font-black text-white font-mono leading-tight mt-1 whitespace-nowrap">
-              {totalPhysicalUnits} UN
-            </span>
-          </div>
-        ) : (
-          <div className="bg-slate-950/90 border border-blue-950 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[54px] shadow-inner shrink-0">
-            <span className="text-xl font-black text-white font-mono leading-none">
-              {totalPhysicalUnits}
-            </span>
-            <span className="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
-              {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
-            </span>
-          </div>
-        )}
+        {/* Canto direito: Badge com a quantidade e botão de excluir */}
+        <div className="flex items-center gap-2 shrink-0">
+          {showPhysicalQuantitySelector ? (
+            <div className="bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[72px] shadow-inner shrink-0">
+              <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">
+                {Number(order.quantidade_m2 || totalPhysicalUnits).toFixed(2)} M²
+              </span>
+              <span className="text-xs font-black text-white font-mono leading-tight mt-1 whitespace-nowrap">
+                {totalPhysicalUnits} UN
+              </span>
+            </div>
+          ) : (
+            <div className="bg-slate-950/90 border border-blue-950 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[54px] shadow-inner shrink-0">
+              <span className="text-xl font-black text-white font-mono leading-none">
+                {totalPhysicalUnits}
+              </span>
+              <span className="text-[10px] font-mono font-semibold text-slate-400 uppercase tracking-wider mt-0.5">
+                {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
+              </span>
+            </div>
+          )}
+
+          {onDelete && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(order.op_numero || order.numero);
+              }}
+              className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/20 border border-transparent hover:border-rose-500/30 rounded-lg transition cursor-pointer"
+              title="Excluir esta OP"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* 2. CORPO PRINCIPAL */}

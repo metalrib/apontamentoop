@@ -903,7 +903,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
               showToast('Histórico de apontamentos excluído com sucesso!', 'info');
             }}
             onDeleteOne={async (apt) => {
-              await deleteApontamento(apt.op_numero || apt.op || '', apt.id);
+              await deleteApontamento(apt.id, apt.op_numero || apt.op || '');
               showToast(`Apontamento da OP ${apt.op || apt.op_numero} excluído!`, 'info');
             }}
             onSelectOp={(opNum) => {
