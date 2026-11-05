@@ -6,7 +6,9 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Preparação de Folhas'
   ],
   T2: [
+    'Preparação de Folha',
     'Preparação de Folhas',
+    'Injeção',
     'Injeção de Folhas'
   ],
   T3: [
@@ -25,20 +27,21 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Montagem Porta Vai-Vem',
     'Instalação de Gaxeta',
     'Montagem de Portas Giratória Padrão e Especial',
-    'Montagem Portas Emendadas',
     'Montagem Portas de Correr Padrão e Especial',
+    'Montagem Portas Emendadas',
     'Corte de Trilho p/ Porta Correr',
     'Montagem de Trilho p/ Porta Correr'
   ],
   T5: [
+    'Corte Alumínio',
+    'Preparação Vai Vem',
+    'Router',
     'Corte',
     'Solda',
     'Montagem Estante',
     'Montagem Abrigo Doca',
     'Cortina',
-    'Router',
     'Elétrica',
-    'Preparação Vai Vem',
     'Montagem Portas Emendadas',
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem Portas de Correr Padrão e Especial',

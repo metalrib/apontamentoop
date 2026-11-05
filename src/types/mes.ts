@@ -102,44 +102,43 @@ export const CODIGOS_ANCORAS_PADRAO = new Set([
 ]);
 
 export const ROUTE_RULES: RouteRule[] = [
-  // Rota 15 - Porta Padrão Giratória (Apenas Chapa Branca Padrão - Terminal 4)
+  // Rota 15 - Porta Giratória (Padrão e Especial - Terminal 4)
   {
     keyword: "PT GIR",
-    label: "Rota 15 - Porta Padrão Giratória",
-    steps: ["Instalação de Gaxeta", "Montagem de Portas Giratória"],
+    label: "Porta Giratória (Padrão e Especial)",
+    steps: ["Instalação de Gaxeta", "Montagem de Portas Giratória Padrão e Especial"],
     badge: "Linha Padrão (Montagem Direta)",
     isStandardLine: true
   },
-  // Rota 12 - Porta Especial Giratória (Inox ou Medida Especial - T1 -> T2 -> T4)
   {
     keyword: "PT GIR ESPECIAL",
-    label: "Rota 12 - Porta Especial Giratória",
-    steps: ["Corte", "Dobra", "Preparação", "Injeção", "Instalação de Gaxeta", "Montagem de Portas Giratória"],
-    badge: "Especial sob Medida (Fabricação Completa)",
-    isStandardLine: false
+    label: "Porta Giratória (Padrão e Especial)",
+    steps: ["Instalação de Gaxeta", "Montagem de Portas Giratória Padrão e Especial"],
+    badge: "Montagem T4 (Unitário)",
+    isStandardLine: true
   },
-  // Rota 16 - Porta Padrão Correr (Apenas Chapa Branca Padrão - Terminal 3)
+  // Rota 16 - Porta Padrão Correr (Terminal 4)
   {
     keyword: "PT COR",
     label: "Rota 16 - Porta Padrão Correr",
-    steps: ["Instalação de Gaxeta", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Montagem Portas de Correr Padrão e Especial"],
     badge: "Linha Padrão (Montagem Direta)",
     isStandardLine: true
   },
-  // Rota 13/14 - Porta Especial de Correr (Inox, Super Cong 007 ou Medida Especial - T1 -> T2 -> T3)
+  // Rota 13/14 - Porta Especial de Correr (T1 -> T2/T3 -> T4)
   {
     keyword: "PT COR ESPECIAL",
     label: "Rota 13/14 - Porta Especial de Correr",
-    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção de Folhas", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
-  // Porta Emendada (Dimensões Excedentes ou Modelo Emendado - Terminal 3)
+  // Porta Emendada (Dimensões Excedentes ou Modelo Emendado)
   {
     keyword: "PT EMENDADA",
     label: "Porta Emendada (Correr/Giro)",
-    steps: ["Corte", "Dobra", "Preparação", "Injeção", "Montagem Portas Emendadas"],
-    badge: "Porta Emendada (Montagem T3)",
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    badge: "Porta Emendada",
     isStandardLine: false
   },
   {
@@ -165,7 +164,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT VAI VEM",
     label: "Porta Vai Vem",
-    steps: ["Corte", "Preparação de Vai Vem", "Injeção de Folhas", "Router", "Montagem Porta Vai-Vem"]
+    steps: ["Corte", "Corte Alumínio", "Preparação Vai Vem", "Injeção", "Montagem Porta Vai-Vem"]
   },
   {
     keyword: "TRILHO",
@@ -349,11 +348,11 @@ import { colaboradores, BADGES_MAP } from '../data/colaboradores';
 export { colaboradores };
 
 const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
-  T1: ['Corte - Guilhotina', 'Dobra e Preparação', 'Laser'],
-  T2: ['Preparação', 'Injetora de folhas'],
+  T1: ['Corte', 'Dobra', 'Laser'],
+  T2: ['Preparação de Folhas', 'Injeção'],
   T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Portas Emendadas'],
-  T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias', 'Montagem Porta Vai-Vem'],
-  T5: ['Montagem Estante', 'Elétrica', 'Router', 'Solda e Montagem', 'Preparação Vai Vem', 'Cortina']
+  T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Porta Vai-Vem'],
+  T5: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Solda e Montagem', 'Montagem Estante', 'Elétrica', 'Cortina']
 };
 
 function extractInitials(nome: string): string {

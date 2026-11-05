@@ -331,20 +331,21 @@ function resolveBaseRoute(
 
   if (ehSuperCong) {
     const isGiro = norm.includes('PT GIR') || norm.includes('GIRO') || norm.includes('GIRATORIA') || (code && (code.startsWith('003.') || code.startsWith('001.')));
-    const exigeEmenda = verificarSeExigeEmenda(desc || '');
-    const montagemStep = exigeEmenda
-      ? 'Montagem Portas Emendadas'
-      : isGiro
-      ? 'Montagem de Portas Giratória'
-      : 'Montagem Portas de Correr Padrão e Especial';
+    if (isGiro) {
+      const rule: RouteRule = {
+        keyword: 'PT GIR ESPECIAL',
+        label: 'Porta Giratória Super Cong (Padrão e Especial)',
+        steps: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'],
+        badge: 'Montagem T4 (Unitário)',
+        isStandardLine: true
+      };
+      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+    }
 
-    const steps = isGiro
-      ? ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', 'Instalação de Gaxeta', montagemStep]
-      : ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep];
-
+    const steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', 'Montagem Portas de Correr Padrão e Especial'];
     const rule: RouteRule = {
-      keyword: isGiro ? 'PT GIR ESPECIAL' : 'PT COR ESPECIAL',
-      label: isGiro ? 'Rota 12 - Porta Especial Giratória Super Cong' : 'Rota 13/14 - Porta Especial de Correr Super Cong',
+      keyword: 'PT COR ESPECIAL',
+      label: 'Rota 13/14 - Porta Especial de Correr Super Cong',
       steps,
       badge: 'Especial sob Medida (Fabricação Completa)',
       isStandardLine: false
@@ -352,42 +353,30 @@ function resolveBaseRoute(
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
   }
 
-  // 6. Se for Porta Giratória Padrão
-  if (norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || norm.includes('GIRATORIA')) {
-    const exigeEmenda = verificarSeExigeEmenda(desc || '');
-    const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem de Portas Giratória Padrão e Especial';
-
-    if (code && CODIGOS_PADRAO_GIRO.has(code) && !exigeEmenda) {
-      const rule: RouteRule = {
-        keyword: 'PT GIR',
-        label: 'Rota 15 - Porta Padrão Giratória',
-        steps: ['Instalação de Gaxeta', montagemStep],
-        badge: 'Linha Padrão (Montagem Direta)',
-        isStandardLine: true
-      };
-      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
-    } else {
-      const rule: RouteRule = {
-        keyword: 'PT GIR ESPECIAL',
-        label: exigeEmenda ? 'Rota 12 - Porta Giratória Emendada' : 'Rota 12 - Porta Especial Giratória',
-        steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep],
-        badge: exigeEmenda ? 'Porta Emendada (Montagem T3)' : 'Especial sob Medida (Fabricação Completa)',
-        isStandardLine: false
-      };
-      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
-    }
+  // 6. Portas Giratórias (Padrão e Especial) -> Terminal 4 (Unitário)
+  if (norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || norm.includes('GIRATORIA') || norm.includes('GIRO')) {
+    const montagemStep = 'Montagem de Portas Giratória Padrão e Especial';
+    const rule: RouteRule = {
+      keyword: 'PT GIR',
+      label: 'Porta Giratória (Padrão e Especial)',
+      steps: ['Instalação de Gaxeta', montagemStep],
+      badge: 'Montagem T4 (Unitário)',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 7. Se for Porta de Correr Padrão
-  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER')) {
+  // 7. Portas de Correr (Padrão vs Especial e Emendadas)
+  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('EMENDADA')) {
     const exigeEmenda = verificarSeExigeEmenda(desc || '');
-    const montagemStep = exigeEmenda ? 'Montagem Portas Emendadas' : 'Montagem Portas de Correr Padrão e Especial';
+    const isEspecial = (code && !CODIGOS_PADRAO_CORRER.has(code)) || norm.includes('ESPECIAL') || norm.includes('INOX') || norm.includes('SUPER CONG') || exigeEmenda;
+    const montagemStep = 'Montagem Portas de Correr Padrão e Especial';
 
-    if (code && CODIGOS_PADRAO_CORRER.has(code) && !exigeEmenda) {
+    if (!isEspecial) {
       const rule: RouteRule = {
         keyword: 'PT COR',
         label: 'Rota 16 - Porta Padrão Correr',
-        steps: ['Instalação de Gaxeta', montagemStep],
+        steps: [montagemStep],
         badge: 'Linha Padrão (Montagem Direta)',
         isStandardLine: true
       };
@@ -395,9 +384,9 @@ function resolveBaseRoute(
     } else {
       const rule: RouteRule = {
         keyword: 'PT COR ESPECIAL',
-        label: exigeEmenda ? 'Rota 13/14 - Porta de Correr Emendada' : 'Rota 13/14 - Porta Especial de Correr',
-        steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas', montagemStep],
-        badge: exigeEmenda ? 'Porta Emendada (Montagem T3)' : 'Especial sob Medida (Fabricação Completa)',
+        label: 'Rota 13/14 - Porta Especial de Correr e Emendadas',
+        steps: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', montagemStep],
+        badge: 'Especial sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
@@ -549,8 +538,13 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return false;
   }
 
+  // Corte Alumínio (Terminal 5) vs Corte Guilhotina (Terminal 1)
+  if (normStep.includes('ALUMINIO') || normSector.includes('ALUMINIO')) {
+    return normStep.includes('ALUMINIO') && normSector.includes('ALUMINIO');
+  }
+
   if (normStep === 'CORTE' && (normSector.includes('CORTE') || normSector.includes('GUILHOTINA'))) {
-    return true;
+    return !normSector.includes('ALUMINIO');
   }
 
   if (normStep === 'DOBRA' && normSector.includes('DOBRA')) {
@@ -689,6 +683,11 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
   const normA = normalizeText(stepA);
   const normB = normalizeText(stepB);
   if (normA === normB) return true;
+
+  // Corte Alumínio (Terminal 5) vs Corte Guilhotina (Terminal 1)
+  if (normA.includes('ALUMINIO') || normB.includes('ALUMINIO')) {
+    return normA.includes('ALUMINIO') && normB.includes('ALUMINIO');
+  }
 
   // Laser vs Laser CNC
   if (normA.includes('LASER') && normB.includes('LASER')) return true;
@@ -847,12 +846,54 @@ export function initOrSyncOrderEtapas(
 }
 
 /**
+ * Lista oficial de postos unitários para ativação da interface de peças individuais
+ */
+export const POSTOS_UNITARIOS = [
+  'Instalação de Gaxeta',
+  'Montagem de Portas Giratória Padrão e Especial',
+  'Preparação Vai Vem',
+  'Montagem Porta Vai-Vem',
+  'Montagem Portas de Correr Padrão e Especial'
+];
+
+/**
+ * Verifica se o posto e quantidade ativam o modo de interface unitária (cartões de peças individuais)
+ */
+export const isModoUnitario = (posto: string, qtde: number): boolean => 
+  POSTOS_UNITARIOS.some(p => p.toLowerCase().trim() === (posto || '').toLowerCase().trim()) && qtde > 1;
+
+/**
+ * Verifica se um posto pertence à lista de postos unitários com comparação tolerante
+ */
+export function isPostoUnitario(posto?: string | null): boolean {
+  if (!posto) return false;
+  const pTrim = posto.trim().toLowerCase();
+  if (POSTOS_UNITARIOS.some(p => p.toLowerCase().trim() === pTrim)) return true;
+  const pNorm = normalizeText(posto);
+  return POSTOS_UNITARIOS.some(pu => {
+    const puNorm = normalizeText(pu);
+    if (pNorm === puNorm) return true;
+    if (pNorm.includes('GAXETA') && puNorm.includes('GAXETA')) return true;
+    if (pNorm.includes('VAI VEM') && puNorm.includes('VAI VEM') && pNorm.includes('MONTAGEM') && puNorm.includes('MONTAGEM')) return true;
+    if (pNorm.includes('VAI VEM') && puNorm.includes('VAI VEM') && pNorm.includes('PREPARACAO') && puNorm.includes('PREPARACAO')) return true;
+    if (pNorm.includes('GIRATORIA') && puNorm.includes('GIRATORIA') && pNorm.includes('MONTAGEM')) return true;
+    if (pNorm.includes('CORRER') && puNorm.includes('CORRER') && pNorm.includes('MONTAGEM')) return true;
+    return false;
+  });
+}
+
+/**
  * Determina se a OP / Etapa deve ser apontada em Lote Completo ou Peça a Peça (Unitário)
  */
 export function isBatchTracking(
   order: ProductionOrder | { descricao: string; codigo?: string },
   sector?: string | null
 ): boolean {
+  // 1. Postos Unitários Oficiais operam SEMPRE no modo unitário (peça a peça)
+  if (isPostoUnitario(sector)) {
+    return false;
+  }
+
   const desc = typeof order === 'object' && order !== null ? order.descricao : String(order || '');
   const norm = normalizeText(desc || '');
   const code = extractProductCode(order);

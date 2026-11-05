@@ -36,18 +36,18 @@ export const colaboradores: ColaboradorRaw[] = [
   // TERMINAL 4
   { id: 'joao_p', nome: 'João Paulo', terminais: ['T4'], setores: ['Montagem Porta Vai-Vem'], especialista: false },
   { id: 'alessandra', nome: 'Alessandra', terminais: ['T4'], setores: ['Montagem Porta Vai-Vem'], especialista: false },
-  { id: 'gustavo_n', nome: 'Gustavo Naves', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
-  { id: 'fabiano', nome: 'Fabiano', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
-  { id: 'vinicius', nome: 'Vinicius', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
-  { id: 'nalysson', nome: 'Nalysson', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
+  { id: 'gustavo_n', nome: 'Gustavo Naves', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'fabiano', nome: 'Fabiano', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'vinicius', nome: 'Vinicius', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'nalysson', nome: 'Nalysson', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
 
   // TERMINAL 5
-  { id: 'victor', nome: 'Victor', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'victor', nome: 'Victor', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'fabio', nome: 'Fabio', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial', 'Solda'], especialista: true },
 

@@ -282,8 +282,9 @@ export function obterEtapasDaRota(op: any): string[] {
   else if (cod.startsWith('011.') || desc.includes('VAI VEM')) {
     steps = [
       'Corte',
-      'Preparação de Vai Vem',
-      'Injeção de Folhas',
+      'Corte Alumínio',
+      'Preparação Vai Vem',
+      'Injeção',
       'Montagem Porta Vai-Vem'
     ];
   }
@@ -309,89 +310,82 @@ export function obterEtapasDaRota(op: any): string[] {
     ];
   }
 
-  // 7. VERIFICAÇÃO SE É INOX OU FORA DE MEDIDA / SUPER CONG
-  else {
+  // 7. PORTAS GIRATÓRIAS (PADRÃO E ESPECIAL / INOX / SUPER CONG / MEDIDA ESPECIAL) -> T4
+  else if (
+    cod.startsWith('001.') ||
+    cod.startsWith('002.') ||
+    cod.startsWith('003.') ||
+    cod.startsWith('004.') ||
+    desc.includes('PT GIR') ||
+    desc.includes('PORTA GIR') ||
+    desc.includes('GIRATORIA') ||
+    desc.includes('GIRO')
+  ) {
+    steps = [
+      'Instalação de Gaxeta',
+      'Montagem de Portas Giratória Padrão e Especial'
+    ];
+  }
+
+  // 8. PORTAS DE CORRER (PADRÃO, ESPECIAL E EMENDADAS)
+  else if (
+    cod.startsWith('005.') ||
+    cod.startsWith('006.') ||
+    cod.startsWith('007.') ||
+    cod.startsWith('008.') ||
+    cod.startsWith('029.') ||
+    cod.startsWith('025.') ||
+    desc.includes('PT COR') ||
+    desc.includes('PORTA CORRER') ||
+    desc.includes('PORTA DE CORRER') ||
+    desc.includes('EMENDAD')
+  ) {
     const ehInox = 
       desc.includes('I304') || 
       desc.includes('I430') || 
       desc.includes('INOX') || 
-      cod.startsWith('002.') || 
-      cod.startsWith('004.') || 
       cod.startsWith('006.') || 
       cod.startsWith('008.');
 
-    const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011' || cod === '003.0011';
+    const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011';
+    const ehEmendada = desc.includes('EMENDAD') || cod.startsWith('029.') || cod.startsWith('025.');
 
     // MEDIDAS PADRÃO METALRIB (COM FOLHA EM ESTOQUE)
     const medidasPadrao = [
-      '600A X 600L',
-      '800A X 800L',
-      '1.000A X 1.000L',
-      '1.800A X 800L',
-      '2.000A X 1.000L',
-      '2.000A X 1.200L',
-      '600 X 600',
-      '800 X 800',
-      '1000A X 1000L',
-      '1000 X 1000',
-      '1.000 X 1.000',
-      '1800A X 800L',
-      '1800 X 800',
-      '1.800 X 800',
-      '2000A X 1000L',
-      '2000 X 1000',
-      '2.000 X 1.000',
-      '2000A X 1200L',
-      '2000 X 1200',
-      '2.000 X 1.200'
+      '600A X 600L', '800A X 800L', '1.000A X 1.000L', '1.800A X 800L',
+      '2.000A X 1.000L', '2.000A X 1.200L', '600 X 600', '800 X 800',
+      '1000A X 1000L', '1000 X 1000', '1.000 X 1.000', '1800A X 800L',
+      '1800 X 800', '1.800 X 800', '2000A X 1000L', '2000 X 1000',
+      '2.000 X 1.000', '2000A X 1200L', '2000 X 1200', '2.000 X 1.200'
     ];
     const ehMedidaPadrao = medidasPadrao.some(m => desc.includes(m));
 
-    // SE FOR INOX, SUPER CONG OU FORA DE MEDIDA -> FABRICAÇÃO COMPLETA DESDE O CORTE
-    const ehPortaEspecialCompleta = ehInox || ehSuperCong || (!ehMedidaPadrao && (desc.includes('PT COR') || desc.includes('PT GIR')));
+    // Se for Inox, Super Cong, Emendada ou Fora de Medida -> Especial: 5 etapas
+    const ehEspecialOuEmendada = ehInox || ehSuperCong || ehEmendada || (!ehMedidaPadrao && !cod.startsWith('005.') && !cod.startsWith('007.'));
 
-    if (ehPortaEspecialCompleta) {
-      if (desc.includes('PT GIR') || desc.includes('GIRO') || desc.includes('GIRAT') || cod.startsWith('001.') || cod.startsWith('003.')) {
-        steps = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Instalação de Gaxeta',
-          'Montagem de Portas Giratória'
-        ];
-      } else {
-        steps = [
-          'Corte',
-          'Dobra',
-          'Preparação de Folhas',
-          'Injeção de Folhas',
-          'Montagem Portas de Correr Padrão e Especial'
-        ];
-      }
-    }
-    // 8. PORTAS GIRATÓRIAS PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 2 ETAPAS
-    else if (cod.startsWith('001.') || cod.startsWith('003.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO') || desc.includes('GIRAT')) {
+    if (ehEspecialOuEmendada) {
       steps = [
-        'Instalação de Gaxeta',
-        'Montagem de Portas Giratória'
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Montagem Portas de Correr Padrão e Especial'
       ];
-    }
-    // 9. PORTAS DE CORRER PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 1 ETAPA (SEM GAXETA)
-    else if (cod.startsWith('005.') || cod.startsWith('007.') || desc.startsWith('PT COR') || desc.includes('PORTA CORRER') || desc.includes('PORTA DE CORRER')) {
+    } else {
+      // Porta de Correr Padrão -> 1 etapa direta (Terminal 4)
       steps = [
         'Montagem Portas de Correr Padrão e Especial'
       ];
     }
-    // 10. DEMAIS ESPECÍFICOS
-    else if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) steps = ['Corte', 'Dobra'];
-    else if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) steps = ['Corte', 'Solda', 'Montagem Abrigo Doca'];
-    else if (cod.startsWith('015.') || cod === '090.0001') steps = ['Montagem Estante'];
-    else if (cod === '090.0004' || cod === '090.0005') steps = ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
-    else if (cod === '090.0002') steps = ['Corte', 'Solda', 'Montagem Estante'];
-    else if (cod.startsWith('029.') || cod.startsWith('025.')) steps = ['Montagem Portas Emendadas'];
-    else steps = ['Montagem Portas de Correr Padrão e Especial'];
   }
+
+  // 9. DEMAIS ESPECÍFICOS INDUSTRIAIS
+  else if (cod.startsWith('022.') || desc.startsWith('PERFIL PP')) steps = ['Corte', 'Dobra'];
+  else if (cod.startsWith('014.') || desc.includes('ABRIGO DOCA')) steps = ['Corte', 'Solda', 'Montagem Abrigo Doca'];
+  else if (cod.startsWith('015.') || cod === '090.0001') steps = ['Montagem Estante'];
+  else if (cod === '090.0004' || cod === '090.0005') steps = ['Laser', 'Dobra', 'Solda', 'Montagem Estante'];
+  else if (cod === '090.0002') steps = ['Corte', 'Solda', 'Montagem Estante'];
+  else steps = ['Montagem Portas de Correr Padrão e Especial'];
 
   // Encaminhar para Router (sob demanda para Vai-Vem e Office Door)
   const isEligible = isEligibleForRouter(op);

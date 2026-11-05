@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
+import { IndividualPieceCards } from './IndividualPieceCards';
 
 interface ProductionActionProps {
   order: ProductionOrder;
@@ -163,8 +164,86 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     );
   }
 
-  // Se nenhum operador foi escolhido
-  // Se nenhum operador foi escolhido
+  const stepEval = evaluation[matchedStep];
+
+  const nextUnitNumber = stepEval.nextUnitNumber;
+  const routeValidation = selectedSector ? validarPostoIndustrial(order, selectedSector, apontamentos, currentTerminal.id) : { valido: true };
+
+  const normSelectedPosto = (selectedSector || matchedStep || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const ehInjecaoBatenteOuFolha =
+    normSelectedPosto.includes('INJECAO E FINALIZACAO DE BATENTES') ||
+    normSelectedPosto.includes('INJECAO E FINALIZACAO BATENTES') ||
+    normSelectedPosto.includes('INJECAO DE FOLHAS') ||
+    normSelectedPosto.includes('INJETORA DE FOLHAS') ||
+    (normSelectedPosto.includes('INJEC') && (normSelectedPosto.includes('BATENTE') || normSelectedPosto.includes('FOLHA')));
+
+  const prevStepName = stepEval.previousStepName;
+  const normPrevStep = (prevStepName || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const ehGaxetaParaMontagem =
+    (normPrevStep.includes('GAXETA') || normPrevStep === 'INSTALACAO DE GAXETA') &&
+    normSelectedPosto.includes('MONTAGEM');
+
+  // REGRA DE FLUXO CONTÍNUO: Liberação parcial de peças de Gaxeta para a Montagem
+  const opApts = (order as any)?.apontamentos;
+  let qtdGaxetaPronta = stepEval.previousStepFinalizadas ?? 0;
+  if (opApts && typeof opApts === 'object') {
+    const gaxetaApt = opApts['Instalação de Gaxeta'] || opApts['Instalacao de Gaxeta'] || (prevStepName ? opApts[prevStepName] : undefined);
+    if (gaxetaApt) {
+      const val = gaxetaApt.qtdProduzida ?? gaxetaApt.concluidas ?? (gaxetaApt.status === 'CONCLUIDO' ? totalPhysicalUnits : 0);
+      if (typeof val === 'number') qtdGaxetaPronta = Math.max(qtdGaxetaPronta, val);
+    }
+  }
+
+  let qtdMontagemPronta = stepEval.finalizadas;
+  if (opApts && typeof opApts === 'object') {
+    const montApt = (selectedSector && opApts[selectedSector]) || (matchedStep && opApts[matchedStep]);
+    if (montApt) {
+      const val = montApt.qtdProduzida ?? montApt.concluidas ?? (montApt.status === 'CONCLUIDO' ? totalPhysicalUnits : 0);
+      if (typeof val === 'number') qtdMontagemPronta = Math.max(qtdMontagemPronta, val);
+    }
+  }
+
+  // Quantidade que já passou pela gaxeta mas ainda não foi montada
+  const pecasDisponiveisParaMontar = Math.max(0, qtdGaxetaPronta - qtdMontagemPronta);
+  const podeMontarPeca = pecasDisponiveisParaMontar > 0;
+
+  // Ativação da interface de Cartões de Peças Individuais para postos unitários com QTDE > 1
+  const ativaModoUnitario = Boolean(
+    (selectedSector && isModoUnitario(selectedSector, totalPhysicalUnits)) ||
+    (matchedStep && isModoUnitario(matchedStep, totalPhysicalUnits))
+  );
+
+  if (ativaModoUnitario) {
+    return (
+      <IndividualPieceCards
+        order={order}
+        apontamentos={apontamentos}
+        selectedSector={selectedSector}
+        matchedStep={matchedStep}
+        selectedOperator={selectedOperator}
+        totalPhysicalUnits={totalPhysicalUnits}
+        stepEval={stepEval}
+        routeValidation={routeValidation}
+        onStartUnit={onStartUnit}
+        onFinishUnit={onFinishUnit}
+        isLoading={isLoading}
+        ehGaxetaParaMontagem={ehGaxetaParaMontagem}
+        qtdGaxetaPronta={qtdGaxetaPronta}
+        qtdMontagemPronta={qtdMontagemPronta}
+        pecasDisponiveisParaMontar={pecasDisponiveisParaMontar}
+      />
+    );
+  }
+
+  // Se nenhum operador foi escolhido (modo padrão)
   if (!selectedOperator && !activeForCurrentOperator) {
     return (
       <div className="w-full bg-[#0e131f] border border-amber-500/30 rounded-xl p-3 text-center text-amber-300/80 shrink-0 mt-auto">
@@ -177,8 +256,6 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       </div>
     );
   }
-
-  const stepEval = evaluation[matchedStep];
 
   // Caso 1: LOTE OU UNIDADE EM ANDAMENTO (CRONÔMETRO ATIVO)
   if (activeForCurrentOperator) {
@@ -244,13 +321,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                   className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
                 />
                 <label htmlFor="send-to-router-toggle-batch" className="text-xs font-mono font-medium cursor-pointer">
-                  <span>Encaminhar para Router</span>{' '}
+                  <span>Requer Router / Com Visor</span>{' '}
                   <span className="text-[11px] text-slate-500">(Terminal 5)</span>
                 </label>
               </div>
               {encaminharRouter && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
-                  ⚙ Requer Router
+                  ⚙ Requer Router (Com Visor)
                 </span>
               )}
             </div>
@@ -344,7 +421,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                       htmlFor="modal-encaminhar-router-batch"
                       className="font-bold text-base text-white cursor-pointer block"
                     >
-                      Encaminhar para Router
+                      Requer Router / Com Visor
                     </label>
                     <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                       {encaminharRouter ? (
@@ -353,7 +430,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                         </span>
                       ) : (
                         <span>
-                          Desmarcado: A peça seguirá o fluxo normal direto para Montagem / Gaxeta, sem passar pelo Router.
+                          Desmarcado: A peça seguirá o fluxo normal direto para Montagem, sem passar pelo Router.
                         </span>
                       )}
                     </p>
@@ -437,13 +514,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                 className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
               />
               <label htmlFor="send-to-router-toggle-unit" className="text-xs font-mono font-medium cursor-pointer">
-                <span>Encaminhar para Router</span>{' '}
+                <span>Requer Router / Com Visor</span>{' '}
                 <span className="text-[11px] text-slate-500">(Terminal 5)</span>
               </label>
             </div>
             {encaminharRouter && (
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
-                ⚙ Requer Router
+                ⚙ Requer Router (Com Visor)
               </span>
             )}
           </div>
@@ -535,7 +612,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                     htmlFor="modal-encaminhar-router-unit"
                     className="font-bold text-base text-white cursor-pointer block"
                   >
-                    Encaminhar para Router
+                    Requer Router / Com Visor
                   </label>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                     {encaminharRouter ? (
@@ -544,7 +621,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                       </span>
                     ) : (
                       <span>
-                        Desmarcado: A peça seguirá o fluxo normal direto para Montagem / Gaxeta, sem passar pelo Router.
+                        Desmarcado: A peça seguirá o fluxo normal direto para Montagem, sem passar pelo Router.
                       </span>
                     )}
                   </p>
@@ -607,56 +684,6 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   }
 
   // Caso 3: Início de Lote ou Próxima Unidade
-  const nextUnitNumber = stepEval.nextUnitNumber;
-  const routeValidation = selectedSector ? validarPostoIndustrial(order, selectedSector, apontamentos, currentTerminal.id) : { valido: true };
-
-  const normSelectedPosto = (selectedSector || matchedStep || '')
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  const ehInjecaoBatenteOuFolha =
-    normSelectedPosto.includes('INJECAO E FINALIZACAO DE BATENTES') ||
-    normSelectedPosto.includes('INJECAO E FINALIZACAO BATENTES') ||
-    normSelectedPosto.includes('INJECAO DE FOLHAS') ||
-    normSelectedPosto.includes('INJETORA DE FOLHAS') ||
-    (normSelectedPosto.includes('INJEC') && (normSelectedPosto.includes('BATENTE') || normSelectedPosto.includes('FOLHA')));
-
-  const prevStepName = stepEval.previousStepName;
-  const normPrevStep = (prevStepName || '')
-    .toUpperCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '');
-
-  const ehGaxetaParaMontagem =
-    (normPrevStep.includes('GAXETA') || normPrevStep === 'INSTALACAO DE GAXETA') &&
-    normSelectedPosto.includes('MONTAGEM');
-
-  // REGRA DE FLUXO CONTÍNUO: Liberação parcial de peças de Gaxeta para a Montagem
-  const opApts = (order as any)?.apontamentos;
-  let qtdGaxetaPronta = stepEval.previousStepFinalizadas ?? 0;
-  if (opApts && typeof opApts === 'object') {
-    const gaxetaApt = opApts['Instalação de Gaxeta'] || opApts['Instalacao de Gaxeta'] || (prevStepName ? opApts[prevStepName] : undefined);
-    if (gaxetaApt) {
-      const val = gaxetaApt.qtdProduzida ?? gaxetaApt.concluidas ?? (gaxetaApt.status === 'CONCLUIDO' ? totalPhysicalUnits : 0);
-      if (typeof val === 'number') qtdGaxetaPronta = Math.max(qtdGaxetaPronta, val);
-    }
-  }
-
-  let qtdMontagemPronta = stepEval.finalizadas;
-  if (opApts && typeof opApts === 'object') {
-    const montApt = (selectedSector && opApts[selectedSector]) || (matchedStep && opApts[matchedStep]);
-    if (montApt) {
-      const val = montApt.qtdProduzida ?? montApt.concluidas ?? (montApt.status === 'CONCLUIDO' ? totalPhysicalUnits : 0);
-      if (typeof val === 'number') qtdMontagemPronta = Math.max(qtdMontagemPronta, val);
-    }
-  }
-
-  // Quantidade que já passou pela gaxeta mas ainda não foi montada
-  const pecasDisponiveisParaMontar = Math.max(0, qtdGaxetaPronta - qtdMontagemPronta);
-
-  // Validação para o botão de incremento da Montagem
-  const podeMontarPeca = pecasDisponiveisParaMontar > 0;
 
   const etapaAnteriorIniciadaOuConcluida = Boolean(
     prevStepName && (
@@ -767,6 +794,45 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             {sendToLaser && (
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 font-mono shrink-0">
                 🔥 Requer Laser
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Opção Condicional Exclusiva na Injeção: Requer Router / Com Visor */}
+        {showRouterOption && isUnblocked && (
+          <div
+            onClick={async () => {
+              playClick();
+              const nextVal = !encaminharRouter;
+              setEncaminharRouter(nextVal);
+              await updateProductionOrder(order.op_numero, {
+                requer_router: nextVal,
+                encaminhar_router: nextVal
+              });
+            }}
+            className={`mb-2.5 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+              encaminharRouter
+                ? 'bg-amber-950/40 border-amber-500/70 text-amber-200 shadow-sm'
+                : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <input
+                type="checkbox"
+                id="send-to-router-toggle-batch-pending"
+                checked={encaminharRouter}
+                onChange={() => {}}
+                className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+              />
+              <label htmlFor="send-to-router-toggle-batch-pending" className="text-xs font-mono font-medium cursor-pointer">
+                <span>Requer Router / Com Visor</span>{' '}
+                <span className="text-[11px] text-slate-500">(Terminal 5)</span>
+              </label>
+            </div>
+            {encaminharRouter && (
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+                ⚙ Requer Router (Com Visor)
               </span>
             )}
           </div>
