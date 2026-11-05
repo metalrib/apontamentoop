@@ -351,7 +351,7 @@ export function obterEtapasDaRota(op: any): string[] {
     const ehPortaEspecialCompleta = ehInox || ehSuperCong || (!ehMedidaPadrao && (desc.includes('PT COR') || desc.includes('PT GIR')));
 
     if (ehPortaEspecialCompleta) {
-      if (desc.includes('PT GIR') || desc.includes('GIRO') || cod.startsWith('001.') || cod.startsWith('003.')) {
+      if (desc.includes('PT GIR') || desc.includes('GIRO') || desc.includes('GIRAT') || cod.startsWith('001.') || cod.startsWith('003.')) {
         steps = [
           'Corte',
           'Dobra',
@@ -371,7 +371,7 @@ export function obterEtapasDaRota(op: any): string[] {
       }
     }
     // 8. PORTAS GIRATÓRIAS PADRÃO (CHAPA BRANCA + MEDIDA PADRÃO) -> 2 ETAPAS
-    else if (cod.startsWith('001.') || cod.startsWith('003.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO')) {
+    else if (cod.startsWith('001.') || cod.startsWith('003.') || desc.startsWith('PT GIR') || desc.includes('PORTA GIRO') || desc.includes('GIRAT')) {
       steps = [
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória'

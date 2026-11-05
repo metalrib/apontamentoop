@@ -826,8 +826,14 @@ export function initOrSyncOrderEtapas(
       if (existing.status === 'CONCLUIDO' && totalFinished === 0 && stepApontamentos.length === 0) {
         currentEtapas[step] = { status: 'PENDENTE', concluidas: 0, total };
       } else {
+        const concluidas = Math.max(existing.concluidas || 0, totalFinished);
+        const status = concluidas >= total
+          ? 'CONCLUIDO'
+          : (concluidas > 0 || totalActive > 0 ? 'EM_PRODUCAO' : existing.status);
         currentEtapas[step] = {
           ...existing,
+          status,
+          concluidas,
           total: existing.total || total
         };
       }
@@ -853,9 +859,14 @@ export function isBatchTracking(
   const secNorm = normalizeText(sector || '');
 
   // 1. Manutenção do Modo Unitário (Peça a Peça) EXCLUSIVAMENTE para portas completas montadas:
+  // - Posto de Instalação de Gaxeta opera sempre unitário para fluxo contínuo
+  if (secNorm.includes('GAXETA')) {
+    return false;
+  }
+
   // - Portas Giratórias (nos setores de Instalação de Gaxeta e Montagem Giratória)
   const isPortaGiro = norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || (norm.includes('GIRATORIA') && !norm.includes('BAT') && !norm.includes('FOLHA'));
-  if (isPortaGiro && (secNorm.includes('gaxeta') || secNorm.includes('girat'))) {
+  if (isPortaGiro && (secNorm.includes('GAXETA') || secNorm.includes('GIRAT') || secNorm.includes('MONTAGEM'))) {
     return false;
   }
 
@@ -872,16 +883,16 @@ export function isBatchTracking(
   // - Portas de Correr e Portas Emendadas (nos setores de Montagem)
   const isTrilho = (code && code.startsWith('028.')) || (code && CODIGOS_TRILHOS_LGT_PADRAO.has(code)) || norm.includes('TRILHO');
   const isPortaCorrer = !isTrilho && (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER'));
-  if (isPortaCorrer && (secNorm.includes('emendad') || secNorm.includes('correr'))) {
+  if (isPortaCorrer && (secNorm.includes('EMENDAD') || secNorm.includes('CORRER') || secNorm.includes('GAXETA') || secNorm.includes('MONTAGEM'))) {
     return false;
   }
-  if (secNorm.includes('emendad')) {
+  if (secNorm.includes('EMENDAD')) {
     return false;
   }
 
   // - Portas Vai-Vem (nos setores de Montagem / Finalização Vai-Vem)
   const isVaiVem = norm.includes('PT VAI VEM') || norm.includes('VAI VEM') || norm.includes('VV');
-  if (isVaiVem && (secNorm.includes('finalizacao') || secNorm.includes('montagem'))) {
+  if (isVaiVem && (secNorm.includes('FINALIZACAO') || secNorm.includes('MONTAGEM') || secNorm.includes('VAI VEM'))) {
     return false;
   }
 
@@ -892,7 +903,7 @@ export function isBatchTracking(
   }
 
   // - Batentes Padrão (código em CODIGOS_BATENTES_PADRAO ou descrição BAT) ou setores de Batentes / Laser
-  if ((code && CODIGOS_BATENTES_PADRAO.has(code)) || norm.includes('BAT') || secNorm.includes('batente') || secNorm.includes('laser')) {
+  if ((code && CODIGOS_BATENTES_PADRAO.has(code)) || norm.includes('BAT') || secNorm.includes('BATENTE') || secNorm.includes('LASER')) {
     return true;
   }
 
@@ -1043,6 +1054,19 @@ export function getRouteEvaluation(
       const prevEtapaState = prevEtapaStateKey ? etapas[prevEtapaStateKey] : undefined;
       if (prevEtapaState && prevEtapaState.status === 'CONCLUIDO') {
         prevFinishedCount = Math.max(prevFinishedCount, prevEtapaState.concluidas || total);
+      } else if (prevEtapaState && typeof prevEtapaState.concluidas === 'number') {
+        prevFinishedCount = Math.max(prevFinishedCount, prevEtapaState.concluidas);
+      }
+
+      // Consulta apontamentos explícitos na OP (op.apontamentos)
+      const opApts = (op as any)?.apontamentos;
+      if (opApts && typeof opApts === 'object') {
+        const prevAptKey = Object.keys(opApts).find((k) => matchStepName(k, previousStep));
+        if (prevAptKey) {
+          const aptInfo = opApts[prevAptKey];
+          const val = aptInfo?.qtdProduzida ?? aptInfo?.concluidas ?? (aptInfo?.status === 'CONCLUIDO' ? total : 0);
+          if (typeof val === 'number') prevFinishedCount = Math.max(prevFinishedCount, val);
+        }
       }
       prevFinalizadas = prevFinishedCount;
 
@@ -1090,6 +1114,12 @@ export function getRouteEvaluation(
       );
 
       const normStep = normalizeText(step);
+      const normPrevStep = normalizeText(previousStep);
+
+      const ehGaxetaParaMontagem =
+        (normPrevStep.includes('GAXETA') || normPrevStep === 'INSTALACAO DE GAXETA') &&
+        normStep.includes('MONTAGEM');
+
       const ehInjecaoBatenteOuFolha =
         normStep.includes('INJECAO E FINALIZACAO DE BATENTES') ||
         normStep.includes('INJECAO E FINALIZACAO BATENTES') ||
@@ -1097,9 +1127,42 @@ export function getRouteEvaluation(
         normStep.includes('INJETORA DE FOLHAS') ||
         (normStep.includes('INJEC') && (normStep.includes('BATENTE') || normStep.includes('FOLHA')));
 
-      // REGRA INDUSTRIAL: Permite apontamento concorrente/paralelo em Batentes e Folhas (Preparação + Injeção).
-      // Assim que a Preparação for iniciada, a Injeção já é liberada sem aguardar o término do lote.
-      if (ehInjecaoBatenteOuFolha && prevIsStartedOrConcluded) {
+      // REGRA DE FLUXO CONTÍNUO: Liberação parcial de peças de Gaxeta para a Montagem
+      if (ehGaxetaParaMontagem) {
+        let qtdGaxetaPronta = prevFinishedCount;
+        let qtdMontagemPronta = finalizadasCount;
+
+        if (opApts && typeof opApts === 'object') {
+          const montAptKey = Object.keys(opApts).find((k) => matchStepName(k, step));
+          if (montAptKey) {
+            const aptInfo = opApts[montAptKey];
+            const val = aptInfo?.qtdProduzida ?? aptInfo?.concluidas ?? (aptInfo?.status === 'CONCLUIDO' ? total : 0);
+            if (typeof val === 'number') qtdMontagemPronta = Math.max(qtdMontagemPronta, val);
+          }
+        }
+
+        // Quantidade que já passou pela gaxeta mas ainda não foi montada
+        const pecasDisponiveisParaMontar = Math.max(0, qtdGaxetaPronta - qtdMontagemPronta);
+
+        // Validação para o botão de incremento / início da Montagem
+        const podeMontarPeca = pecasDisponiveisParaMontar > 0;
+
+        const temSaldoParaIniciar = totalIniciadas < qtdGaxetaPronta;
+        if (podeMontarPeca && temSaldoParaIniciar && totalIniciadas < total) {
+          canStart = true;
+          blockingReason = undefined;
+        } else {
+          canStart = false;
+          if (qtdGaxetaPronta === 0) {
+            blockingReason = 'Aguardando término de pelo menos 1 peça na Instalação de Gaxeta';
+          } else if (totalIniciadas >= qtdGaxetaPronta) {
+            blockingReason = `Aguardando liberação de novas peças pela Gaxeta (${qtdMontagemPronta}/${qtdGaxetaPronta} montadas)`;
+          } else {
+            blockingReason = 'Sem saldo de peças disponíveis da Gaxeta para Montagem';
+          }
+        }
+      } else if (ehInjecaoBatenteOuFolha && prevIsStartedOrConcluded) {
+        // REGRA INDUSTRIAL: Permite apontamento concorrente/paralelo em Batentes e Folhas (Preparação + Injeção).
         canStart = true;
         blockingReason = undefined;
       } else if (isBatch) {

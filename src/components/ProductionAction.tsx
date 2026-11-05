@@ -623,6 +623,41 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     (normSelectedPosto.includes('INJEC') && (normSelectedPosto.includes('BATENTE') || normSelectedPosto.includes('FOLHA')));
 
   const prevStepName = stepEval.previousStepName;
+  const normPrevStep = (prevStepName || '')
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const ehGaxetaParaMontagem =
+    (normPrevStep.includes('GAXETA') || normPrevStep === 'INSTALACAO DE GAXETA') &&
+    normSelectedPosto.includes('MONTAGEM');
+
+  // REGRA DE FLUXO CONTÍNUO: Liberação parcial de peças de Gaxeta para a Montagem
+  const opApts = (order as any)?.apontamentos;
+  let qtdGaxetaPronta = stepEval.previousStepFinalizadas ?? 0;
+  if (opApts && typeof opApts === 'object') {
+    const gaxetaApt = opApts['Instalação de Gaxeta'] || opApts['Instalacao de Gaxeta'] || (prevStepName ? opApts[prevStepName] : undefined);
+    if (gaxetaApt) {
+      const val = gaxetaApt.qtdProduzida ?? gaxetaApt.concluidas ?? (gaxetaApt.status === 'CONCLUIDO' ? totalPhysicalUnits : 0);
+      if (typeof val === 'number') qtdGaxetaPronta = Math.max(qtdGaxetaPronta, val);
+    }
+  }
+
+  let qtdMontagemPronta = stepEval.finalizadas;
+  if (opApts && typeof opApts === 'object') {
+    const montApt = (selectedSector && opApts[selectedSector]) || (matchedStep && opApts[matchedStep]);
+    if (montApt) {
+      const val = montApt.qtdProduzida ?? montApt.concluidas ?? (montApt.status === 'CONCLUIDO' ? totalPhysicalUnits : 0);
+      if (typeof val === 'number') qtdMontagemPronta = Math.max(qtdMontagemPronta, val);
+    }
+  }
+
+  // Quantidade que já passou pela gaxeta mas ainda não foi montada
+  const pecasDisponiveisParaMontar = Math.max(0, qtdGaxetaPronta - qtdMontagemPronta);
+
+  // Validação para o botão de incremento da Montagem
+  const podeMontarPeca = pecasDisponiveisParaMontar > 0;
+
   const etapaAnteriorIniciadaOuConcluida = Boolean(
     prevStepName && (
       apontamentos.some(a =>
@@ -649,8 +684,20 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   let podeIniciar = stepEval.canStartNextUnit;
   let bloqueadoPorSetorAnterior = !podeIniciar;
 
-  // Libera apontamento concorrente/paralelo para Injeção se Preparação já tiver iniciado
-  if (ehInjecaoBatenteOuFolha && etapaAnteriorIniciadaOuConcluida && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+  // Regra de Fluxo Contínuo: Libera montagem assim que houver saldo de peças disponíveis da Gaxeta
+  const totalIniciadasMontagem = stepEval.finalizadas + stepEval.emAndamento;
+  const temSaldoParaIniciar = (qtdGaxetaPronta - totalIniciadasMontagem) > 0;
+
+  if (ehGaxetaParaMontagem) {
+    if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    } else {
+      podeIniciar = false;
+      bloqueadoPorSetorAnterior = true;
+    }
+  } else if (ehInjecaoBatenteOuFolha && etapaAnteriorIniciadaOuConcluida && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+    // Libera apontamento concorrente/paralelo para Injeção se Preparação já tiver iniciado
     podeIniciar = true;
     bloqueadoPorSetorAnterior = false;
   }
@@ -658,6 +705,10 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
+    : ehGaxetaParaMontagem && (!podeMontarPeca || !temSaldoParaIniciar)
+    ? (qtdGaxetaPronta === 0
+        ? 'Aguardando conclusão de pelo menos 1 peça na Instalação de Gaxeta'
+        : `Aguardando liberação de novas peças pela Gaxeta (${qtdMontagemPronta}/${qtdGaxetaPronta} montadas)`)
     : bloqueadoPorSetorAnterior
     ? stepEval.blockingReason || (prevStepName ? `Aguardando etapa anterior (${prevStepName})` : 'Bloqueado')
     : undefined;
@@ -670,9 +721,24 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
             PASSO 3: APONTAMENTO DO LOTE COMPLETO
           </span>
-          <span className="text-emerald-400 font-bold">
-            {totalPhysicalUnits} PEÇAS · {selectedSector}
-          </span>
+          <div className="flex items-center gap-2">
+            {ehGaxetaParaMontagem && (
+              <span
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                  pecasDisponiveisParaMontar > 0
+                    ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 animate-pulse'
+                    : 'bg-slate-900 text-slate-500 border-slate-800'
+                }`}
+              >
+                {pecasDisponiveisParaMontar > 0
+                  ? `⚡ ${pecasDisponiveisParaMontar} un liberada${pecasDisponiveisParaMontar > 1 ? 's' : ''} da Gaxeta`
+                  : '🔒 0 un da Gaxeta'}
+              </span>
+            )}
+            <span className="text-emerald-400 font-bold">
+              {totalPhysicalUnits} PEÇAS · {selectedSector}
+            </span>
+          </div>
         </div>
 
         {/* Toggle Universal de Envio ao Laser antes da Dobra */}
@@ -752,9 +818,24 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
         <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
           PASSO 3: APONTAMENTO DA UNIDADE
         </span>
-        <span className="text-blue-300 font-bold">
-          Unidade {nextUnitNumber} de {totalPhysicalUnits} ({selectedSector})
-        </span>
+        <div className="flex items-center gap-2">
+          {ehGaxetaParaMontagem && (
+            <span
+              className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                pecasDisponiveisParaMontar > 0
+                  ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 animate-pulse'
+                  : 'bg-slate-900 text-slate-500 border-slate-800'
+              }`}
+            >
+              {pecasDisponiveisParaMontar > 0
+                ? `⚡ ${pecasDisponiveisParaMontar} un liberada${pecasDisponiveisParaMontar > 1 ? 's' : ''} da Gaxeta`
+                : '🔒 0 un da Gaxeta'}
+            </span>
+          )}
+          <span className="text-blue-300 font-bold">
+            Unidade {nextUnitNumber} de {totalPhysicalUnits} ({selectedSector})
+          </span>
+        </div>
       </div>
 
       {/* Toggle Universal de Envio ao Laser antes da Dobra */}
@@ -795,7 +876,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           className="w-full py-2.5 px-4 bg-slate-800/80 border border-slate-700 text-slate-400 font-bold text-base rounded-xl cursor-not-allowed flex items-center justify-center gap-2 opacity-70"
         >
           <Lock className="w-5 h-5 text-slate-500" />
-          <span>{!routeValidation.valido ? routeValidation.motivo : `Aguardando término da Unidade ${nextUnitNumber} no setor anterior`}</span>
+          <span>{!routeValidation.valido ? routeValidation.motivo : blockingMessage || `Aguardando término da Unidade ${nextUnitNumber} no setor anterior`}</span>
         </button>
       ) : (
         <button
