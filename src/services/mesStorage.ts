@@ -478,6 +478,18 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       changed = true;
     }
 
+    // Migração e padronização da etapa de Montagem Porta Vai-Vem
+    const hasLegacyVaiVem = sectors.some((s) => s === 'Montagem Vai Vem' || s.trim().toUpperCase() === 'MONTAGEM VAI VEM');
+    if (hasLegacyVaiVem) {
+      sectors = sectors.map((s) => (s === 'Montagem Vai Vem' || s.trim().toUpperCase() === 'MONTAGEM VAI VEM') ? 'Montagem Porta Vai-Vem' : s);
+      changed = true;
+    }
+
+    if (t.id === 4 && !sectors.includes('Montagem Porta Vai-Vem')) {
+      sectors.unshift('Montagem Porta Vai-Vem');
+      changed = true;
+    }
+
     // Terminais 3, 4 e 5: Presença obrigatória de Corte e Montagem de Trilho
     if ([3, 4, 5].includes(t.id)) {
       RAIL_POSTS.forEach((post) => {

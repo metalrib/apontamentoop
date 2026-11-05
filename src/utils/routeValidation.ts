@@ -89,6 +89,39 @@ export function normalizeValidationText(text: string): string {
     .trim();
 }
 
+/**
+ * Validação tolerante / normalizada de correspondência de etapa na rota da OP
+ */
+export function etapaPertenceARota(etapaSelecionada: string, rota: string[]): boolean {
+  if (!etapaSelecionada || !Array.isArray(rota)) return false;
+
+  const normalizar = (str: string) => 
+    (str || '')
+       .toLowerCase()
+       .normalize('NFD')
+       .replace(/[\u0300-\u036f]/g, '')
+       .replace(/[-_]/g, ' ')
+       .replace(/\s+/g, ' ')
+       .trim();
+
+  const selecionadaNorm = normalizar(etapaSelecionada);
+  
+  return rota.some(etapa => {
+    const etapaNorm = normalizar(etapa);
+    // Casamento exato ou equivalente para Montagem Vai-Vem
+    if (selecionadaNorm === etapaNorm) return true;
+    if (
+      selecionadaNorm.includes('vai vem') &&
+      etapaNorm.includes('vai vem') && 
+      (selecionadaNorm.includes('montagem') || selecionadaNorm.includes('finalizacao')) && 
+      (etapaNorm.includes('montagem') || etapaNorm.includes('finalizacao'))
+    ) {
+      return true;
+    }
+    return false;
+  });
+}
+
 export function extractValidationCode(op: any): string {
   if (!op) return '';
   const rawCode = String(op.codigo || op.codigoProduto || op.code || '').trim();
@@ -599,9 +632,13 @@ export function validarPostoIndustrial(
 
   if (ehSuperCongOuEspecial) {
     const etapasPermitidas = obterEtapasDaRota(op);
-    const normPosto = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (etapaPertenceARota(postoSelecionado, etapasPermitidas)) {
+      return { valido: true };
+    }
+
+    const normPosto = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]/g, ' ');
     const isPostoValido = etapasPermitidas.some(step => {
-      const normStep = step.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+      const normStep = step.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]/g, ' ');
       if (normPosto === normStep) return true;
       if (normStep.includes('CORTE') && normPosto.includes('CORTE')) return true;
       if (normStep.includes('DOBRA') && normPosto.includes('DOBRA')) return true;
@@ -609,7 +646,12 @@ export function validarPostoIndustrial(
       if (normStep.includes('PREPARACAO') && normPosto.includes('PREPARACAO')) return true;
       if (normStep.includes('INJECAO') && normPosto.includes('INJECAO')) return true;
       if (normStep.includes('GAXETA') && normPosto.includes('GAXETA')) return true;
-      if (normStep.includes('MONTAGEM') && normPosto.includes('MONTAGEM')) return true;
+      if (normStep.includes('MONTAGEM') && normPosto.includes('MONTAGEM')) {
+        if (normStep.includes('VAI VEM') || normPosto.includes('VAI VEM')) {
+          return normStep.includes('VAI VEM') && normPosto.includes('VAI VEM');
+        }
+        return true;
+      }
       if (normStep.includes('OFFICE DOOR') && normPosto.includes('OFFICE DOOR')) return true;
       if (normStep.includes('VAI VEM') && normPosto.includes('VAI VEM')) return true;
       if (normStep.includes('ROUTER') && normPosto.includes('ROUTER')) return true;

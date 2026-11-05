@@ -22,7 +22,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Montagem de Trilho p/ Porta Correr'
   ],
   T4: [
-    'Montagem Vai Vem',
+    'Montagem Porta Vai-Vem',
     'Instalação de Gaxeta',
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem Portas Emendadas',
@@ -43,7 +43,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem Portas de Correr Padrão e Especial',
     'Montagem Portas Office Door',
-    'Montagem Vai Vem',
+    'Montagem Porta Vai-Vem',
     'Corte de Trilho p/ Porta Correr',
     'Montagem de Trilho p/ Porta Correr'
   ]

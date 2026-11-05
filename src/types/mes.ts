@@ -35,7 +35,7 @@ export const TERMINALS: TerminalConfig[] = [
   {
     id: 4,
     name: "Terminal 4",
-    label: "Portas Giratórias e Finalização Vai Vem",
+    label: "Portas Giratórias e Montagem Porta Vai-Vem",
     sectors: POSTOS_POR_TERMINAL.T4
   },
   {
@@ -165,7 +165,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT VAI VEM",
     label: "Porta Vai Vem",
-    steps: ["Corte", "Preparação Vai Vem", "Injeção", "Router", "Finalização Vai Vem"]
+    steps: ["Corte", "Preparação de Vai Vem", "Injeção de Folhas", "Router", "Montagem Porta Vai-Vem"]
   },
   {
     keyword: "TRILHO",
@@ -352,7 +352,7 @@ const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
   T1: ['Corte - Guilhotina', 'Dobra e Preparação', 'Laser'],
   T2: ['Preparação', 'Injetora de folhas'],
   T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Portas Emendadas'],
-  T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias', 'Finalização Vai Vem'],
+  T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias', 'Montagem Porta Vai-Vem'],
   T5: ['Montagem Estante', 'Elétrica', 'Router', 'Solda e Montagem', 'Preparação Vai Vem', 'Cortina']
 };
 

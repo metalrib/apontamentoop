@@ -34,8 +34,8 @@ export const colaboradores: ColaboradorRaw[] = [
   { id: 'deilson', nome: 'Deilson', terminais: ['T3', 'T4'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
 
   // TERMINAL 4
-  { id: 'joao_p', nome: 'João Paulo', terminais: ['T4'], setores: ['Montagem Vai Vem'], especialista: false },
-  { id: 'alessandra', nome: 'Alessandra', terminais: ['T4'], setores: ['Montagem Vai Vem'], especialista: false },
+  { id: 'joao_p', nome: 'João Paulo', terminais: ['T4'], setores: ['Montagem Porta Vai-Vem'], especialista: false },
+  { id: 'alessandra', nome: 'Alessandra', terminais: ['T4'], setores: ['Montagem Porta Vai-Vem'], especialista: false },
   { id: 'gustavo_n', nome: 'Gustavo Naves', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
   { id: 'fabiano', nome: 'Fabiano', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },
   { id: 'vinicius', nome: 'Vinicius', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: false },

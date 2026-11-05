@@ -24,6 +24,7 @@ import {
   getRotaKitGaxetaU,
   getRotaBatente,
   obterEtapasDaRota,
+  etapaPertenceARota,
   isEligibleForRouter,
   isEstanteCompleta,
   isQuadroEstante,
@@ -53,6 +54,7 @@ export {
   getRotaKitGaxetaU,
   getRotaBatente,
   obterEtapasDaRota,
+  etapaPertenceARota,
   isEligibleForRouter,
   isEstanteCompleta,
   isQuadroEstante,
@@ -612,8 +614,28 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return normSector.includes('CORRER') && !normSector.includes('EMENDADA');
   }
 
-  if (normStep === 'FINALIZACAO VAI VEM' || normStep.includes('FINALIZACAO VAI VEM') || normStep.includes('VAI VEM')) {
-    if (normSector.includes('VAI VEM') && !normSector.includes('PREPARACAO')) return true;
+  // Comparação normalizada e tolerante para Montagem / Finalização Vai-Vem
+  if (etapaPertenceARota(sector, [step])) {
+    return true;
+  }
+
+  const normStepClean = normStep.replace(/[-_]/g, ' ');
+  const normSectorClean = normSector.replace(/[-_]/g, ' ');
+  if (normStepClean.includes('VAI VEM')) {
+    if (normSectorClean.includes('VAI VEM')) {
+      if (
+        (normStepClean.includes('MONTAGEM') || normStepClean.includes('FINALIZACAO')) &&
+        (normSectorClean.includes('MONTAGEM') || normSectorClean.includes('FINALIZACAO'))
+      ) {
+        return true;
+      }
+      if (normStepClean.includes('PREPARACAO') && normSectorClean.includes('PREPARACAO')) {
+        return true;
+      }
+      if (!normSectorClean.includes('PREPARACAO') && !normStepClean.includes('PREPARACAO')) {
+        return true;
+      }
+    }
   }
 
   if (normStep.includes('SOLDA') && normSector.includes('SOLDA')) {
@@ -643,8 +665,15 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
  * Encontra a etapa da rota que corresponde ao setor selecionado no terminal
  */
 export function findStepForSector(sector: string, routeSteps: string[]): string | null {
+  if (!sector || !Array.isArray(routeSteps)) return null;
   for (const step of routeSteps) {
     if (doesSectorMatchStep(sector, step)) {
+      return step;
+    }
+  }
+  // Fallback tolerante para compatibilidade de rotas (incluindo variações de Vai-Vem)
+  for (const step of routeSteps) {
+    if (etapaPertenceARota(sector, [step])) {
       return step;
     }
   }
@@ -656,6 +685,7 @@ export function findStepForSector(sector: string, routeSteps: string[]): string 
  */
 export function matchStepName(stepA?: string, stepB?: string): boolean {
   if (!stepA || !stepB) return false;
+  if (etapaPertenceARota(stepA, [stepB])) return true;
   const normA = normalizeText(stepA);
   const normB = normalizeText(stepB);
   if (normA === normB) return true;
@@ -704,9 +734,11 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
   }
 
   // Vai-Vem
-  if (normA.includes('VAI VEM') && normB.includes('VAI VEM')) {
-    if (normA.includes('PREPARACAO') && normB.includes('PREPARACAO')) return true;
-    if ((normA.includes('MONTAGEM') || normA.includes('FINALIZACAO')) && (normB.includes('MONTAGEM') || normB.includes('FINALIZACAO'))) return true;
+  const normAClean = normA.replace(/[-_]/g, ' ');
+  const normBClean = normB.replace(/[-_]/g, ' ');
+  if (normAClean.includes('VAI VEM') && normBClean.includes('VAI VEM')) {
+    if (normAClean.includes('PREPARACAO') && normBClean.includes('PREPARACAO')) return true;
+    if ((normAClean.includes('MONTAGEM') || normAClean.includes('FINALIZACAO')) && (normBClean.includes('MONTAGEM') || normBClean.includes('FINALIZACAO'))) return true;
     return true;
   }
 

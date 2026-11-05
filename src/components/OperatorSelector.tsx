@@ -98,12 +98,28 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       const isEspecialista = Boolean(colab.especialista || colab.isRoaming || colab.especialistaVolante);
       if (isEspecialista) return true;
 
+      const matchSector = (s: string) => {
+        const sTrim = (s || '').trim();
+        const selTrim = (selectedSector || '').trim();
+        if (sTrim.toLowerCase() === selTrim.toLowerCase() || sTrim.toUpperCase() === 'TODOS') return true;
+        // Compatibilidade tolerante para Vai-Vem
+        const sNorm = sTrim.toLowerCase().replace(/[-_]/g, ' ');
+        const selNorm = selTrim.toLowerCase().replace(/[-_]/g, ' ');
+        if (
+          sNorm.includes('vai vem') &&
+          selNorm.includes('vai vem') &&
+          (sNorm.includes('montagem') || sNorm.includes('finalizacao')) &&
+          (selNorm.includes('montagem') || selNorm.includes('finalizacao'))
+        ) {
+          return true;
+        }
+        return false;
+      };
+
       // Validação isolada por terminal se setoresPorTerminal estiver cadastrado
       if (colab.setoresPorTerminal && Array.isArray(colab.setoresPorTerminal[termKey])) {
         const termSectors = colab.setoresPorTerminal[termKey];
-        return termSectors.some(
-          (s) => s.trim().toLowerCase() === selectedSector.trim().toLowerCase() || s.trim().toUpperCase() === 'TODOS'
-        );
+        return termSectors.some(matchSector);
       }
 
       const colabSetores = Array.isArray(colab.setores)
@@ -112,9 +128,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         ? colab.sectors
         : colab.setor ? [colab.setor] : [];
 
-      const hasSector = colabSetores.some(
-        (s) => s.trim().toLowerCase() === selectedSector.trim().toLowerCase() || s.trim().toUpperCase() === 'TODOS'
-      );
+      const hasSector = colabSetores.some(matchSector);
 
       return hasSector;
     });
