@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -761,6 +761,16 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     (stepEval?.previousStepFinalizadas ?? 0) > 0
   );
 
+  // REGRA DE FLUXO PARALELO: Dobra e Preparação de Folhas
+  const isDobra = normSelectedPosto.includes('DOBRA');
+  const dobraCheck = verificarDobraLiberada(order, apontamentos);
+
+  const isPrepFolhas = (normSelectedPosto.includes('PREPARACAO') && normSelectedPosto.includes('FOLHA')) ||
+    normSelectedPosto === 'PREPARACAO DE FOLHAS' ||
+    normSelectedPosto === 'PREPARACAO DE FOLHA' ||
+    (normSelectedPosto === 'PREPARACAO' && prevStepName && prevStepName.toUpperCase().includes('DOBRA'));
+  const prepCheck = verificarPreparacaoFolhasLiberada(order, apontamentos);
+
   if (ehGaxetaParaMontagem) {
     if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
       podeIniciar = true;
@@ -778,6 +788,24 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       podeIniciar = false;
       bloqueadoPorSetorAnterior = true;
     }
+  } else if (isDobra) {
+    // REGRA DE FLUXO PARALELO: Dobra liberada se Corte ou Laser estiver em andamento ou concluído
+    if (dobraCheck.dobraLiberada && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    } else if (!dobraCheck.dobraLiberada) {
+      podeIniciar = false;
+      bloqueadoPorSetorAnterior = true;
+    }
+  } else if (isPrepFolhas) {
+    // REGRA DE FLUXO PARALELO: Preparação de Folhas liberada se Dobra estiver em andamento ou concluída
+    if (prepCheck.preparacaoLiberada && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    } else if (!prepCheck.preparacaoLiberada) {
+      podeIniciar = false;
+      bloqueadoPorSetorAnterior = true;
+    }
   } else if (ehInjecaoBatenteOuFolha && etapaAnteriorIniciadaOuConcluida && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
     // Libera apontamento concorrente/paralelo para Injeção se Preparação já tiver iniciado
     podeIniciar = true;
@@ -787,6 +815,10 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
+    : isDobra && !dobraCheck.dobraLiberada
+    ? (dobraCheck.motivo || 'Aguardando início do Corte ou Laser')
+    : isPrepFolhas && !prepCheck.preparacaoLiberada
+    ? (prepCheck.motivo || 'Aguardando início da Dobra')
     : (isEtapaAnteriorRouter || isMontagemVaiVem) && !isRouterLiberada
     ? 'Aguardando início da etapa Router'
     : ehGaxetaParaMontagem && (!podeMontarPeca || !temSaldoParaIniciar)

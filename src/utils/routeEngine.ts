@@ -37,9 +37,12 @@ import {
   isTrilhoCorrer,
   isBatente,
   isEtapaConcluida,
+  isEtapaIniciadaOuConcluida,
   validarPostoIndustrial,
   validarPostoTrilho,
-  verificarRouterLiberada
+  verificarRouterLiberada,
+  verificarDobraLiberada,
+  verificarPreparacaoFolhasLiberada
 } from './routeValidation';
 
 export {
@@ -68,9 +71,12 @@ export {
   isTrilhoCorrer,
   isBatente,
   isEtapaConcluida,
+  isEtapaIniciadaOuConcluida,
   validarPostoIndustrial,
   validarPostoTrilho,
-  verificarRouterLiberada
+  verificarRouterLiberada,
+  verificarDobraLiberada,
+  verificarPreparacaoFolhasLiberada
 };
 
 /**
@@ -1232,6 +1238,31 @@ export function getRouteEvaluation(
         // REGRA INDUSTRIAL: Permite apontamento concorrente/paralelo em Batentes e Folhas (Preparação + Injeção).
         canStart = true;
         blockingReason = undefined;
+      } else if (normStep.includes('DOBRA')) {
+        // REGRA DE FLUXO PARALELO: Liberação antecipada da Dobra com Corte ou Laser em andamento ou concluído
+        const dobraCheck = verificarDobraLiberada(op, apontamentos);
+        if (dobraCheck.dobraLiberada) {
+          canStart = true;
+          blockingReason = undefined;
+        } else {
+          canStart = false;
+          blockingReason = dobraCheck.motivo || 'Aguardando início da etapa Corte ou Laser';
+        }
+      } else if (
+        (normStep.includes('PREPARACAO') && normStep.includes('FOLHA')) ||
+        normStep === 'PREPARACAO DE FOLHAS' ||
+        normStep === 'PREPARACAO DE FOLHA' ||
+        (normStep === 'PREPARACAO' && normPrevStep.includes('DOBRA'))
+      ) {
+        // REGRA DE FLUXO PARALELO: Liberação antecipada de Preparação de Folhas com Dobra em andamento ou concluída
+        const prepCheck = verificarPreparacaoFolhasLiberada(op, apontamentos);
+        if (prepCheck.preparacaoLiberada) {
+          canStart = true;
+          blockingReason = undefined;
+        } else {
+          canStart = false;
+          blockingReason = prepCheck.motivo || 'Aguardando início da etapa Dobra';
+        }
       } else if (isBatch) {
         if (prevFinishedCount === 0) {
           canStart = false;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
-import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada } from '../utils/routeEngine';
+import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada } from '../utils/routeEngine';
 import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 
@@ -161,6 +161,16 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     (stepEval?.previousStepFinalizadas ?? 0) > 0
   );
 
+  // Regra de Fluxo Paralelo: Dobra e Preparação de Folhas
+  const isDobra = (matchedStep?.toUpperCase() || '').includes('DOBRA') || (selectedSector?.toUpperCase() || '').includes('DOBRA');
+  const dobraCheck = verificarDobraLiberada(order, apontamentos);
+
+  const isPrepFolhas =
+    ((matchedStep?.toUpperCase() || '').includes('PREPARACAO') && (matchedStep?.toUpperCase() || '').includes('FOLHA')) ||
+    ((selectedSector?.toUpperCase() || '').includes('PREPARACAO') && (selectedSector?.toUpperCase() || '').includes('FOLHA')) ||
+    ((matchedStep?.toUpperCase() || '') === 'PREPARACAO' && prevStepName.toUpperCase().includes('DOBRA'));
+  const prepCheck = verificarPreparacaoFolhasLiberada(order, apontamentos);
+
   // Métricas agregadas
   const totalConcluidas = pieceCards.filter((p) => p.isFinished).length;
   const totalEmAndamento = pieceCards.filter((p) => p.isActive).length;
@@ -247,6 +257,22 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
               } else {
                 // Sem trava sequencial: todas as peças ficam disponíveis para operadores diferentes trabalharem em paralelo
                 isAvailableToStart = true;
+              }
+            } else if (isDobra) {
+              // REGRA DE FLUXO PARALELO: Dobra liberada se Corte ou Laser estiver em andamento ou concluído
+              if (dobraCheck.dobraLiberada) {
+                isAvailableToStart = true;
+              } else {
+                isAvailableToStart = false;
+                lockReason = dobraCheck.motivo || 'Aguardando início da etapa Corte ou Laser';
+              }
+            } else if (isPrepFolhas) {
+              // REGRA DE FLUXO PARALELO: Preparação de Folhas liberada se Dobra estiver em andamento ou concluída
+              if (prepCheck.preparacaoLiberada) {
+                isAvailableToStart = true;
+              } else {
+                isAvailableToStart = false;
+                lockReason = prepCheck.motivo || 'Aguardando início da etapa Dobra';
               }
             } else {
               // Postos convencionais unitários (como Preparação Vai Vem, Montagem Vai Vem, etc.)

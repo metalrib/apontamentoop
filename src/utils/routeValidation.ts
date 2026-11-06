@@ -372,6 +372,237 @@ export function verificarRouterLiberada(
 }
 
 /**
+ * Verifica se uma etapa já foi iniciada (em andamento) ou concluída na OP.
+ * Avalia op.apontamentos, op.progressoPostos, op.etapas, lista de apontamentos e op.etapaAtual.
+ */
+export function isEtapaIniciadaOuConcluida(op: any, etapaNome: string, apontamentos: any[] = []): boolean {
+  if (!op || !etapaNome) return false;
+  const normEtapa = normalizeValidationText(etapaNome);
+
+  // 1. op.apontamentos (objeto indexado por posto ou etapa)
+  const opApts = op.apontamentos;
+  if (opApts && typeof opApts === 'object') {
+    for (const key of Object.keys(opApts)) {
+      const normKey = normalizeValidationText(key);
+      if (normKey.includes(normEtapa) || normEtapa.includes(normKey)) {
+        const apt = opApts[key];
+        const statusRaw = String(apt?.status || '').toLowerCase().trim();
+        if (
+          statusRaw === 'em_andamento' ||
+          statusRaw === 'em andamento' ||
+          statusRaw === 'em_producao' ||
+          statusRaw === 'em producao' ||
+          statusRaw === 'concluido' ||
+          statusRaw === 'concluida' ||
+          statusRaw === 'finalizado' ||
+          statusRaw === 'finalizada' ||
+          (typeof apt?.qtdProduzida === 'number' && apt.qtdProduzida > 0) ||
+          (typeof apt?.concluidas === 'number' && apt.concluidas > 0) ||
+          Boolean(apt?.iniciado)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 2. op.progressoPostos
+  if (op.progressoPostos && typeof op.progressoPostos === 'object') {
+    for (const key of Object.keys(op.progressoPostos)) {
+      const normKey = normalizeValidationText(key);
+      if (normKey.includes(normEtapa) || normEtapa.includes(normKey)) {
+        const p = op.progressoPostos[key];
+        const progStatus = String(p?.status || '').toUpperCase().trim();
+        if (
+          p?.iniciado ||
+          p?.concluido ||
+          progStatus === 'EM_PRODUCAO' ||
+          progStatus === 'EM_ANDAMENTO' ||
+          progStatus === 'CONCLUIDO' ||
+          progStatus === 'FINALIZADO' ||
+          (typeof p?.concluidas === 'number' && p.concluidas > 0)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 3. op.etapas (Array)
+  if (Array.isArray(op.etapas)) {
+    const found = op.etapas.find((e: any) => {
+      const stepName = normalizeValidationText(typeof e === 'string' ? e : e.nome || e.step || '');
+      return stepName.includes(normEtapa) || normEtapa.includes(stepName);
+    });
+    if (found) {
+      const statusRaw = String(found.status || '').toLowerCase().trim();
+      if (
+        found.concluido ||
+        found.iniciado ||
+        statusRaw === 'em_producao' ||
+        statusRaw === 'em_andamento' ||
+        statusRaw === 'concluido' ||
+        statusRaw === 'concluida' ||
+        statusRaw === 'finalizado' ||
+        statusRaw === 'finalizada' ||
+        (typeof found.concluidas === 'number' && found.concluidas > 0)
+      ) {
+        return true;
+      }
+    }
+  }
+
+  // 4. op.etapas (Objeto)
+  if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+    for (const key of Object.keys(op.etapas)) {
+      const normKey = normalizeValidationText(key);
+      if (normKey.includes(normEtapa) || normEtapa.includes(normKey)) {
+        const etapaObj = op.etapas[key];
+        const statusRaw = String(etapaObj?.status || '').toLowerCase().trim();
+        if (
+          statusRaw === 'em_producao' ||
+          statusRaw === 'em_andamento' ||
+          statusRaw === 'concluido' ||
+          statusRaw === 'concluida' ||
+          statusRaw === 'finalizado' ||
+          statusRaw === 'finalizada' ||
+          etapaObj?.concluido ||
+          etapaObj?.iniciado ||
+          (typeof etapaObj?.concluidas === 'number' && etapaObj.concluidas > 0)
+        ) {
+          return true;
+        }
+      }
+    }
+  }
+
+  // 5. Apontamentos na coleção global (em andamento ou finalizados)
+  if (Array.isArray(apontamentos) && apontamentos.length > 0) {
+    const cleanOp = (op.op_numero || op.numero || op.id || '').trim().toUpperCase();
+    const cleanNorm = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+
+    const hasMatch = apontamentos.some((a: any) => {
+      const aOp = (a.op_numero || a.op || '').trim().toUpperCase();
+      const aNorm = aOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+      const matchOp = aOp === cleanOp || aNorm === cleanNorm;
+      if (!matchOp) return false;
+
+      const aptEtapa = normalizeValidationText(a.etapa_rota || a.etapaRota || a.setor || a.setorFisico || '');
+      const matchesEtapa = aptEtapa.includes(normEtapa) || normEtapa.includes(aptEtapa);
+      if (!matchesEtapa) return false;
+
+      const s = String(a.status || '').toUpperCase().trim();
+      return (
+        s === 'EM_ANDAMENTO' ||
+        s === 'EM_PRODUCAO' ||
+        s === 'FINALIZADO' ||
+        s === 'CONCLUIDO' ||
+        Boolean((a.hora_inicio || a.horaInicio) && !a.hora_fim && !a.horaFim)
+      );
+    });
+
+    if (hasMatch) return true;
+  }
+
+  // 6. op.etapaAtual
+  if (op.etapaAtual) {
+    const normAtual = normalizeValidationText(op.etapaAtual);
+    if (normAtual.includes(normEtapa) || normEtapa.includes(normAtual)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * REGRA DE FLUXO PARALELO: Liberação antecipada de Dobra.
+ * A Dobra NÃO deve exigir que o Corte ou o Laser estejam 100% concluídos.
+ * Se a etapa Corte OU a etapa Laser estiver com status 'em_andamento' ou 'concluido', a Dobra está liberada.
+ */
+export function verificarDobraLiberada(
+  op: any,
+  apontamentos: any[] = []
+): { dobraLiberada: boolean; motivo?: string } {
+  if (!op) return { dobraLiberada: true };
+
+  // Se Corte ou Laser iniciou ou concluiu, a Dobra está liberada
+  const corteIniciado = isEtapaIniciadaOuConcluida(op, 'Corte', apontamentos);
+  const laserIniciado = isEtapaIniciadaOuConcluida(op, 'Laser', apontamentos) ||
+    isEtapaIniciadaOuConcluida(op, 'Corte a Laser', apontamentos);
+
+  if (corteIniciado || laserIniciado) {
+    return { dobraLiberada: true };
+  }
+
+  // Verifica se a rota possui Corte ou Laser
+  const etapasPermitidas: string[] = [];
+  if (Array.isArray(op.rota)) etapasPermitidas.push(...op.rota);
+  if (typeof op.rota === 'string') {
+    etapasPermitidas.push(...op.rota.split(/[➔\->,;|]/).map((s: string) => s.trim()));
+  }
+  if (etapasPermitidas.length === 0) {
+    etapasPermitidas.push(...obterEtapasDaRota(op));
+  }
+
+  const etapasNorm = etapasPermitidas.map((e) => normalizeValidationText(e));
+  const temCorteNaRota = etapasNorm.some((e) => e.includes('CORTE'));
+  const temLaserNaRota = etapasNorm.some((e) => e.includes('LASER')) || Boolean(op.requer_laser);
+
+  // Se não possui Corte nem Laser como etapa predecessora, está liberada
+  if (!temCorteNaRota && !temLaserNaRota) {
+    return { dobraLiberada: true };
+  }
+
+  return {
+    dobraLiberada: false,
+    motivo: 'Aguardando início da etapa Corte ou Laser'
+  };
+}
+
+/**
+ * REGRA DE FLUXO PARALELO: Liberação antecipada de Preparação de Folhas.
+ * Elimina a dependência de lote fechado 100% concluído da Dobra.
+ * Assim que a Dobra (ou Corte/Laser) estiver em andamento ou concluída, a Preparação de Folhas está liberada.
+ */
+export function verificarPreparacaoFolhasLiberada(
+  op: any,
+  apontamentos: any[] = []
+): { preparacaoLiberada: boolean; motivo?: string } {
+  if (!op) return { preparacaoLiberada: true };
+
+  const dobraIniciada = isEtapaIniciadaOuConcluida(op, 'Dobra', apontamentos);
+  if (dobraIniciada) {
+    return { preparacaoLiberada: true };
+  }
+
+  const corteIniciado = isEtapaIniciadaOuConcluida(op, 'Corte', apontamentos);
+  const laserIniciado = isEtapaIniciadaOuConcluida(op, 'Laser', apontamentos) ||
+    isEtapaIniciadaOuConcluida(op, 'Corte a Laser', apontamentos);
+
+  const etapasPermitidas: string[] = [];
+  if (Array.isArray(op.rota)) etapasPermitidas.push(...op.rota);
+  if (typeof op.rota === 'string') {
+    etapasPermitidas.push(...op.rota.split(/[➔\->,;|]/).map((s: string) => s.trim()));
+  }
+  if (etapasPermitidas.length === 0) {
+    etapasPermitidas.push(...obterEtapasDaRota(op));
+  }
+
+  const etapasNorm = etapasPermitidas.map((e) => normalizeValidationText(e));
+  const temDobraNaRota = etapasNorm.some((e) => e.includes('DOBRA'));
+
+  if (!temDobraNaRota && (corteIniciado || laserIniciado)) {
+    return { preparacaoLiberada: true };
+  }
+
+  return {
+    preparacaoLiberada: false,
+    motivo: 'Aguardando início da etapa Dobra'
+  };
+}
+
+/**
  * Gerador Dinâmico Oficial de Etapas da Rota por Produto
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
@@ -729,6 +960,74 @@ export function validarPostoIndustrial(
 ): { valido: boolean; motivo?: string } {
   if (!postoSelecionado) return { valido: true };
 
+  const normPostoUpper = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]/g, ' ');
+
+  // REGRA DE FLUXO PARALELO: Liberação antecipada de Dobra
+  const isDobra = normPostoUpper.includes('DOBRA');
+  if (isDobra) {
+    const etapasPermitidas: string[] = [];
+    if (Array.isArray(op?.rota)) etapasPermitidas.push(...op.rota);
+    if (typeof op?.rota === 'string') {
+      etapasPermitidas.push(...op.rota.split(/[➔\->,;|]/).map((s: string) => s.trim()));
+    }
+    if (etapasPermitidas.length === 0) {
+      etapasPermitidas.push(...obterEtapasDaRota(op));
+    }
+
+    const pertence = etapaPertenceARota(postoSelecionado, etapasPermitidas) ||
+      etapasPermitidas.some(e => normalizeValidationText(e).includes('DOBRA'));
+
+    if (!pertence) {
+      return {
+        valido: false,
+        motivo: `O setor ${postoSelecionado} não consta na rota de produção desta peça (${etapasPermitidas.join(' ➔ ')}).`
+      };
+    }
+
+    const dobraCheck = verificarDobraLiberada(op, apontamentos);
+    if (!dobraCheck.dobraLiberada) {
+      return {
+        valido: false,
+        motivo: dobraCheck.motivo || 'Aguardando início da etapa Corte ou Laser'
+      };
+    }
+    return { valido: true };
+  }
+
+  // REGRA DE FLUXO PARALELO: Liberação antecipada de Preparação de Folhas
+  const isPrepFolhas = (normPostoUpper.includes('PREPARACAO') && normPostoUpper.includes('FOLHA')) ||
+    normPostoUpper === 'PREPARACAO DE FOLHAS' ||
+    normPostoUpper === 'PREPARACAO DE FOLHA';
+  if (isPrepFolhas) {
+    const etapasPermitidas: string[] = [];
+    if (Array.isArray(op?.rota)) etapasPermitidas.push(...op.rota);
+    if (typeof op?.rota === 'string') {
+      etapasPermitidas.push(...op.rota.split(/[➔\->,;|]/).map((s: string) => s.trim()));
+    }
+    if (etapasPermitidas.length === 0) {
+      etapasPermitidas.push(...obterEtapasDaRota(op));
+    }
+
+    const pertence = etapaPertenceARota(postoSelecionado, etapasPermitidas) ||
+      etapasPermitidas.some(e => normalizeValidationText(e).includes('PREPARACAO'));
+
+    if (!pertence) {
+      return {
+        valido: false,
+        motivo: `O setor ${postoSelecionado} não consta na rota de produção desta peça (${etapasPermitidas.join(' ➔ ')}).`
+      };
+    }
+
+    const prepCheck = verificarPreparacaoFolhasLiberada(op, apontamentos);
+    if (!prepCheck.preparacaoLiberada) {
+      return {
+        valido: false,
+        motivo: prepCheck.motivo || 'Aguardando início da etapa Dobra'
+      };
+    }
+    return { valido: true };
+  }
+
   // 0. LINHA SUPER CONGELADA E PORTAS ESPECIAIS (FABRICAÇÃO COMPLETA)
   const codNorm = String(op?.codigoProduto || op?.cod || op?.codigo || '').trim();
   const descNorm = String(op?.descricao || op?.produto || '').toUpperCase();
@@ -833,8 +1132,8 @@ export function validarPostoIndustrial(
     if ((postoSelecionado === 'Solda' || postoSelecionado === 'Montagem Estante') && terminalId && terminalId !== 5) {
       return { valido: false, motivo: `A etapa ${postoSelecionado} do Quadro Estante deve ser realizada no Terminal 5.` };
     }
-    if (postoSelecionado === 'Dobra' && !isEtapaConcluida(op, 'Laser', apontamentos)) {
-      return { valido: false, motivo: 'A Dobra do Quadro Estante só pode ser iniciada após a conclusão do Laser (T1).' };
+    if (postoSelecionado === 'Dobra' && !isEtapaIniciadaOuConcluida(op, 'Laser', apontamentos) && !isEtapaIniciadaOuConcluida(op, 'Corte', apontamentos)) {
+      return { valido: false, motivo: 'A Dobra do Quadro Estante só pode ser iniciada após o início do Laser ou Corte (T1).' };
     }
     if (postoSelecionado === 'Solda' && !isEtapaConcluida(op, 'Dobra', apontamentos)) {
       return { valido: false, motivo: 'A Solda do Quadro Estante só pode ser iniciada após a conclusão da Dobra (T1).' };
@@ -928,8 +1227,8 @@ export function validarPostoIndustrial(
     if (terminalId && terminalId !== 1) {
       return { valido: false, motivo: 'Perfil PP deve ser processado exclusivamente no Terminal 1.' };
     }
-    if (postoSelecionado === 'Dobra' && !isEtapaConcluida(op, 'Corte', apontamentos)) {
-      return { valido: false, motivo: 'A Dobra do Perfil PP só pode ser iniciada após a conclusão do Corte (T1).' };
+    if (postoSelecionado === 'Dobra' && !isEtapaIniciadaOuConcluida(op, 'Corte', apontamentos) && !isEtapaIniciadaOuConcluida(op, 'Laser', apontamentos)) {
+      return { valido: false, motivo: 'A Dobra do Perfil PP só pode ser iniciada após o início do Corte (T1).' };
     }
     return { valido: true };
   }
