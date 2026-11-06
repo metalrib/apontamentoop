@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Operator, TerminalConfig, TERMINALS } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
-import { db, ref, update, onValue, set } from '../services/firebase';
+import { db, firestore, ref, update, onValue, set } from '../services/firebase';
+import { doc, updateDoc, arrayRemove } from 'firebase/firestore';
 import {
   fetchOperators,
   saveOperators,
@@ -10,6 +11,7 @@ import {
   updateColaboradorFirebase,
   fetchTerminalsConfig,
   addSectorToTerminal,
+  removeSectorFromTerminal,
   renameSectorGlobally,
   deleteSectorGlobally,
   resetTerminalsConfigToDefault,
@@ -66,6 +68,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   // Estado dos Operadores e Terminais
   const [operators, setOperators] = useState<Operator[]>([]);
   const [terminals, setTerminals] = useState<TerminalConfig[]>([]);
+  const setTerminais = setTerminals;
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [filterTerminal, setFilterTerminal] = useState<string>('all');
   const [filterSector, setFilterSector] = useState<string>('all');
@@ -121,7 +124,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   const [newSectorTerminalId, setNewSectorTerminalId] = useState<number>(1);
   const [sectorError, setSectorError] = useState<string | null>(null);
   const [renamingSector, setRenamingSector] = useState<{ oldName: string; newName: string } | null>(null);
-  const [sectorToDelete, setSectorToDelete] = useState<string | null>(null);
+  const [sectorToDelete, setSectorToDelete] = useState<{ terminalId: number | string; sectorName: string } | null>(null);
   const [showResetSectorsModal, setShowResetSectorsModal] = useState<boolean>(false);
 
   // Modais de Confirmação In-App (100% livres de window.confirm)
@@ -225,6 +228,37 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         }
       });
 
+      // Sincronização reativa direta de configuracoes_terminais (Firebase RTDB)
+      const cfgTermRef = ref(db, 'configuracoes_terminais');
+      const unsubFbCfgTerm = onValue(cfgTermRef, (snapshot) => {
+        try {
+          if (snapshot.exists()) {
+            const val = snapshot.val();
+            if (val && typeof val === 'object') {
+              setTerminals((prev) => {
+                const base = prev.length > 0 ? prev : fetchTerminalsConfig();
+                return base.map((t) => {
+                  const termData = val[t.id] || val[String(t.id)];
+                  if (termData) {
+                    const secs = Array.isArray(termData.setores)
+                      ? termData.setores
+                      : Array.isArray(termData.sectors)
+                      ? termData.sectors
+                      : null;
+                    if (secs) {
+                      return { ...t, sectors: [...secs] };
+                    }
+                  }
+                  return t;
+                });
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[TeamManagementModal] Erro ao sincronizar configuracoes_terminais Firebase:', err);
+        }
+      });
+
       const handleDataUpdate = () => {
         loadData();
       };
@@ -240,6 +274,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         unsubFb();
         unsubFbTerm();
         unsubFbSetores();
+        unsubFbCfgTerm();
         window.removeEventListener('metalrib_sectors_updated', handleDataUpdate);
         window.removeEventListener('metalrib_data_updated', handleDataUpdate);
         window.removeEventListener('metalrib_operators_updated', handleDataUpdate);
@@ -650,14 +685,53 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     if (onOperatorsUpdated) onOperatorsUpdated();
   };
 
+  // Exclusão de Setor por Terminal (Persistência no Firebase Firestore / RTDB e atualização imediata do estado)
+  async function excluirSetorDoTerminal(terminalId: string, setorNome: string) {
+    try {
+      const termIdNum = parseInt(terminalId.replace(/\D/g, ''), 10) || terminalId;
+
+      // Atualiza o estado da interface imediatamente
+      setTerminais((prev) =>
+        prev.map((term) =>
+          term.id === termIdNum || String(term.id) === terminalId
+            ? {
+                ...term,
+                sectors: (term.sectors || []).filter((s) => s !== setorNome && s.trim().toLowerCase() !== setorNome.trim().toLowerCase()),
+                setores: ((term as any).setores || term.sectors || []).filter((s: string) => s !== setorNome && s.trim().toLowerCase() !== setorNome.trim().toLowerCase())
+              }
+            : term
+        )
+      );
+
+      // Persiste via mesStorage (Firebase RTDB, localStorage e eventos)
+      await removeSectorFromTerminal(terminalId, setorNome);
+
+      // Atualiza no Firebase Firestore se disponível
+      try {
+        const terminalRef = doc(firestore, 'configuracoes_terminais', terminalId);
+        await updateDoc(terminalRef, {
+          setores: arrayRemove(setorNome),
+          sectors: arrayRemove(setorNome),
+          atualizadoEm: new Date().toISOString()
+        });
+      } catch (fsError) {
+        console.warn('[Firestore] updateDoc em configuracoes_terminais (RTDB garantiu persistência):', fsError);
+      }
+    } catch (error) {
+      console.error('Erro ao excluir setor do terminal:', error);
+      alert('Erro ao excluir setor. Verifique a conexão com o banco.');
+    }
+  }
+
   // Excluir Setor (Aba 2)
-  const handleConfirmDeleteSector = () => {
+  const handleConfirmDeleteSector = async () => {
     if (!sectorToDelete) return;
+    const { terminalId, sectorName } = sectorToDelete;
     playClick();
-    deleteSectorGlobally(sectorToDelete);
-    loadData();
-    showNotification(`Setor "${sectorToDelete}" removido da fábrica e dos colaboradores.`);
     setSectorToDelete(null);
+    await excluirSetorDoTerminal(String(terminalId), sectorName);
+    loadData();
+    showNotification(`Setor "${sectorName}" removido do Terminal ${terminalId} com sucesso!`);
     if (onOperatorsUpdated) onOperatorsUpdated();
   };
 
@@ -1642,10 +1716,10 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                                     type="button"
                                     onClick={() => {
                                       playClick();
-                                      setSectorToDelete(sec);
+                                      setSectorToDelete({ terminalId: term.id, sectorName: sec });
                                     }}
                                     className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/40 text-xs transition cursor-pointer"
-                                    title={`Excluir setor "${sec}"`}
+                                    title={`Excluir setor "${sec}" do Terminal ${term.id}`}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1732,16 +1806,16 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                 <Trash2 className="w-7 h-7" />
               </div>
 
-              <h3 className="text-lg font-bold text-white">Excluir Setor da Fábrica?</h3>
+              <h3 className="text-lg font-bold text-white">Excluir Setor do Terminal {sectorToDelete.terminalId}?</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
                 Deseja realmente remover o setor{' '}
                 <strong className="text-rose-400 font-bold font-mono">
-                  "{sectorToDelete}"
+                  "{sectorToDelete.sectorName}"
                 </strong>{' '}
-                da fábrica?
+                do Terminal {sectorToDelete.terminalId}?
                 <br />
                 <span className="text-slate-400 mt-1 block">
-                  Ele deixará de aparecer nos terminais dos totens e será desvinculado dos colaboradores.
+                  Ele deixará de aparecer para apontamento no Totem do Terminal {sectorToDelete.terminalId}.
                 </span>
               </p>
 

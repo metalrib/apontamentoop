@@ -1,7 +1,7 @@
 import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
 import { deducePhysicalUnitsFromM2 } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
-import { db, ref, set, get, onValue, update, push } from './firebase';
+import { db, firestore, doc, updateDoc, arrayRemove, ref, set, get, onValue, update, push } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
 
@@ -466,7 +466,6 @@ export function resetOperatorsToDefault(): Operator[] {
  */
 export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminals: TerminalConfig[]; changed: boolean } {
   let changed = false;
-  const RAIL_POSTS = ['Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr'];
 
   const updated = terminals.map((t) => {
     let sectors = Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []));
@@ -485,33 +484,7 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       changed = true;
     }
 
-    if (t.id === 4 && !sectors.includes('Montagem Porta Vai-Vem')) {
-      sectors.unshift('Montagem Porta Vai-Vem');
-      changed = true;
-    }
-
-    // Terminais 3, 4 e 5: Presença obrigatória de Corte e Montagem de Trilho
-    if ([3, 4, 5].includes(t.id)) {
-      RAIL_POSTS.forEach((post) => {
-        if (!sectors.includes(post)) {
-          sectors.push(post);
-          changed = true;
-        }
-      });
-    }
-
-    // Terminal 5: Presença de Corte, Montagem Estante e Montagem Abrigo Doca para serralheria e rotas especiais
-    if (t.id === 5) {
-      const T5_SPECIAL_POSTS = ['Corte', 'Montagem Estante', 'Montagem Abrigo Doca'];
-      T5_SPECIAL_POSTS.forEach((post) => {
-        if (!sectors.includes(post)) {
-          sectors.push(post);
-          changed = true;
-        }
-      });
-    }
-
-    return { ...t, sectors };
+    return { ...t, sectors, setores: [...sectors] };
   });
 
   return { terminals: updated, changed };
@@ -557,10 +530,14 @@ export function fetchTerminalsConfig(): TerminalConfig[] {
 export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
   if (typeof window === 'undefined') return;
   const { terminals: sanitized } = sanitizeTerminalSectors(terminals);
-  const cleaned = sanitized.map((t) => ({
-    ...t,
-    sectors: Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []))
-  }));
+  const cleaned = sanitized.map((t) => {
+    const secs = Array.from(new Set(t.sectors ? t.sectors.map((s) => s.trim()).filter(Boolean) : []));
+    return {
+      ...t,
+      sectors: secs,
+      setores: secs
+    };
+  });
   localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(cleaned));
   const setoresMap = buildSetoresMap(cleaned);
   localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
@@ -568,6 +545,16 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
   try {
     set(ref(db, 'config_terminais'), cleaned);
     set(ref(db, 'config_setores'), setoresMap);
+    cleaned.forEach((term) => {
+      set(ref(db, `configuracoes_terminais/${term.id}`), {
+        id: String(term.id),
+        nome: term.name,
+        label: term.label,
+        setores: term.sectors,
+        sectors: term.sectors,
+        atualizadoEm: new Date().toISOString()
+      });
+    });
   } catch (err) {
     console.error('[mesStorage] Erro ao sincronizar terminais/setores no Firebase:', err);
   }
@@ -588,19 +575,67 @@ export function fetchAllSectors(): string[] {
   return Array.from(set);
 }
 
-export function addSectorToTerminal(terminalId: number, sectorName: string): boolean {
+export function addSectorToTerminal(terminalId: number | string, sectorName: string): boolean {
   const clean = sectorName.trim();
   if (!clean) return false;
+  const termIdNum = typeof terminalId === 'string' ? parseInt(terminalId.replace(/\D/g, ''), 10) : terminalId;
+  const termIdStr = String(termIdNum || terminalId);
   const terminals = fetchTerminalsConfig();
-  const term = terminals.find((t) => t.id === terminalId);
+  const term = terminals.find((t) => t.id === termIdNum || String(t.id) === termIdStr);
   if (!term) return false;
   if (!term.sectors) term.sectors = [];
   if (!term.sectors.some((s) => s.toLowerCase() === clean.toLowerCase())) {
     term.sectors.push(clean);
+    (term as any).setores = [...term.sectors];
     saveTerminalsConfig(terminals);
     return true;
   }
   return false;
+}
+
+export async function removeSectorFromTerminal(terminalId: number | string, sectorName: string): Promise<boolean> {
+  const clean = sectorName.trim();
+  if (!clean) return false;
+  const termIdNum = typeof terminalId === 'string' ? parseInt(terminalId.replace(/\D/g, ''), 10) : terminalId;
+  const termIdStr = String(termIdNum || terminalId);
+
+  const terminals = fetchTerminalsConfig();
+  const term = terminals.find((t) => t.id === termIdNum || String(t.id) === termIdStr);
+  if (!term) return false;
+
+  term.sectors = (term.sectors || []).filter((s) => s.trim().toLowerCase() !== clean.toLowerCase());
+  (term as any).setores = [...term.sectors];
+
+  // 1. Salva nos armazenamentos locais e no Firebase RTDB (config_terminais, config_setores, configuracoes_terminais)
+  saveTerminalsConfig(terminals);
+
+  // 2. Garante persistência explícita e atômica no RTDB
+  try {
+    await set(ref(db, `configuracoes_terminais/${termIdStr}`), {
+      id: termIdStr,
+      nome: term.name,
+      label: term.label,
+      setores: term.sectors,
+      sectors: term.sectors,
+      atualizadoEm: new Date().toISOString()
+    });
+  } catch (rtdbErr) {
+    console.warn('[mesStorage] Erro ao sincronizar configuracoes_terminais no RTDB:', rtdbErr);
+  }
+
+  // 3. Atualiza no Firebase Firestore se disponível
+  try {
+    const terminalRef = doc(firestore, 'configuracoes_terminais', termIdStr);
+    await updateDoc(terminalRef, {
+      setores: arrayRemove(clean),
+      sectors: arrayRemove(clean),
+      atualizadoEm: new Date().toISOString()
+    });
+  } catch (fsErr) {
+    console.warn('[mesStorage] Firestore updateDoc em configuracoes_terminais (RTDB garantiu persistência):', fsErr);
+  }
+
+  return true;
 }
 
 export function renameSectorGlobally(oldName: string, newName: string): void {
@@ -953,6 +988,42 @@ export function initFirebaseRealtimeListeners(): void {
         }
       } catch (err) {
         console.error('[Firebase] Erro no listener de config_setores:', err);
+      }
+    });
+
+    const cfgTermRef = ref(db, 'configuracoes_terminais');
+    onValue(cfgTermRef, (snapshot) => {
+      try {
+        const val = snapshot.val();
+        if (val && typeof val === 'object') {
+          const currentTerms = fetchTerminalsConfig();
+          let changed = false;
+          const updated = currentTerms.map((t) => {
+            const termData = val[t.id] || val[String(t.id)];
+            if (termData) {
+              const secs = Array.isArray(termData.setores)
+                ? termData.setores
+                : Array.isArray(termData.sectors)
+                ? termData.sectors
+                : null;
+              if (secs && JSON.stringify(t.sectors) !== JSON.stringify(secs)) {
+                changed = true;
+                return { ...t, sectors: [...secs], setores: [...secs] };
+              }
+            }
+            return t;
+          });
+          if (changed) {
+            const { terminals: sanitized } = sanitizeTerminalSectors(updated);
+            localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+            const newSetoresMap = buildSetoresMap(sanitized);
+            localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(newSetoresMap));
+            broadcastUpdate();
+            window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
+          }
+        }
+      } catch (err) {
+        console.error('[Firebase] Erro no listener de configuracoes_terminais:', err);
       }
     });
   } catch (err) {

@@ -1,5 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, update, push } from "firebase/database";
+import { getFirestore, doc, updateDoc, arrayRemove, setDoc, getDoc, onSnapshot } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCF7Q6J8I6fBZ3kaGbxq4rlefVzFaQrUnA",
@@ -13,5 +14,8 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getDatabase(app);
+export const rtdb = db;
+export const firestore = getFirestore(app);
 export { ref, set, get, onValue, update, push };
+export { doc, updateDoc, arrayRemove, setDoc, getDoc, onSnapshot };
 export default db;
