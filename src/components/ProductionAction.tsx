@@ -716,10 +716,50 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const temSaldoParaIniciar = (qtdGaxetaPronta - totalIniciadasMontagem) > 0;
 
   // Regra de Paralelismo: Montagem de Vai-Vem com Router
-  const isMontagemVaiVem =
+  const isEtapaAnteriorRouter = Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
+  const isMontagemVaiVem = Boolean(
     normSelectedPosto.includes('VAI VEM') &&
-    (normSelectedPosto.includes('MONTAGEM') || normSelectedPosto.includes('FINALIZACAO'));
+    (normSelectedPosto.includes('MONTAGEM') || normSelectedPosto.includes('FINALIZACAO')) ||
+    (order.descricao || '').toUpperCase().includes('VAI VEM') ||
+    String(order.codigo || order.codigoProduto || '').startsWith('011.')
+  );
   const routerCheck = verificarRouterLiberada(order, apontamentos);
+
+  let statusRouterApts = '';
+  if (opApts && typeof opApts === 'object') {
+    const routerKey = Object.keys(opApts).find((k) => k.toLowerCase().includes('router'));
+    if (routerKey) {
+      statusRouterApts = String(opApts[routerKey]?.status || '').toLowerCase().trim();
+    }
+  }
+
+  const hasActiveOrFinishedRouterApt = Array.isArray(apontamentos) && apontamentos.some((a) => {
+    const matchOp = a.op_numero === order.op_numero || a.op === order.op_numero;
+    if (!matchOp) return false;
+    const sec = (a.setorFisico || a.setor || '').toLowerCase();
+    const stp = (a.etapa_rota || a.etapaRota || '').toLowerCase();
+    const isR = sec.includes('router') || stp.includes('router');
+    if (!isR) return false;
+    const s = String(a.status || '').toUpperCase().trim();
+    return (
+      s === 'EM_ANDAMENTO' ||
+      s === 'EM_PRODUCAO' ||
+      s === 'FINALIZADO' ||
+      s === 'CONCLUIDO' ||
+      Boolean((a.hora_inicio || a.horaInicio) && !a.hora_fim && !a.horaFim)
+    );
+  });
+
+  const isRouterLiberada = Boolean(
+    statusRouterApts === 'em_andamento' ||
+    statusRouterApts === 'em andamento' ||
+    statusRouterApts === 'em_producao' ||
+    statusRouterApts === 'concluido' ||
+    statusRouterApts === 'finalizado' ||
+    hasActiveOrFinishedRouterApt ||
+    routerCheck.routerLiberada ||
+    (stepEval?.previousStepFinalizadas ?? 0) > 0
+  );
 
   if (ehGaxetaParaMontagem) {
     if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
@@ -729,12 +769,12 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       podeIniciar = false;
       bloqueadoPorSetorAnterior = true;
     }
-  } else if (isMontagemVaiVem && routerCheck.requerRouter) {
-    // REGRA DE PARALELISMO: Libera montagem assim que Router estiver em andamento ou concluída
-    if (routerCheck.routerLiberada && stepEval.finalizadas < totalPhysicalUnits) {
+  } else if (isEtapaAnteriorRouter || isMontagemVaiVem) {
+    // REGRA DE PARALELISMO: Router libera montagem se estiver 'em_andamento' OU 'concluido'
+    if (isRouterLiberada && stepEval.finalizadas < totalPhysicalUnits) {
       podeIniciar = true;
       bloqueadoPorSetorAnterior = false;
-    } else if (!routerCheck.routerLiberada) {
+    } else if (!isRouterLiberada) {
       podeIniciar = false;
       bloqueadoPorSetorAnterior = true;
     }
@@ -747,7 +787,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
-    : isMontagemVaiVem && routerCheck.requerRouter && !routerCheck.routerLiberada
+    : (isEtapaAnteriorRouter || isMontagemVaiVem) && !isRouterLiberada
     ? 'Aguardando início da etapa Router'
     : ehGaxetaParaMontagem && (!podeMontarPeca || !temSaldoParaIniciar)
     ? (qtdGaxetaPronta === 0

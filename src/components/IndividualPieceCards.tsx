@@ -100,12 +100,69 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
   const nextPendingUnit = pieceCards.find((p) => !p.isFinished && !p.isActive)?.unitNum || (totalPhysicalUnits + 1);
 
   // Regra de Paralelismo: Montagem de Vai-Vem com Router
-  const isMontagemVaiVem =
+  const prevStepName = stepEval.previousStepName || '';
+  const isEtapaAnteriorRouter = Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
+
+  const isMontagemVaiVem = Boolean(
     (matchedStep?.toUpperCase() || '').includes('VAI VEM') &&
     ((matchedStep?.toUpperCase() || '').includes('MONTAGEM') || (matchedStep?.toUpperCase() || '').includes('FINALIZACAO')) ||
     (selectedSector?.toUpperCase() || '').includes('VAI VEM') &&
-    ((selectedSector?.toUpperCase() || '').includes('MONTAGEM') || (selectedSector?.toUpperCase() || '').includes('FINALIZACAO'));
+    ((selectedSector?.toUpperCase() || '').includes('MONTAGEM') || (selectedSector?.toUpperCase() || '').includes('FINALIZACAO')) ||
+    (order.descricao || '').toUpperCase().includes('VAI VEM') ||
+    String(order.codigo || order.codigoProduto || '').startsWith('011.')
+  );
+
   const routerCheck = verificarRouterLiberada(order, apontamentos);
+
+  // Status da etapa anterior (Router ou equivalente)
+  const opApts = (order as any)?.apontamentos;
+  let statusRouterApts = '';
+  if (opApts && typeof opApts === 'object') {
+    const routerKey = Object.keys(opApts).find((k) => k.toLowerCase().includes('router'));
+    if (routerKey) {
+      statusRouterApts = String(opApts[routerKey]?.status || '').toLowerCase().trim();
+    }
+  }
+
+  const hasActiveOrFinishedRouterApt = Array.isArray(apontamentos) && apontamentos.some((a) => {
+    const matchOp = a.op_numero === order.op_numero || a.op === order.op_numero;
+    if (!matchOp) return false;
+    const sec = (a.setorFisico || a.setor || '').toLowerCase();
+    const stp = (a.etapa_rota || a.etapaRota || '').toLowerCase();
+    const isR = sec.includes('router') || stp.includes('router');
+    if (!isR) return false;
+    const s = String(a.status || '').toUpperCase().trim();
+    return (
+      s === 'EM_ANDAMENTO' ||
+      s === 'EM_PRODUCAO' ||
+      s === 'FINALIZADO' ||
+      s === 'CONCLUIDO' ||
+      Boolean((a.hora_inicio || a.horaInicio) && !a.hora_fim && !a.horaFim)
+    );
+  });
+
+  const etapaRouterStatus = String(
+    (order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas) && (order.etapas as any)['Router']?.status) || ''
+  ).toLowerCase().trim();
+
+  // A Router libera se estiver 'em_andamento' OU 'concluido'
+  const isRouterLiberada = Boolean(
+    statusRouterApts === 'em_andamento' ||
+    statusRouterApts === 'em andamento' ||
+    statusRouterApts === 'em_producao' ||
+    statusRouterApts === 'em producao' ||
+    statusRouterApts === 'concluido' ||
+    statusRouterApts === 'concluida' ||
+    statusRouterApts === 'finalizado' ||
+    statusRouterApts === 'finalizada' ||
+    etapaRouterStatus === 'em_andamento' ||
+    etapaRouterStatus === 'em_producao' ||
+    etapaRouterStatus === 'concluido' ||
+    etapaRouterStatus === 'finalizado' ||
+    hasActiveOrFinishedRouterApt ||
+    routerCheck.routerLiberada ||
+    (stepEval?.previousStepFinalizadas ?? 0) > 0
+  );
 
   // Métricas agregadas
   const totalConcluidas = pieceCards.filter((p) => p.isFinished).length;
@@ -187,9 +244,9 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                 isAvailableToStart = false;
                 lockReason = `Aguardando Peça #${nextPendingUnit}`;
               }
-            } else if (isMontagemVaiVem && routerCheck.requerRouter) {
-              // REGRA DE PARALELISMO: Libera montagem de Vai-Vem assim que Router estiver em andamento ou concluída
-              if (!routerCheck.routerLiberada) {
+            } else if (isEtapaAnteriorRouter || isMontagemVaiVem) {
+              // REGRA DE PARALELISMO: Router libera a montagem se estiver 'em_andamento' OU 'concluido'
+              if (!isRouterLiberada) {
                 isAvailableToStart = false;
                 lockReason = 'Aguardando início da etapa Router';
               } else if (unitNum === nextPendingUnit) {
