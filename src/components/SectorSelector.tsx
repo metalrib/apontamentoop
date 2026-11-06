@@ -1,7 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { TerminalConfig, ProductionOrder, Apontamento } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
-import { findStepForSector, getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, validarPostoIndustrial } from '../utils/routeEngine';
+import {
+  findStepForSector,
+  getRouteForOp,
+  getRouteEvaluation,
+  isAncoraOrder,
+  obterQuantidadeTotal,
+  validarPostoIndustrial,
+  etapaPertenceARota
+} from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { playClick, playBlockedError } from '../utils/audio';
 import { Check, AlertCircle, Lock } from 'lucide-react';
@@ -23,6 +31,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
 }) => {
   const [blockedWarning, setBlockedWarning] = useState<string | null>(null);
   const qtdTotal = obterQuantidadeTotal(order);
+
   // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
   const routeData = getRouteForOp(order);
   const steps = routeData.steps;
@@ -33,48 +42,109 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isTerminal5 = terminal.id === 5;
 
   const termKey = `T${terminal.id}` as keyof typeof POSTOS_POR_TERMINAL;
-  const availableSectors = Array.isArray(terminal?.sectors)
+  const rawTerminalSectors = Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
     ? terminal.sectors
     : (POSTOS_POR_TERMINAL[termKey] || []);
+  const availableSectors = Array.from(new Set(rawTerminalSectors));
 
-  const rotaOp: string[] = Array.isArray((order as any).rota) ? (order as any).rota : steps;
+  // 1. Extração robusta da rota da OP (op.rota, op.etapas ou steps calculados)
+  const rotaRaw = (order as any)?.rota ?? order?.etapas;
+  const rotaOp: string[] = [];
+
+  if (Array.isArray(rotaRaw) && rotaRaw.length > 0) {
+    rotaOp.push(...rotaRaw);
+  } else if (typeof rotaRaw === 'string' && rotaRaw.trim()) {
+    rotaOp.push(...rotaRaw.split(/[➔\->,;|]/).map((s: string) => s.trim()).filter(Boolean));
+  } else if (typeof (order as any)?.etapas === 'object' && (order as any)?.etapas !== null && !Array.isArray((order as any)?.etapas)) {
+    rotaOp.push(...Object.keys((order as any).etapas));
+  }
+
+  // Complementa com as etapas calculadas da rota da OP
+  if (Array.isArray(steps) && steps.length > 0) {
+    steps.forEach((st) => {
+      if (!rotaOp.includes(st)) {
+        rotaOp.push(st);
+      }
+    });
+  }
 
   const normalizar = (s: string) =>
     (s || '')
       .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
       .replace(/[-_]/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
 
   // FILTRAR O PASSO 1 PARA MOSTRAR APENAS SETORES DA OP ATUAL (LIMPEZA VISUAL)
-  const postosExibiveis = availableSectors.filter(setorTerminal => {
+  // Setores que NÃO pertencem à rota da OP NÃO devem ser renderizados (nem mesmo com cadeado).
+  const postosExibiveis = availableSectors.filter((setorTerminal) => {
     // Caso especial: Solda sob demanda para âncoras no Terminal 5
     if (isAncora && isTerminal5 && setorTerminal.includes('Solda')) return true;
 
-    // Verifica se o setor do terminal existe dentro da rota cadastrada para esta OP
-    return rotaOp.some(etapaRota => {
+    // 1. Funções técnicas oficiais de correspondência de etapa
+    if (etapaPertenceARota(setorTerminal, rotaOp)) return true;
+    if (findStepForSector(setorTerminal, rotaOp) !== null) return true;
+
+    const setorNorm = normalizar(setorTerminal);
+
+    // 2. Verifica se o setor do terminal existe dentro da rota cadastrada para esta OP
+    return rotaOp.some((etapaRota) => {
       const etapaNorm = normalizar(etapaRota);
-      const setorNorm = normalizar(setorTerminal);
       if (etapaNorm === setorNorm) return true;
+
+      // Equivalência para Vai-Vem (Montagem vs Preparação)
+      if (etapaNorm.includes('vai vem') && setorNorm.includes('vai vem')) {
+        if (etapaNorm.includes('prepar') || setorNorm.includes('prepar')) {
+          return etapaNorm.includes('prepar') && setorNorm.includes('prepar');
+        }
+        if (
+          (etapaNorm.includes('montagem') || etapaNorm.includes('finaliz')) &&
+          (setorNorm.includes('montagem') || setorNorm.includes('finaliz'))
+        ) {
+          return true;
+        }
+      }
+
+      // Equivalência para Portas Giratórias
       if (
-        etapaNorm.includes('vai vem') &&
-        setorNorm.includes('vai vem') &&
+        (etapaNorm.includes('girat') || etapaNorm.includes('giro')) &&
+        (setorNorm.includes('girat') || setorNorm.includes('giro')) &&
         etapaNorm.includes('montagem') &&
         setorNorm.includes('montagem')
       ) {
         return true;
       }
+
+      // Equivalência para Portas de Correr
+      if (
+        etapaNorm.includes('correr') &&
+        setorNorm.includes('correr') &&
+        etapaNorm.includes('montagem') &&
+        setorNorm.includes('montagem')
+      ) {
+        return true;
+      }
+
+      // Equivalência para Gaxeta
+      if (etapaNorm.includes('gaxeta') && setorNorm.includes('gaxeta')) {
+        return true;
+      }
+
+      // Equivalência para Trilhos
       if (
         (etapaNorm.includes('corte') && etapaNorm.includes('trilho') && setorNorm.includes('corte') && setorNorm.includes('trilho')) ||
         (etapaNorm.includes('montagem') && etapaNorm.includes('trilho') && setorNorm.includes('montagem') && setorNorm.includes('trilho'))
       ) {
         return true;
       }
+
       return false;
     });
   });
 
-  const validSectors = postosExibiveis.filter(s => {
+  const validSectors = postosExibiveis.filter((s) => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
     const isStep = findStepForSector(s, steps) !== null;
     if (!isStep) return false;
@@ -82,16 +152,72 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     return v.valido;
   });
 
-  // Auto-seleciona imediatamente se houver apenas UM setor válido neste terminal para a OP
-  // (Caso seja âncora sob demanda ainda não ativada, não força seleção para respeitar escolha do operador)
-  useEffect(() => {
-    if (validSectors.length === 1 && selectedSector !== validSectors[0]) {
-      const isPendingSobDemanda = isAncora && isTerminal5 && validSectors[0].includes('Solda') && !order.requer_solda;
-      if (!isPendingSobDemanda) {
-        onSelectSector(validSectors[0]);
+  // Determina o setor a ser selecionado automaticamente (único compatível ou sequência da rota)
+  const obterSetorAutoSelecao = (): string | null => {
+    // 1. Apenas 1 setor exibível para este terminal: auto-seleciona diretamente
+    if (postosExibiveis.length === 1) {
+      return postosExibiveis[0];
+    }
+
+    // 2. Apenas 1 setor com validação industrial liberada no momento: auto-seleciona
+    if (validSectors.length === 1) {
+      return validSectors[0];
+    }
+
+    // 3. Seleção pela sequência da rota: busca a primeira etapa pendente que pertença a este terminal
+    for (const step of steps) {
+      const stepSector = postosExibiveis.find((sec) => {
+        if (findStepForSector(sec, [step]) !== null) return true;
+        return normalizar(sec) === normalizar(step);
+      });
+
+      if (stepSector) {
+        const ev = evaluation[step];
+        const isStepFinished = ev ? ev.finalizadas >= qtdTotal : false;
+        const validCheck = validarPostoIndustrial(order, stepSector, apontamentos, terminal.id);
+
+        if (!isStepFinished && validCheck.valido) {
+          return stepSector;
+        }
       }
     }
-  }, [validSectors.length, validSectors[0], selectedSector, onSelectSector, isAncora, isTerminal5, order.requer_solda]);
+
+    // 4. Se houver setores válidos, seleciona o primeiro
+    if (validSectors.length > 0) {
+      return validSectors[0];
+    }
+
+    return null;
+  };
+
+  // Auto-seleciona se houver apenas 1 setor compatível ou na sequência correta da rota
+  useEffect(() => {
+    if (postosExibiveis.length === 0) return;
+
+    // Se já houver um setor selecionado válido dentro dos exibíveis deste terminal, mantém a escolha
+    if (selectedSector && postosExibiveis.includes(selectedSector)) {
+      return;
+    }
+
+    const setorSugerido = obterSetorAutoSelecao();
+    if (setorSugerido && selectedSector !== setorSugerido) {
+      const isPendingSobDemanda =
+        isAncora && isTerminal5 && setorSugerido.includes('Solda') && !order.requer_solda;
+      if (!isPendingSobDemanda) {
+        onSelectSector(setorSugerido);
+      }
+    }
+  }, [
+    order.op_numero,
+    terminal.id,
+    postosExibiveis.length,
+    validSectors.length,
+    selectedSector,
+    onSelectSector,
+    isAncora,
+    isTerminal5,
+    order.requer_solda
+  ]);
 
   return (
     <div className="w-full bg-[#0c142b] border border-blue-900/60 rounded-xl p-2.5 shadow-md shrink-0">
@@ -124,7 +250,8 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
             const stepEval = matchedStep ? evaluation[matchedStep] : null;
             const isSelected = selectedSector === sector;
             const isLaserSector = sector.toLowerCase().includes('laser');
-            const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
+            const isLaserPending =
+              isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
 
             // Validação estrita de rotas industriais especiais
             const routeValidation = validarPostoIndustrial(order, sector, apontamentos, terminal.id);
