@@ -38,7 +38,8 @@ import {
   isBatente,
   isEtapaConcluida,
   validarPostoIndustrial,
-  validarPostoTrilho
+  validarPostoTrilho,
+  verificarRouterLiberada
 } from './routeValidation';
 
 export {
@@ -68,7 +69,8 @@ export {
   isBatente,
   isEtapaConcluida,
   validarPostoIndustrial,
-  validarPostoTrilho
+  validarPostoTrilho,
+  verificarRouterLiberada
 };
 
 /**
@@ -1200,6 +1202,30 @@ export function getRouteEvaluation(
             blockingReason = `Aguardando liberação de novas peças pela Gaxeta (${qtdMontagemPronta}/${qtdGaxetaPronta} montadas)`;
           } else {
             blockingReason = 'Sem saldo de peças disponíveis da Gaxeta para Montagem';
+          }
+        }
+      } else if (
+        normStep.includes('VAI VEM') &&
+        (normStep.includes('MONTAGEM') || normStep.includes('FINALIZACAO'))
+      ) {
+        // REGRA DE PARALELISMO: Libera montagem de Vai-Vem assim que Router estiver em andamento ou concluída
+        const { requerRouter, routerLiberada } = verificarRouterLiberada(op, apontamentos);
+        if (requerRouter) {
+          if (routerLiberada) {
+            canStart = true;
+            blockingReason = undefined;
+          } else {
+            canStart = false;
+            blockingReason = 'Aguardando início da etapa Router';
+          }
+        } else {
+          // Sem Router na rota: depende da etapa anterior (Injeção)
+          if (prevIsStartedOrConcluded || prevFinishedCount > 0) {
+            canStart = true;
+            blockingReason = undefined;
+          } else {
+            canStart = false;
+            blockingReason = `Aguardando etapa anterior (${previousStep})`;
           }
         }
       } else if (ehInjecaoBatenteOuFolha && prevIsStartedOrConcluded) {

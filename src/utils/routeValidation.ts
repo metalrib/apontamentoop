@@ -245,6 +245,133 @@ export function isEligibleForRouter(op: any): boolean {
 }
 
 /**
+ * Verifica se a etapa Router é requerida para a OP e se já está liberada
+ * (iniciada com status em_andamento ou já concluída) para permitir o paralelismo da Montagem de Vai-Vem.
+ */
+export function verificarRouterLiberada(
+  op: any,
+  apontamentos: any[] = []
+): { requerRouter: boolean; routerLiberada: boolean } {
+  if (!op) return { requerRouter: false, routerLiberada: true };
+
+  // 1. Identificação se a rota da OP contempla a etapa Router
+  const rotaList: string[] = [];
+  if (Array.isArray(op.rota)) rotaList.push(...op.rota);
+  if (typeof op.rota === 'string') {
+    rotaList.push(...op.rota.split(/[➔\->,;|]/).map((s: string) => s.trim()));
+  }
+  if (Array.isArray(op.etapas)) rotaList.push(...op.etapas);
+
+  const temRouterNaRota = rotaList.some((r) => r.toLowerCase().includes('router'));
+  const requerRouter = Boolean(
+    temRouterNaRota ||
+    op.requerRouter ||
+    op.requer_router ||
+    op.encaminhar_router ||
+    (op.etapas &&
+      typeof op.etapas === 'object' &&
+      !Array.isArray(op.etapas) &&
+      Object.keys(op.etapas).some((k) => k.toLowerCase().includes('router'))) ||
+    (op.etapaAtual && op.etapaAtual.toLowerCase().includes('router')) ||
+    (op.apontamentos &&
+      typeof op.apontamentos === 'object' &&
+      Object.keys(op.apontamentos).some((k) => k.toLowerCase().includes('router')))
+  );
+
+  if (!requerRouter) {
+    return { requerRouter: false, routerLiberada: true };
+  }
+
+  // 2. Se requer Router, verifica se a etapa já iniciou (em_andamento) ou concluiu (concluido)
+  // A) Checagem em op.apontamentos
+  const opApts = op.apontamentos;
+  if (opApts && typeof opApts === 'object') {
+    const routerKey = Object.keys(opApts).find((k) => k.toLowerCase().includes('router'));
+    if (routerKey) {
+      const aptRouter = opApts[routerKey];
+      const statusRaw = String(aptRouter?.status || '').toLowerCase().trim();
+      if (
+        statusRaw === 'em_andamento' ||
+        statusRaw === 'em andamento' ||
+        statusRaw === 'em_producao' ||
+        statusRaw === 'em producao' ||
+        statusRaw === 'concluido' ||
+        statusRaw === 'concluida' ||
+        statusRaw === 'finalizado' ||
+        statusRaw === 'finalizada' ||
+        (typeof aptRouter?.qtdProduzida === 'number' && aptRouter.qtdProduzida > 0) ||
+        (typeof aptRouter?.concluidas === 'number' && aptRouter.concluidas > 0) ||
+        Boolean(aptRouter?.iniciado)
+      ) {
+        return { requerRouter: true, routerLiberada: true };
+      }
+    }
+  }
+
+  // B) Checagem na lista de apontamentos
+  if (Array.isArray(apontamentos) && apontamentos.length > 0) {
+    const hasRouterApt = apontamentos.some((a) => {
+      const matchOp = a.op_numero === op.op_numero || a.op === op.op_numero;
+      if (!matchOp) return false;
+      const setorNorm = (a.setorFisico || a.setor || '').toLowerCase();
+      const etapaNorm = (a.etapa_rota || a.etapaRota || '').toLowerCase();
+      const isRouter = setorNorm.includes('router') || etapaNorm.includes('router');
+      if (!isRouter) return false;
+      const statusNorm = String(a.status || '').toUpperCase().trim();
+      return (
+        statusNorm === 'EM_ANDAMENTO' ||
+        statusNorm === 'FINALIZADO' ||
+        statusNorm === 'CONCLUIDO'
+      );
+    });
+
+    if (hasRouterApt) {
+      return { requerRouter: true, routerLiberada: true };
+    }
+  }
+
+  // C) Checagem em op.etapas['Router']
+  if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+    const routerEtapaKey = Object.keys(op.etapas).find((k) => k.toLowerCase().includes('router'));
+    if (routerEtapaKey) {
+      const etapaInfo = op.etapas[routerEtapaKey];
+      const statusEtapa = String(etapaInfo?.status || '').toUpperCase().trim();
+      if (
+        statusEtapa === 'EM_ANDAMENTO' ||
+        statusEtapa === 'EM_PRODUCAO' ||
+        statusEtapa === 'CONCLUIDO' ||
+        statusEtapa === 'FINALIZADO' ||
+        (etapaInfo?.concluidas && etapaInfo.concluidas > 0)
+      ) {
+        return { requerRouter: true, routerLiberada: true };
+      }
+    }
+  }
+
+  // D) Checagem em op.progressoPostos
+  if (op.progressoPostos && typeof op.progressoPostos === 'object') {
+    const progKey = Object.keys(op.progressoPostos).find((k) => k.toLowerCase().includes('router'));
+    if (progKey) {
+      const prog = op.progressoPostos[progKey];
+      const progStatus = String(prog?.status || '').toUpperCase().trim();
+      if (
+        prog?.iniciado ||
+        prog?.concluido ||
+        (prog?.concluidas && prog.concluidas > 0) ||
+        progStatus === 'EM_ANDAMENTO' ||
+        progStatus === 'EM_PRODUCAO' ||
+        progStatus === 'CONCLUIDO' ||
+        progStatus === 'FINALIZADO'
+      ) {
+        return { requerRouter: true, routerLiberada: true };
+      }
+    }
+  }
+
+  return { requerRouter: true, routerLiberada: false };
+}
+
+/**
  * Gerador Dinâmico Oficial de Etapas da Rota por Produto
  * Define as etapas visíveis no card de status e na esteira de produção.
  */
@@ -626,6 +753,21 @@ export function validarPostoIndustrial(
 
   if (ehSuperCongOuEspecial) {
     const etapasPermitidas = obterEtapasDaRota(op);
+
+    // REGRA DE PARALELISMO: Liberação de Montagem de Vai-Vem com Router em andamento ou concluído
+    const normPostoUpper = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]/g, ' ');
+    const isMontagemVaiVem = normPostoUpper.includes('VAI VEM') && (normPostoUpper.includes('MONTAGEM') || normPostoUpper.includes('FINALIZACAO'));
+    if (isMontagemVaiVem) {
+      const { requerRouter, routerLiberada } = verificarRouterLiberada(op, apontamentos);
+      if (requerRouter && !routerLiberada) {
+        return {
+          valido: false,
+          motivo: 'Aguardando início da etapa Router'
+        };
+      }
+      return { valido: true };
+    }
+
     if (etapaPertenceARota(postoSelecionado, etapasPermitidas)) {
       return { valido: true };
     }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -715,11 +715,26 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const totalIniciadasMontagem = stepEval.finalizadas + stepEval.emAndamento;
   const temSaldoParaIniciar = (qtdGaxetaPronta - totalIniciadasMontagem) > 0;
 
+  // Regra de Paralelismo: Montagem de Vai-Vem com Router
+  const isMontagemVaiVem =
+    normSelectedPosto.includes('VAI VEM') &&
+    (normSelectedPosto.includes('MONTAGEM') || normSelectedPosto.includes('FINALIZACAO'));
+  const routerCheck = verificarRouterLiberada(order, apontamentos);
+
   if (ehGaxetaParaMontagem) {
     if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
       podeIniciar = true;
       bloqueadoPorSetorAnterior = false;
     } else {
+      podeIniciar = false;
+      bloqueadoPorSetorAnterior = true;
+    }
+  } else if (isMontagemVaiVem && routerCheck.requerRouter) {
+    // REGRA DE PARALELISMO: Libera montagem assim que Router estiver em andamento ou concluída
+    if (routerCheck.routerLiberada && stepEval.finalizadas < totalPhysicalUnits) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    } else if (!routerCheck.routerLiberada) {
       podeIniciar = false;
       bloqueadoPorSetorAnterior = true;
     }
@@ -732,6 +747,8 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
+    : isMontagemVaiVem && routerCheck.requerRouter && !routerCheck.routerLiberada
+    ? 'Aguardando início da etapa Router'
     : ehGaxetaParaMontagem && (!podeMontarPeca || !temSaldoParaIniciar)
     ? (qtdGaxetaPronta === 0
         ? 'Aguardando conclusão de pelo menos 1 peça na Instalação de Gaxeta'

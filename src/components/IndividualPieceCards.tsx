@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
-import { StepStatus, doesSectorMatchStep, matchStepName } from '../utils/routeEngine';
+import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada } from '../utils/routeEngine';
 import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 
@@ -99,6 +99,14 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
   // Identifica a próxima peça pendente na fila
   const nextPendingUnit = pieceCards.find((p) => !p.isFinished && !p.isActive)?.unitNum || (totalPhysicalUnits + 1);
 
+  // Regra de Paralelismo: Montagem de Vai-Vem com Router
+  const isMontagemVaiVem =
+    (matchedStep?.toUpperCase() || '').includes('VAI VEM') &&
+    ((matchedStep?.toUpperCase() || '').includes('MONTAGEM') || (matchedStep?.toUpperCase() || '').includes('FINALIZACAO')) ||
+    (selectedSector?.toUpperCase() || '').includes('VAI VEM') &&
+    ((selectedSector?.toUpperCase() || '').includes('MONTAGEM') || (selectedSector?.toUpperCase() || '').includes('FINALIZACAO'));
+  const routerCheck = verificarRouterLiberada(order, apontamentos);
+
   // Métricas agregadas
   const totalConcluidas = pieceCards.filter((p) => p.isFinished).length;
   const totalEmAndamento = pieceCards.filter((p) => p.isActive).length;
@@ -173,6 +181,17 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                   qtdGaxetaPronta === 0
                     ? 'Aguardando Peça #1 na Gaxeta'
                     : `Aguardando Peça #${unitNum} na Gaxeta (${qtdMontagemPronta}/${qtdGaxetaPronta} liberadas)`;
+              } else if (unitNum === nextPendingUnit) {
+                isAvailableToStart = true;
+              } else {
+                isAvailableToStart = false;
+                lockReason = `Aguardando Peça #${nextPendingUnit}`;
+              }
+            } else if (isMontagemVaiVem && routerCheck.requerRouter) {
+              // REGRA DE PARALELISMO: Libera montagem de Vai-Vem assim que Router estiver em andamento ou concluída
+              if (!routerCheck.routerLiberada) {
+                isAvailableToStart = false;
+                lockReason = 'Aguardando início da etapa Router';
               } else if (unitNum === nextPendingUnit) {
                 isAvailableToStart = true;
               } else {
