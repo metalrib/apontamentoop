@@ -635,6 +635,43 @@ export async function removeSectorFromTerminal(terminalId: number | string, sect
     console.warn('[mesStorage] Firestore updateDoc em configuracoes_terminais (RTDB garantiu persistência):', fsErr);
   }
 
+  // 4. Percorre a lista de colaboradores salvos e remove o setor dos colaboradores vinculados
+  const termKey = `T${termIdStr}`.replace('TT', 'T');
+  const operators = fetchOperators();
+  let opModified = false;
+  const isSectorStillInOtherTerminals = terminals.some((t) =>
+    (t.sectors || []).some((s) => s.trim().toLowerCase() === clean.toLowerCase())
+  );
+
+  operators.forEach((op) => {
+    // Remove do mapa de setores deste terminal no colaborador
+    if (op.setoresPorTerminal && Array.isArray(op.setoresPorTerminal[termKey])) {
+      const b4 = op.setoresPorTerminal[termKey].length;
+      op.setoresPorTerminal[termKey] = op.setoresPorTerminal[termKey].filter(
+        (s) => s.trim().toLowerCase() !== clean.toLowerCase()
+      );
+      if (op.setoresPorTerminal[termKey].length !== b4) opModified = true;
+    }
+
+    // Se o setor não existe mais em nenhum terminal da fábrica, remove também de op.sectors e op.setores
+    if (!isSectorStillInOtherTerminals) {
+      if (op.sectors) {
+        const b4 = op.sectors.length;
+        op.sectors = op.sectors.filter((s) => s.trim().toLowerCase() !== clean.toLowerCase());
+        if (op.sectors.length !== b4) opModified = true;
+      }
+      if (op.setores) {
+        const b4 = op.setores.length;
+        op.setores = op.setores.filter((s) => s.trim().toLowerCase() !== clean.toLowerCase());
+        if (op.setores.length !== b4) opModified = true;
+      }
+    }
+  });
+
+  if (opModified) {
+    saveOperators(operators);
+  }
+
   return true;
 }
 
@@ -936,58 +973,19 @@ export function initFirebaseRealtimeListeners(): void {
       try {
         const val = snapshot.val();
         if (Array.isArray(val) && val.length > 0) {
-          const { terminals: sanitized, changed: wasSanitized } = sanitizeTerminalSectors(val);
+          const { terminals: sanitized } = sanitizeTerminalSectors(val);
           const rawLocal = localStorage.getItem(STORAGE_TERMINALS_KEY);
           const serialized = JSON.stringify(sanitized);
-          if (rawLocal !== serialized || wasSanitized) {
+          if (rawLocal !== serialized) {
             localStorage.setItem(STORAGE_TERMINALS_KEY, serialized);
             const setoresMap = buildSetoresMap(sanitized);
             localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-            if (wasSanitized) {
-              set(ref(db, 'config_terminais'), sanitized);
-              set(ref(db, 'config_setores'), setoresMap);
-            }
             broadcastUpdate();
             window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
           }
         }
       } catch (err) {
         console.error('[Firebase] Erro no listener de config_terminais:', err);
-      }
-    });
-
-    const setoresRef = ref(db, 'config_setores');
-    onValue(setoresRef, (snapshot) => {
-      try {
-        const val = snapshot.val();
-        if (val && typeof val === 'object') {
-          const currentTerms = fetchTerminalsConfig();
-          let changed = false;
-          const updated = currentTerms.map((t) => {
-            const key = `T${t.id}`;
-            if (Array.isArray(val[key])) {
-              const newSectors = val[key];
-              if (JSON.stringify(t.sectors) !== JSON.stringify(newSectors)) {
-                changed = true;
-                return { ...t, sectors: [...newSectors] };
-              }
-            }
-            return t;
-          });
-          const { terminals: sanitized, changed: wasSanitized } = sanitizeTerminalSectors(updated);
-          if (changed || wasSanitized) {
-            localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
-            const newSetoresMap = buildSetoresMap(sanitized);
-            localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(newSetoresMap));
-            if (wasSanitized) {
-              set(ref(db, 'config_setores'), newSetoresMap);
-            }
-            broadcastUpdate();
-            window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
-          }
-        }
-      } catch (err) {
-        console.error('[Firebase] Erro no listener de config_setores:', err);
       }
     });
 

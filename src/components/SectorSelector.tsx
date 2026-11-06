@@ -33,11 +33,48 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isTerminal5 = terminal.id === 5;
 
   const termKey = `T${terminal.id}` as keyof typeof POSTOS_POR_TERMINAL;
-  const availableSectors = Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
+  const availableSectors = Array.isArray(terminal?.sectors)
     ? terminal.sectors
     : (POSTOS_POR_TERMINAL[termKey] || []);
 
-  const validSectors = availableSectors.filter(s => {
+  const rotaOp: string[] = Array.isArray((order as any).rota) ? (order as any).rota : steps;
+
+  const normalizar = (s: string) =>
+    (s || '')
+      .toLowerCase()
+      .replace(/[-_]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+  // FILTRAR O PASSO 1 PARA MOSTRAR APENAS SETORES DA OP ATUAL (LIMPEZA VISUAL)
+  const postosExibiveis = availableSectors.filter(setorTerminal => {
+    // Caso especial: Solda sob demanda para âncoras no Terminal 5
+    if (isAncora && isTerminal5 && setorTerminal.includes('Solda')) return true;
+
+    // Verifica se o setor do terminal existe dentro da rota cadastrada para esta OP
+    return rotaOp.some(etapaRota => {
+      const etapaNorm = normalizar(etapaRota);
+      const setorNorm = normalizar(setorTerminal);
+      if (etapaNorm === setorNorm) return true;
+      if (
+        etapaNorm.includes('vai vem') &&
+        setorNorm.includes('vai vem') &&
+        etapaNorm.includes('montagem') &&
+        setorNorm.includes('montagem')
+      ) {
+        return true;
+      }
+      if (
+        (etapaNorm.includes('corte') && etapaNorm.includes('trilho') && setorNorm.includes('corte') && setorNorm.includes('trilho')) ||
+        (etapaNorm.includes('montagem') && etapaNorm.includes('trilho') && setorNorm.includes('montagem') && setorNorm.includes('trilho'))
+      ) {
+        return true;
+      }
+      return false;
+    });
+  });
+
+  const validSectors = postosExibiveis.filter(s => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
     const isStep = findStepForSector(s, steps) !== null;
     if (!isStep) return false;
@@ -74,93 +111,99 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-        {availableSectors.map((sector, idx) => {
-          const matchedStep = findStepForSector(sector, steps);
-          const isSobDemanda = isAncora && isTerminal5 && sector.includes('Solda');
-          const isPartOfRoute = matchedStep !== null || isSobDemanda;
-          const stepEval = matchedStep ? evaluation[matchedStep] : null;
-          const isSelected = selectedSector === sector;
-          const isLaserSector = sector.toLowerCase().includes('laser');
-          const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
+      {postosExibiveis.length === 0 ? (
+        <div className="p-3 text-center text-xs font-mono text-slate-400 bg-slate-950/40 rounded-xl border border-slate-800">
+          Nenhum posto do {terminal.name} consta na rota desta OP ({order.op_numero}).
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
+          {postosExibiveis.map((sector, idx) => {
+            const matchedStep = findStepForSector(sector, steps);
+            const isSobDemanda = isAncora && isTerminal5 && sector.includes('Solda');
+            const isPartOfRoute = matchedStep !== null || isSobDemanda;
+            const stepEval = matchedStep ? evaluation[matchedStep] : null;
+            const isSelected = selectedSector === sector;
+            const isLaserSector = sector.toLowerCase().includes('laser');
+            const isLaserPending = isLaserSector && Boolean(order.requer_laser) && (!stepEval || stepEval.finalizadas < qtdTotal);
 
-          // Validação estrita de rotas industriais especiais
-          const routeValidation = validarPostoIndustrial(order, sector, apontamentos, terminal.id);
-          const isBlockedByRouteRule = !routeValidation.valido;
+            // Validação estrita de rotas industriais especiais
+            const routeValidation = validarPostoIndustrial(order, sector, apontamentos, terminal.id);
+            const isBlockedByRouteRule = !routeValidation.valido;
 
-          return (
-            <button
-              key={`${terminal.id}_${sector}_${idx}`}
-              onClick={async () => {
-                if (isBlockedByRouteRule) {
-                  playBlockedError();
-                  setBlockedWarning(routeValidation.motivo || 'Posto não permitido para esta OP.');
-                  setTimeout(() => setBlockedWarning(null), 6000);
-                  return;
-                }
-                setBlockedWarning(null);
-                playClick();
-                if (isSobDemanda && !order.requer_solda) {
-                  await updateProductionOrder(order.op_numero, { requer_solda: true });
-                }
-                onSelectSector(sector);
-              }}
-              title={isBlockedByRouteRule ? routeValidation.motivo : undefined}
-              className={`relative py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn ${
-                isBlockedByRouteRule
-                  ? 'bg-slate-950/30 border-slate-800/80 text-slate-500 cursor-not-allowed opacity-60'
-                  : isSelected
-                  ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold cursor-pointer'
-                  : isSobDemanda && !order.requer_solda
-                  ? 'bg-amber-950/25 border-amber-500/50 hover:border-amber-400 text-amber-200 cursor-pointer'
-                  : isLaserPending
-                  ? 'bg-orange-950/30 border-orange-500/60 hover:border-orange-400 text-orange-200 cursor-pointer'
-                  : isPartOfRoute
-                  ? 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200 cursor-pointer'
-                  : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer'
-              }`}
-            >
-              <span
-                className={`w-2 h-2 mr-2 rounded-full shrink-0 ${
+            return (
+              <button
+                key={`${terminal.id}_${sector}_${idx}`}
+                onClick={async () => {
+                  if (isBlockedByRouteRule) {
+                    playBlockedError();
+                    setBlockedWarning(routeValidation.motivo || 'Posto não permitido para esta OP.');
+                    setTimeout(() => setBlockedWarning(null), 6000);
+                    return;
+                  }
+                  setBlockedWarning(null);
+                  playClick();
+                  if (isSobDemanda && !order.requer_solda) {
+                    await updateProductionOrder(order.op_numero, { requer_solda: true });
+                  }
+                  onSelectSector(sector);
+                }}
+                title={isBlockedByRouteRule ? routeValidation.motivo : undefined}
+                className={`relative py-1.5 px-3 text-xs sm:text-sm font-semibold rounded-xl border text-center transition-all flex items-center justify-between kiosk-btn ${
                   isBlockedByRouteRule
-                    ? 'bg-slate-600'
+                    ? 'bg-slate-950/30 border-slate-800/80 text-slate-500 cursor-not-allowed opacity-60'
+                    : isSelected
+                    ? 'bg-gradient-to-r from-[#1C2F8A] to-blue-700 border-blue-400 ring-2 ring-blue-500/60 shadow-lg text-white font-bold cursor-pointer'
                     : isSobDemanda && !order.requer_solda
-                    ? 'bg-amber-400 animate-pulse'
+                    ? 'bg-amber-950/25 border-amber-500/50 hover:border-amber-400 text-amber-200 cursor-pointer'
                     : isLaserPending
-                    ? 'bg-orange-400 animate-pulse'
+                    ? 'bg-orange-950/30 border-orange-500/60 hover:border-orange-400 text-orange-200 cursor-pointer'
                     : isPartOfRoute
-                    ? 'bg-emerald-400'
-                    : 'bg-slate-600'
+                    ? 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200 cursor-pointer'
+                    : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer'
                 }`}
-              />
+              >
+                <span
+                  className={`w-2 h-2 mr-2 rounded-full shrink-0 ${
+                    isBlockedByRouteRule
+                      ? 'bg-slate-600'
+                      : isSobDemanda && !order.requer_solda
+                      ? 'bg-amber-400 animate-pulse'
+                      : isLaserPending
+                      ? 'bg-orange-400 animate-pulse'
+                      : isPartOfRoute
+                      ? 'bg-emerald-400'
+                      : 'bg-slate-600'
+                  }`}
+                />
 
-              <span className="whitespace-normal text-center leading-snug text-xs sm:text-sm font-semibold flex-1 break-words">
-                {sector}
-              </span>
+                <span className="whitespace-normal text-center leading-snug text-xs sm:text-sm font-semibold flex-1 break-words">
+                  {sector}
+                </span>
 
-              {isBlockedByRouteRule ? (
-                <div className="shrink-0 ml-1.5 text-slate-500" title={routeValidation.motivo}>
-                  <Lock className="w-3.5 h-3.5" />
-                </div>
-              ) : isSelected ? (
-                <div className="w-4 h-4 rounded-full bg-blue-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-sm ml-1.5">
-                  <Check className="w-3 h-3 stroke-[3]" />
-                </div>
-              ) : isSobDemanda && !order.requer_solda ? (
-                <span className="text-[10px] text-amber-400 font-mono shrink-0 ml-1.5">+Solda</span>
-              ) : isLaserPending && stepEval ? (
-                <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5 ml-1.5">
-                  🔥 {stepEval.finalizadas}/{qtdTotal}
-                </span>
-              ) : isPartOfRoute && stepEval ? (
-                <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1.5">
-                  {stepEval.finalizadas}/{qtdTotal}
-                </span>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+                {isBlockedByRouteRule ? (
+                  <div className="shrink-0 ml-1.5 text-slate-500" title={routeValidation.motivo}>
+                    <Lock className="w-3.5 h-3.5" />
+                  </div>
+                ) : isSelected ? (
+                  <div className="w-4 h-4 rounded-full bg-blue-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-sm ml-1.5">
+                    <Check className="w-3 h-3 stroke-[3]" />
+                  </div>
+                ) : isSobDemanda && !order.requer_solda ? (
+                  <span className="text-[10px] text-amber-400 font-mono shrink-0 ml-1.5">+Solda</span>
+                ) : isLaserPending && stepEval ? (
+                  <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5 ml-1.5">
+                    🔥 {stepEval.finalizadas}/{qtdTotal}
+                  </span>
+                ) : isPartOfRoute && stepEval ? (
+                  <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1.5">
+                    {stepEval.finalizadas}/{qtdTotal}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

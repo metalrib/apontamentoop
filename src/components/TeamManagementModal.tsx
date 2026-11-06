@@ -134,13 +134,14 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   // Setores oficiais por terminal extraídos dinamicamente da fonte única da verdade (Firebase/Storage)
   const dynamicTerminalSectors = useMemo<Record<string, string[]>>(() => {
     const map: Record<string, string[]> = { T1: [], T2: [], T3: [], T4: [], T5: [] };
+    const sourceList = terminals.length > 0 ? terminals : fetchTerminalsConfig();
     ALL_TERMINAIS.forEach((tKey) => {
       const termId = parseInt(tKey.replace('T', ''), 10);
-      const term = terminals.find((t) => t.id === termId);
-      if (term && Array.isArray(term.sectors) && term.sectors.length > 0) {
+      const term = sourceList.find((t) => t.id === termId);
+      if (term && Array.isArray(term.sectors)) {
         map[tKey] = Array.from(new Set(term.sectors.map((s) => s.trim()).filter(Boolean)));
       } else {
-        map[tKey] = POSTOS_POR_TERMINAL[tKey] || [];
+        map[tKey] = [];
       }
     });
     return map;
@@ -204,30 +205,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         }
       });
 
-      // Sincronização reativa de setores por terminal (config_setores)
-      const setoresRef = ref(db, 'config_setores');
-      const unsubFbSetores = onValue(setoresRef, (snapshot) => {
-        try {
-          if (snapshot.exists()) {
-            const val = snapshot.val();
-            if (val && typeof val === 'object') {
-              setTerminals((prev) => {
-                const base = prev.length > 0 ? prev : fetchTerminalsConfig();
-                return base.map((t) => {
-                  const key = `T${t.id}`;
-                  if (Array.isArray(val[key])) {
-                    return { ...t, sectors: [...val[key]] };
-                  }
-                  return t;
-                });
-              });
-            }
-          }
-        } catch (err) {
-          console.error('[TeamManagementModal] Erro ao sincronizar config_setores Firebase:', err);
-        }
-      });
-
       // Sincronização reativa direta de configuracoes_terminais (Firebase RTDB)
       const cfgTermRef = ref(db, 'configuracoes_terminais');
       const unsubFbCfgTerm = onValue(cfgTermRef, (snapshot) => {
@@ -273,7 +250,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       return () => {
         unsubFb();
         unsubFbTerm();
-        unsubFbSetores();
         unsubFbCfgTerm();
         window.removeEventListener('metalrib_sectors_updated', handleDataUpdate);
         window.removeEventListener('metalrib_data_updated', handleDataUpdate);
@@ -689,24 +665,46 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   async function excluirSetorDoTerminal(terminalId: string, setorNome: string) {
     try {
       const termIdNum = parseInt(terminalId.replace(/\D/g, ''), 10) || terminalId;
+      const termKey = `T${terminalId}`.replace('TT', 'T');
+      const clean = setorNome.trim().toLowerCase();
 
-      // Atualiza o estado da interface imediatamente
+      // 1. Atualiza o estado da interface imediatamente (Terminais)
       setTerminais((prev) =>
         prev.map((term) =>
           term.id === termIdNum || String(term.id) === terminalId
             ? {
                 ...term,
-                sectors: (term.sectors || []).filter((s) => s !== setorNome && s.trim().toLowerCase() !== setorNome.trim().toLowerCase()),
-                setores: ((term as any).setores || term.sectors || []).filter((s: string) => s !== setorNome && s.trim().toLowerCase() !== setorNome.trim().toLowerCase())
+                sectors: (term.sectors || []).filter((s) => s.trim().toLowerCase() !== clean),
+                setores: ((term as any).setores || term.sectors || []).filter((s: string) => s.trim().toLowerCase() !== clean)
               }
             : term
         )
       );
 
-      // Persiste via mesStorage (Firebase RTDB, localStorage e eventos)
+      // 2. Percorre a lista de colaboradores salvos e desvincula o setor imediatamente no estado local
+      setOperators((prevOps) =>
+        prevOps.map((colab) => {
+          let newSetoresPorTerminal = colab.setoresPorTerminal ? { ...colab.setoresPorTerminal } : undefined;
+          if (newSetoresPorTerminal && Array.isArray(newSetoresPorTerminal[termKey])) {
+            newSetoresPorTerminal[termKey] = newSetoresPorTerminal[termKey].filter(
+              (s) => s.trim().toLowerCase() !== clean
+            );
+          }
+          const filteredSetores = (colab.setores || []).filter((s) => s.trim().toLowerCase() !== clean);
+          const filteredSectors = (colab.sectors || []).filter((s) => s.trim().toLowerCase() !== clean);
+          return {
+            ...colab,
+            setores: filteredSetores,
+            sectors: filteredSectors,
+            setoresPorTerminal: newSetoresPorTerminal
+          };
+        })
+      );
+
+      // 3. Persiste via mesStorage (Firebase RTDB, localStorage e eventos para terminais e operadores)
       await removeSectorFromTerminal(terminalId, setorNome);
 
-      // Atualiza no Firebase Firestore se disponível
+      // 4. Atualiza no Firebase Firestore se disponível
       try {
         const terminalRef = doc(firestore, 'configuracoes_terminais', terminalId);
         await updateDoc(terminalRef, {
@@ -730,7 +728,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     playClick();
     setSectorToDelete(null);
     await excluirSetorDoTerminal(String(terminalId), sectorName);
-    loadData();
     showNotification(`Setor "${sectorName}" removido do Terminal ${terminalId} com sucesso!`);
     if (onOperatorsUpdated) onOperatorsUpdated();
   };
