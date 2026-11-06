@@ -83,7 +83,7 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     );
 
     const isFinished = Boolean(
-      finishedApt || (stepEval.finalizadas >= unitNum && !activeApt)
+      finishedApt || (stepEval.finalizadas >= totalPhysicalUnits && !activeApt)
     );
     const isActive = Boolean(activeApt);
 
@@ -95,9 +95,6 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
       activeApt
     };
   });
-
-  // Identifica a próxima peça pendente na fila
-  const nextPendingUnit = pieceCards.find((p) => !p.isFinished && !p.isActive)?.unitNum || (totalPhysicalUnits + 1);
 
   // Regra de Paralelismo: Montagem de Vai-Vem com Router
   const prevStepName = stepEval.previousStepName || '';
@@ -238,39 +235,32 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                   qtdGaxetaPronta === 0
                     ? 'Aguardando Peça #1 na Gaxeta'
                     : `Aguardando Peça #${unitNum} na Gaxeta (${qtdMontagemPronta}/${qtdGaxetaPronta} liberadas)`;
-              } else if (unitNum === nextPendingUnit) {
-                isAvailableToStart = true;
               } else {
-                isAvailableToStart = false;
-                lockReason = `Aguardando Peça #${nextPendingUnit}`;
+                // Sem trava sequencial: qualquer peça liberada pela gaxeta pode ser iniciada em paralelo
+                isAvailableToStart = true;
               }
             } else if (isEtapaAnteriorRouter || isMontagemVaiVem) {
               // REGRA DE PARALELISMO: Router libera a montagem se estiver 'em_andamento' OU 'concluido'
               if (!isRouterLiberada) {
                 isAvailableToStart = false;
                 lockReason = 'Aguardando início da etapa Router';
-              } else if (unitNum === nextPendingUnit) {
-                isAvailableToStart = true;
               } else {
-                isAvailableToStart = false;
-                lockReason = `Aguardando Peça #${nextPendingUnit}`;
+                // Sem trava sequencial: todas as peças ficam disponíveis para operadores diferentes trabalharem em paralelo
+                isAvailableToStart = true;
               }
             } else {
               // Postos convencionais unitários (como Preparação Vai Vem, Montagem Vai Vem, etc.)
-              if (unitNum === nextPendingUnit) {
-                if (stepEval.stepIndex === 0) {
-                  isAvailableToStart = true;
-                } else if (
-                  (stepEval.previousStepFinalizadas ?? 0) >= (stepEval.isBatch ? totalPhysicalUnits : unitNum)
-                ) {
-                  isAvailableToStart = true;
-                } else {
-                  isAvailableToStart = false;
-                  lockReason = `Aguardando etapa anterior (${stepEval.previousStepName || 'Anterior'})`;
-                }
+              if (stepEval.stepIndex === 0) {
+                // Primeira etapa da rota: todas as peças estão liberadas
+                isAvailableToStart = true;
+              } else if (
+                (stepEval.previousStepFinalizadas ?? 0) >= (stepEval.isBatch ? totalPhysicalUnits : unitNum)
+              ) {
+                // Etapa anterior concluída para a unidade ou lote
+                isAvailableToStart = true;
               } else {
                 isAvailableToStart = false;
-                lockReason = `Aguardando Peça #${nextPendingUnit}`;
+                lockReason = `Aguardando etapa anterior (${stepEval.previousStepName || 'Anterior'})`;
               }
             }
           }
