@@ -79,6 +79,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
 
   // FILTRAR O PASSO 1 PARA MOSTRAR APENAS SETORES DA OP ATUAL (LIMPEZA VISUAL)
   // Setores que NÃO pertencem à rota da OP NÃO devem ser renderizados (nem mesmo com cadeado).
+  // Nota: Montagem Porta Vai-Vem permanece visível no Terminal 5 (para Fábio/Nathan) e Terminal 4.
   const postosExibiveis = availableSectors.filter((setorTerminal) => {
     // Caso especial: Solda sob demanda para âncoras no Terminal 5
     if (isAncora && isTerminal5 && setorTerminal.includes('Solda')) return true;
@@ -152,6 +153,210 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     return v.valido;
   });
 
+  // Isolamento estrito de contagem por posto de trabalho
+  const postMatchStrict = (a: Apontamento, nomePosto: string): boolean => {
+    const postNorm = normalizar(nomePosto);
+    const aptSetorNorm = normalizar(a.setorFisico || a.setor || '');
+    const aptEtapaNorm = normalizar(a.etapa_rota || a.etapaRota || '');
+
+    // 1. Casamento direto por igualdade exata
+    if (aptSetorNorm === postNorm || aptEtapaNorm === postNorm) return true;
+
+    // 2. Regra Vai-Vem: SEPARA RIGOROSAMENTE Preparação de Montagem
+    if (postNorm.includes('vai vem')) {
+      const isPostPreparacao = postNorm.includes('prepar');
+      const isPostMontagem = postNorm.includes('montag') || postNorm.includes('finaliz');
+
+      const isAptPreparacao = aptSetorNorm.includes('prepar') || aptEtapaNorm.includes('prepar');
+      const isAptMontagem =
+        aptSetorNorm.includes('montag') ||
+        aptSetorNorm.includes('finaliz') ||
+        aptEtapaNorm.includes('montag') ||
+        aptEtapaNorm.includes('finaliz');
+
+      if (isPostPreparacao) {
+        return isAptPreparacao && !isAptMontagem;
+      }
+      if (isPostMontagem) {
+        return isAptMontagem && !isAptPreparacao;
+      }
+      return false;
+    }
+
+    // 3. Batentes: SEPARA Preparação de Injeção/Finalização
+    if (postNorm.includes('batente')) {
+      const isPostPrep = postNorm.includes('prepar');
+      const isAptPrep = aptSetorNorm.includes('prepar') || aptEtapaNorm.includes('prepar');
+      if (isPostPrep) return isAptPrep;
+      const isPostInj = postNorm.includes('injec') || postNorm.includes('finaliz');
+      const isAptInj =
+        aptSetorNorm.includes('injec') ||
+        aptSetorNorm.includes('finaliz') ||
+        aptEtapaNorm.includes('injec') ||
+        aptEtapaNorm.includes('finaliz');
+      if (isPostInj) return isAptInj;
+      return false;
+    }
+
+    // 4. Corte Alumínio vs Corte
+    if (postNorm.includes('aluminio')) {
+      return aptSetorNorm.includes('aluminio') || aptEtapaNorm.includes('aluminio');
+    }
+    if (postNorm === 'corte') {
+      return (
+        (aptSetorNorm === 'corte' || aptEtapaNorm === 'corte') &&
+        !aptSetorNorm.includes('aluminio') &&
+        !aptEtapaNorm.includes('aluminio') &&
+        !aptSetorNorm.includes('trilho') &&
+        !aptEtapaNorm.includes('trilho')
+      );
+    }
+
+    // 5. Trilhos: SEPARA Corte de Montagem
+    if (postNorm.includes('trilho')) {
+      if (postNorm.includes('corte')) {
+        return (
+          (aptSetorNorm.includes('trilho') && aptSetorNorm.includes('corte')) ||
+          (aptEtapaNorm.includes('trilho') && aptEtapaNorm.includes('corte'))
+        );
+      }
+      if (postNorm.includes('montag')) {
+        return (
+          (aptSetorNorm.includes('trilho') && aptSetorNorm.includes('montag')) ||
+          (aptEtapaNorm.includes('trilho') && aptEtapaNorm.includes('montag'))
+        );
+      }
+      return false;
+    }
+
+    // 6. Demais
+    if (aptEtapaNorm && aptEtapaNorm === postNorm) return true;
+    if (aptSetorNorm && aptSetorNorm === postNorm) return true;
+
+    return false;
+  };
+
+  // ISOLAMENTO DO CÁLCULO DA BADGE: calcula APENAS as peças concluídas no seu próprio posto
+  const obterQtdConcluidaPorPosto = (nomePosto: string): number => {
+    const postNorm = normalizar(nomePosto);
+
+    // 1. Se os apontamentos estiverem separados por chaves de postos no objeto da OP:
+    const opApts = (order as any)?.apontamentos;
+    if (opApts && typeof opApts === 'object') {
+      const chaveEncontrada = Object.keys(opApts).find((k) => {
+        const kNorm = normalizar(k);
+        if (kNorm === postNorm) return true;
+        if (postNorm.includes('vai vem') && kNorm.includes('vai vem')) {
+          if (postNorm.includes('prepar') && kNorm.includes('prepar')) return true;
+          if (
+            (postNorm.includes('montag') || postNorm.includes('finaliz')) &&
+            (kNorm.includes('montag') || kNorm.includes('finaliz'))
+          ) {
+            return true;
+          }
+          return false;
+        }
+        return false;
+      });
+
+      const postoData = chaveEncontrada ? opApts[chaveEncontrada] : undefined;
+      if (postoData) {
+        if (postoData?.pecas && Array.isArray(postoData.pecas)) {
+          return postoData.pecas.filter(
+            (p: any) => p.status === 'concluida' || p.status === 'FINALIZADO' || p.concluida === true
+          ).length;
+        }
+        if (typeof postoData?.qtdProduzida === 'number') {
+          return postoData.qtdProduzida;
+        }
+        if (typeof postoData?.concluidas === 'number') {
+          return postoData.concluidas;
+        }
+      }
+    }
+
+    // 2. Se houver uma lista única de peças na OP, filtre obrigatoriamente pelo posto/etapa:
+    const opPecas = (order as any)?.pecas;
+    if (Array.isArray(opPecas)) {
+      const pecasDoPosto = opPecas.filter((p: any) => {
+        const pPostoNorm = normalizar(p.posto || p.setor || p.etapa || '');
+        const isSamePosto =
+          pPostoNorm === postNorm ||
+          (postNorm.includes('vai vem') &&
+            pPostoNorm.includes('vai vem') &&
+            ((postNorm.includes('prepar') && pPostoNorm.includes('prepar')) ||
+              ((postNorm.includes('montag') || postNorm.includes('finaliz')) &&
+                (pPostoNorm.includes('montag') || pPostoNorm.includes('finaliz')))));
+        const isConcluida =
+          p.status === 'concluida' || p.status === 'FINALIZADO' || p.concluida === true;
+        return isSamePosto && isConcluida;
+      });
+
+      if (pecasDoPosto.length > 0) {
+        return pecasDoPosto.length;
+      }
+    }
+
+    // 3. Verificação no progressoPostos da OP
+    const progPostos = (order as any)?.progressoPostos;
+    if (progPostos && typeof progPostos === 'object') {
+      const chaveProg = Object.keys(progPostos).find((k) => normalizar(k) === postNorm);
+      if (chaveProg && typeof progPostos[chaveProg]?.concluidas === 'number') {
+        return progPostos[chaveProg].concluidas;
+      }
+    }
+
+    // 4. Verificação estrita nos apontamentos recebidos
+    const aptsDoPosto = apontamentos.filter((a) => {
+      if (a.op_numero !== order.op_numero && a.op !== order.op_numero) return false;
+      const isConcluido = a.status === 'FINALIZADO' || a.status === 'CONCLUIDO';
+      if (!isConcluido) return false;
+      return postMatchStrict(a, nomePosto);
+    });
+
+    const finishedBatch = aptsDoPosto.find((a) => a.is_lote || a.unidade_numero === 0);
+    const finishedUnits = aptsDoPosto.filter((a) => !a.is_lote && a.unidade_numero > 0);
+    const uniqueUnits = new Set(finishedUnits.map((a) => a.unidade_numero));
+    let totalApts = uniqueUnits.size;
+    if (finishedBatch) {
+      totalApts = Math.max(totalApts, finishedBatch.quantidade_lote || qtdTotal);
+    }
+
+    if (totalApts > 0) {
+      return totalApts;
+    }
+
+    // 5. Fallback isolado via order.etapas (apenas se a chave casar rigorosamente)
+    if (order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas)) {
+      const etapaKey = Object.keys(order.etapas).find((k) => {
+        const kNorm = normalizar(k);
+        if (kNorm === postNorm) return true;
+        if (postNorm.includes('vai vem') && kNorm.includes('vai vem')) {
+          if (postNorm.includes('prepar') && kNorm.includes('prepar')) return true;
+          if (
+            (postNorm.includes('montag') || postNorm.includes('finaliz')) &&
+            (kNorm.includes('montag') || kNorm.includes('finaliz'))
+          ) {
+            return true;
+          }
+          return false;
+        }
+        return false;
+      });
+
+      if (etapaKey) {
+        const st = (order.etapas as Record<string, any>)[etapaKey];
+        if (st && typeof st.concluidas === 'number' && st.concluidas > 0) {
+          if (aptsDoPosto.length > 0 || st.status === 'CONCLUIDO') {
+            return st.concluidas;
+          }
+        }
+      }
+    }
+
+    return 0;
+  };
+
   // Determina o setor a ser selecionado automaticamente (único compatível ou sequência da rota)
   const obterSetorAutoSelecao = (): string | null => {
     // 1. Apenas 1 setor exibível para este terminal: auto-seleciona diretamente
@@ -172,8 +377,8 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
       });
 
       if (stepSector) {
-        const ev = evaluation[step];
-        const isStepFinished = ev ? ev.finalizadas >= qtdTotal : false;
+        const concluidas = obterQtdConcluidaPorPosto(stepSector);
+        const isStepFinished = concluidas >= qtdTotal;
         const validCheck = validarPostoIndustrial(order, stepSector, apontamentos, terminal.id);
 
         if (!isStepFinished && validCheck.valido) {
@@ -257,6 +462,9 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
             const routeValidation = validarPostoIndustrial(order, sector, apontamentos, terminal.id);
             const isBlockedByRouteRule = !routeValidation.valido;
 
+            // Contagem isolada estritamente por posto de trabalho
+            const qtdConcluidaPosto = obterQtdConcluidaPorPosto(sector);
+
             return (
               <button
                 key={`${terminal.id}_${sector}_${idx}`}
@@ -319,11 +527,11 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                   <span className="text-[10px] text-amber-400 font-mono shrink-0 ml-1.5">+Solda</span>
                 ) : isLaserPending && stepEval ? (
                   <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5 ml-1.5">
-                    🔥 {stepEval.finalizadas}/{qtdTotal}
+                    🔥 {qtdConcluidaPosto}/{qtdTotal}
                   </span>
-                ) : isPartOfRoute && stepEval ? (
+                ) : isPartOfRoute ? (
                   <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1.5">
-                    {stepEval.finalizadas}/{qtdTotal}
+                    {qtdConcluidaPosto}/{qtdTotal}
                   </span>
                 ) : null}
               </button>

@@ -732,13 +732,13 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
     return true;
   }
 
-  // Vai-Vem
+  // Vai-Vem: Preparação e Montagem são etapas distintas e NUNCA devem ser equivalentes
   const normAClean = normA.replace(/[-_]/g, ' ');
   const normBClean = normB.replace(/[-_]/g, ' ');
   if (normAClean.includes('VAI VEM') && normBClean.includes('VAI VEM')) {
     if (normAClean.includes('PREPARACAO') && normBClean.includes('PREPARACAO')) return true;
     if ((normAClean.includes('MONTAGEM') || normAClean.includes('FINALIZACAO')) && (normBClean.includes('MONTAGEM') || normBClean.includes('FINALIZACAO'))) return true;
-    return true;
+    return false;
   }
 
   // Portas Giratórias
