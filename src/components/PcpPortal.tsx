@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey } from '../services/mesStorage';
-import { db, firestore, doc, writeBatch, ref, update } from '../services/firebase';
+import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
@@ -236,69 +236,72 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     e.target.value = '';
   };
 
-  // Função para salvar ordens importadas em lotes no Firestore
+  // Função para salvar ordens importadas diretamente no Firebase Realtime Database
   async function salvarOrdensImportadas(listaOrdens: any[]) {
     setIsImportingNomus(true);
     try {
-      // Gravação direta em lotes de 50 documentos para evitar queda de rede
-      const TAMANHO_LOTE = 50;
-      for (let i = 0; i < listaOrdens.length; i += TAMANHO_LOTE) {
-        const pedaco = listaOrdens.slice(i, i + TAMANHO_LOTE);
-        const batch = writeBatch(db);
+      const ordersMap: Record<string, ProductionOrder> = {};
+      const allRtdbUpdates: Record<string, any> = {};
 
-        for (const op of pedaco) {
-          const docId = String(op.id || op.numeroOp || op.numero || (op as any).op_numero || '').replace(/\//g, '-').trim();
-          if (!docId) continue;
+      for (const op of listaOrdens) {
+        const docId = String(op.id || op.numeroOp || op.numero || (op as any).op_numero || '').trim();
+        if (!docId) continue;
 
-          // Sanitização para garantir que não existam campos undefined no Firestore
-          const cleanOp = JSON.parse(JSON.stringify({
-            ...op,
-            id: docId,
-            numeroOp: docId,
-            numero: docId,
-            op_numero: docId
-          }));
+        const safeOp: ProductionOrder = JSON.parse(JSON.stringify({
+          ...op,
+          id: docId,
+          numero: docId,
+          numeroOp: docId,
+          op_numero: docId
+        }));
 
-          const docRef = doc(db, 'ordens_producao', docId);
-          batch.set(docRef, cleanOp, { merge: true });
-        }
-
-        await batch.commit();
+        const opKey = toFirebaseKey(docId);
+        ordersMap[docId] = safeOp;
+        allRtdbUpdates[`ordens_producao/${opKey}`] = safeOp;
       }
 
-      // Sincronização auxiliar no LocalStorage e Realtime Database para os totens
-      try {
-        const ordersMap: Record<string, ProductionOrder> = {};
-        const rtdbUpdates: Record<string, any> = {};
-        for (const op of listaOrdens) {
-          const docId = String(op.id || op.numeroOp || op.numero || (op as any).op_numero || '').replace(/\//g, '-').trim();
-          if (!docId) continue;
-          const safeOp = JSON.parse(JSON.stringify(op));
-          ordersMap[docId] = safeOp;
-          rtdbUpdates[`ordens_producao/${toFirebaseKey(docId)}`] = safeOp;
+      // 1. Gravação mandatória no Firebase Realtime Database (https://apontamentoop-default-rtdb.firebaseio.com)
+      if (replaceExistingOrders) {
+        // Se a opção de substituir estiver marcada, define atomicamente o nó /ordens_producao
+        const ordersNode: Record<string, any> = {};
+        for (const [docId, safeOp] of Object.entries(ordersMap)) {
+          const opKey = toFirebaseKey(docId);
+          ordersNode[opKey] = safeOp;
         }
-        localStorage.setItem('mes_pcp_orders', JSON.stringify(ordersMap));
-        if (onOrdersUpdated) {
-          onOrdersUpdated(ordersMap);
+        await set(ref(db, 'ordens_producao'), ordersNode);
+      } else {
+        // Se for mesclagem, aplica updates em lotes de 50 no Realtime Database para máxima segurança
+        const TAMANHO_LOTE = 50;
+        const keys = Object.keys(allRtdbUpdates);
+        for (let i = 0; i < keys.length; i += TAMANHO_LOTE) {
+          const chunkKeys = keys.slice(i, i + TAMANHO_LOTE);
+          const chunkUpdates: Record<string, any> = {};
+          for (const k of chunkKeys) {
+            chunkUpdates[k] = allRtdbUpdates[k];
+          }
+          await update(ref(db), chunkUpdates);
         }
-        update(ref(db), rtdbUpdates).catch(err => console.warn('[RTDB background update]', err));
-      } catch (cacheErr) {
-        console.warn('Erro ao atualizar cache local:', cacheErr);
+      }
+
+      // 2. Persistência imediata no LocalStorage e notificação ao PCP
+      localStorage.setItem('mes_pcp_orders', JSON.stringify(ordersMap));
+      if (onOrdersUpdated) {
+        onOrdersUpdated(ordersMap);
       }
 
       playSuccessStart();
-      alert(`${listaOrdens.length} Ordens de Produção salvas com sucesso!`);
+      alert(`${listaOrdens.length} Ordens de Produção gravadas com sucesso no Firebase Realtime Database!`);
       setShowNomusImportModal(false);
       window.location.reload();
     } catch (err: any) {
-      console.error('Falha ao gravar ordens:', err);
-      alert('Erro ao persistir no Firestore: ' + (err?.message || err));
+      console.error('Falha ao gravar ordens no Realtime Database:', err);
+      alert('Erro ao persistir no Firebase Realtime Database: ' + (err?.message || err));
     } finally {
       setIsImportingNomus(false);
     }
   }
 
-  // Confirma a importação das OPs do Nomus direto para o Firestore
+  // Confirma a importação das OPs do Nomus direto para o Firebase Realtime Database
   const handleConfirmImportNomus = async () => {
     if (!nomusParseResult || nomusParseResult.orders.length === 0 || isImportingNomus) return;
     playClick();

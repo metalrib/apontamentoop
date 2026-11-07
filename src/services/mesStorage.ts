@@ -2536,7 +2536,6 @@ export async function saveMultipleOrders(
   const orders: Record<string, ProductionOrder> = replaceAll ? {} : { ...currentOrders };
   let count = 0;
   const updates: Record<string, any> = {};
-  const firestoreBatchOps: Array<{ ref: any; data: any }> = [];
 
   for (const opImportada of newOrders) {
     const numeroOp = String(
@@ -2557,10 +2556,6 @@ export async function saveMultipleOrders(
       return k === numeroOp || normK === normNumeroOp;
     });
     const existingLocalOrder = existingOrderKey ? orders[existingOrderKey] : undefined;
-
-    // Referência direta no Firestore (sem getDoc prévio para não saturar conexões)
-    const firestoreDocId = numeroOp.replace(/\//g, '-').trim();
-    const opRef = doc(firestore, 'ordens_producao', firestoreDocId);
 
     const isExisting = Boolean(existingLocalOrder);
     const qtd = obterQuantidadeTotal(opImportada);
@@ -2605,7 +2600,6 @@ export async function saveMultipleOrders(
       };
 
       const serializableNew = JSON.parse(JSON.stringify(cleanNewOp));
-      firestoreBatchOps.push({ ref: opRef, data: serializableNew });
       updates[`ordens_producao/${opKey}`] = serializableNew;
       orders[numeroOp] = cleanNewOp;
       count++;
@@ -2717,11 +2711,6 @@ export async function saveMultipleOrders(
         metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
       }
 
-      firestoreBatchOps.push({
-        ref: opRef,
-        data: JSON.parse(JSON.stringify(metadadosParaAtualizar))
-      });
-
       // Preservação mandatória dos dados de chão de fábrica para Realtime Database e memória
       const opPreservada: ProductionOrder = {
         ...dadosAtuais,
@@ -2761,29 +2750,22 @@ export async function saveMultipleOrders(
     }
   }
 
-  // Gravação em lotes (writeBatch) no Firestore - chunks de até 50 operações para máxima estabilidade de rede
-  const CHUNK_SIZE = 50;
-  for (let i = 0; i < firestoreBatchOps.length; i += CHUNK_SIZE) {
-    const chunk = firestoreBatchOps.slice(i, i + CHUNK_SIZE);
-    try {
-      const batch = writeBatch(firestore);
-      for (const opItem of chunk) {
-        batch.set(opItem.ref, opItem.data, { merge: true });
-      }
-      await batch.commit();
-    } catch (batchErr) {
-      console.warn('[Firestore] Erro ao commitar lote de OPs no Firestore:', batchErr);
-    }
-  }
-
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
 
+  // Gravação direta no Firebase Realtime Database em lotes de 50
   try {
-    if (Object.keys(updates).length > 0) {
-      await update(ref(db), updates);
+    const updateKeys = Object.keys(updates);
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < updateKeys.length; i += CHUNK_SIZE) {
+      const chunkKeys = updateKeys.slice(i, i + CHUNK_SIZE);
+      const chunkUpdates: Record<string, any> = {};
+      for (const k of chunkKeys) {
+        chunkUpdates[k] = updates[k];
+      }
+      await update(ref(db), chunkUpdates);
     }
   } catch (err) {
-    console.error('[Firebase] Erro ao sincronizar ordens no RTDB via update:', err);
+    console.error('[Firebase RTDB] Erro ao sincronizar ordens via update:', err);
   }
 
   broadcastUpdate();
