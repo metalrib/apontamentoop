@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada } from '../utils/routeEngine';
-import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers } from 'lucide-react';
+import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 
 interface IndividualPieceCardsProps {
@@ -21,6 +21,8 @@ interface IndividualPieceCardsProps {
   qtdGaxetaPronta?: number;
   qtdMontagemPronta?: number;
   pecasDisponiveisParaMontar?: number;
+  onOpenOccurrenceModal?: () => void;
+  ocorrenciasCount?: number;
 }
 
 export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
@@ -38,7 +40,9 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
   ehGaxetaParaMontagem = false,
   qtdGaxetaPronta = 0,
   qtdMontagemPronta = 0,
-  pecasDisponiveisParaMontar = 0
+  pecasDisponiveisParaMontar = 0,
+  onOpenOccurrenceModal,
+  ocorrenciasCount = 0
 }) => {
   // Timer reativo em tempo real para unidades em andamento
   const [now, setNow] = useState<number>(Date.now());
@@ -491,6 +495,27 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
           );
         })}
       </div>
+
+      {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
+      {onOpenOccurrenceModal && (
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            onOpenOccurrenceModal();
+          }}
+          className="w-full py-2.5 px-4 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          title="Registrar ocorrência ou justificar atraso sem pausar a produção"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Registrar Ocorrência / Motivo de Atraso</span>
+          {ocorrenciasCount > 0 && (
+            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+              {ocorrenciasCount}
+            </span>
+          )}
+        </button>
+      )}
     </div>
   );
 };

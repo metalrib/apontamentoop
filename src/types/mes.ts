@@ -292,6 +292,15 @@ export interface OpMessage {
   data_hora: string;
 }
 
+export interface OpOcorrencia {
+  id: string;
+  dataHora: string;
+  operador: string;
+  posto: string;
+  terminal: number | string;
+  descricao: string;
+}
+
 export type EtapaStatus = 'PENDENTE' | 'EM_PRODUCAO' | 'CONCLUIDO';
 
 export interface OpEtapaState {
@@ -363,6 +372,7 @@ export interface ProductionOrder {
     data_hora: string;
   };
   mensagens?: OpMessage[];
+  ocorrencias?: Record<string, OpOcorrencia> | OpOcorrencia[];
 }
 
 export interface Apontamento {

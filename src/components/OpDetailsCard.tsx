@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
-import { updateProductionOrder, verificarECorrigirRotaOp } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
-import { CheckCircle2, Clock, Lock, Layers, Calendar, Tag, FileText, Hash, AlertCircle, Sparkles } from 'lucide-react';
+import { CheckCircle2, Clock, Lock, Layers, Calendar, Tag, FileText, Hash, AlertCircle, Sparkles, AlertTriangle } from 'lucide-react';
+import { OpOccurrenceModal } from './OpOccurrenceModal';
 
 interface OpDetailsCardProps {
   order: ProductionOrder;
@@ -16,9 +17,12 @@ interface OpDetailsCardProps {
 export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
   order: propOrder,
   apontamentos,
-  selectedSector
+  selectedSector,
+  currentTerminal
 }) => {
+  const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
   const order = verificarECorrigirRotaOp(propOrder);
+  const ocorrencias = obterOcorrenciasDaOp(order);
   const qtdTotal = obterQuantidadeTotal(order);
   const { rule } = getRouteForOp(order);
   const steps = Array.isArray(order.rota) && order.rota.length >= 4 ? order.rota : obterEtapasDaRota(order);
@@ -127,6 +131,29 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
             <span>{order.requer_solda ? 'Solda T5' : '+ Solda'}</span>
           </button>
         )}
+
+        {/* Botão Ocorrência no Cabeçalho da OP */}
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            setShowOccurrenceModal(true);
+          }}
+          className={`h-7 px-2 rounded-md text-[10px] font-mono font-bold border flex items-center gap-1 shadow-sm transition cursor-pointer active:scale-95 shrink-0 leading-none ${
+            ocorrencias.length > 0
+              ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+              : 'bg-slate-950 text-slate-400 hover:text-amber-300 border-slate-800 hover:border-amber-500/40'
+          }`}
+          title="Registrar Ocorrência / Motivo de Atraso"
+        >
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+          <span className="hidden sm:inline">Ocorrência</span>
+          {ocorrencias.length > 0 && (
+            <span className="px-1 py-0.2 bg-amber-500/40 text-amber-200 rounded text-[9px] font-black">
+              {ocorrencias.length}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* Lado Direito: Quantidade Total e Ajuste M² */}
@@ -169,6 +196,15 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
           </div>
         )}
       </div>
+
+      <OpOccurrenceModal
+        order={order}
+        selectedOperator={null}
+        selectedSector={selectedSector}
+        currentTerminal={currentTerminal}
+        isOpen={showOccurrenceModal}
+        onClose={() => setShowOccurrenceModal(false)}
+      />
     </div>
   );
 };

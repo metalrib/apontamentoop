@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder } from '../utils/routeEngine';
-import { updateProductionOrder } from '../services/mesStorage';
+import { updateProductionOrder, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 import { IndividualPieceCards } from './IndividualPieceCards';
+import { OpOccurrenceModal } from './OpOccurrenceModal';
 
 interface ProductionActionProps {
   order: ProductionOrder;
@@ -39,6 +40,10 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
 
   const matchedStep = selectedSector ? findStepForSector(selectedSector, steps) : null;
   const totalPhysicalUnits = obterQuantidadeTotal(order);
+
+  // Controle de Ocorrências / Motivo de Atraso
+  const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
+  const ocorrencias = obterOcorrenciasDaOp(order);
 
   // Identifica se a OP e o Setor utilizam Apontamento em Lote Completo ou Peça a Peça (Unitário)
   const isBatch = isBatchTracking(order, selectedSector);
@@ -223,23 +228,35 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
 
   if (ativaModoUnitario) {
     return (
-      <IndividualPieceCards
-        order={order}
-        apontamentos={apontamentos}
-        selectedSector={selectedSector}
-        matchedStep={matchedStep}
-        selectedOperator={selectedOperator}
-        totalPhysicalUnits={totalPhysicalUnits}
-        stepEval={stepEval}
-        routeValidation={routeValidation}
-        onStartUnit={onStartUnit}
-        onFinishUnit={onFinishUnit}
-        isLoading={isLoading}
-        ehGaxetaParaMontagem={ehGaxetaParaMontagem}
-        qtdGaxetaPronta={qtdGaxetaPronta}
-        qtdMontagemPronta={qtdMontagemPronta}
-        pecasDisponiveisParaMontar={pecasDisponiveisParaMontar}
-      />
+      <>
+        <IndividualPieceCards
+          order={order}
+          apontamentos={apontamentos}
+          selectedSector={selectedSector}
+          matchedStep={matchedStep}
+          selectedOperator={selectedOperator}
+          totalPhysicalUnits={totalPhysicalUnits}
+          stepEval={stepEval}
+          routeValidation={routeValidation}
+          onStartUnit={onStartUnit}
+          onFinishUnit={onFinishUnit}
+          isLoading={isLoading}
+          ehGaxetaParaMontagem={ehGaxetaParaMontagem}
+          qtdGaxetaPronta={qtdGaxetaPronta}
+          qtdMontagemPronta={qtdMontagemPronta}
+          pecasDisponiveisParaMontar={pecasDisponiveisParaMontar}
+          onOpenOccurrenceModal={() => setShowOccurrenceModal(true)}
+          ocorrenciasCount={ocorrencias.length}
+        />
+        <OpOccurrenceModal
+          order={order}
+          selectedOperator={selectedOperator}
+          selectedSector={selectedSector}
+          currentTerminal={currentTerminal}
+          isOpen={showOccurrenceModal}
+          onClose={() => setShowOccurrenceModal(false)}
+        />
+      </>
     );
   }
 
@@ -253,6 +270,31 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             ? 'Toque no seu nome no Passo 2 acima para liberar o início do lote.'
             : 'Toque no seu nome no Passo 2 acima para liberar o início da unidade.'}
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            setShowOccurrenceModal(true);
+          }}
+          className="w-full mt-2.5 py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 border border-amber-500/30 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          title="Registrar ocorrência ou justificar atraso sem pausar a produção"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Registrar Ocorrência / Motivo de Atraso</span>
+          {ocorrencias.length > 0 && (
+            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+              {ocorrencias.length}
+            </span>
+          )}
+        </button>
+        <OpOccurrenceModal
+          order={order}
+          selectedOperator={selectedOperator}
+          selectedSector={selectedSector}
+          currentTerminal={currentTerminal}
+          isOpen={showOccurrenceModal}
+          onClose={() => setShowOccurrenceModal(false)}
+        />
       </div>
     );
   }
@@ -357,6 +399,34 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
               </>
             )}
           </button>
+
+          {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
+          <button
+            type="button"
+            onClick={() => {
+              playClick();
+              setShowOccurrenceModal(true);
+            }}
+            className="w-full mt-2.5 py-2.5 px-4 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+            title="Registrar ocorrência ou justificar atraso sem pausar a produção"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>Registrar Ocorrência / Motivo de Atraso</span>
+            {ocorrencias.length > 0 && (
+              <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+                {ocorrencias.length}
+              </span>
+            )}
+          </button>
+
+          <OpOccurrenceModal
+            order={order}
+            selectedOperator={selectedOperator}
+            selectedSector={selectedSector}
+            currentTerminal={currentTerminal}
+            isOpen={showOccurrenceModal}
+            onClose={() => setShowOccurrenceModal(false)}
+          />
 
           {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
           {showRouterModal && (
@@ -549,6 +619,34 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           )}
         </button>
 
+        {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            setShowOccurrenceModal(true);
+          }}
+          className="w-full mt-2 py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          title="Registrar ocorrência ou justificar atraso sem pausar a produção"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Registrar Ocorrência / Motivo de Atraso</span>
+          {ocorrencias.length > 0 && (
+            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+              {ocorrencias.length}
+            </span>
+          )}
+        </button>
+
+        <OpOccurrenceModal
+          order={order}
+          selectedOperator={selectedOperator}
+          selectedSector={selectedSector}
+          currentTerminal={currentTerminal}
+          isOpen={showOccurrenceModal}
+          onClose={() => setShowOccurrenceModal(false)}
+        />
+
         {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
         {showRouterModal && (
           <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -679,6 +777,31 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
         <span className="text-sm font-bold text-white ml-2">
           LOTE 100% CONCLUÍDO NESTE SETOR ({totalPhysicalUnits} PEÇAS)
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            setShowOccurrenceModal(true);
+          }}
+          className="w-full mt-2.5 py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 border border-amber-500/30 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          title="Registrar ocorrência ou observação neste lote"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Registrar Ocorrência / Motivo de Atraso</span>
+          {ocorrencias.length > 0 && (
+            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+              {ocorrencias.length}
+            </span>
+          )}
+        </button>
+        <OpOccurrenceModal
+          order={order}
+          selectedOperator={selectedOperator}
+          selectedSector={selectedSector}
+          currentTerminal={currentTerminal}
+          isOpen={showOccurrenceModal}
+          onClose={() => setShowOccurrenceModal(false)}
+        />
       </div>
     );
   }
@@ -976,6 +1099,34 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             )}
           </button>
         )}
+
+        {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            setShowOccurrenceModal(true);
+          }}
+          className="w-full mt-2 py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          title="Registrar ocorrência ou justificar atraso sem pausar a produção"
+        >
+          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+          <span>Registrar Ocorrência / Motivo de Atraso</span>
+          {ocorrencias.length > 0 && (
+            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+              {ocorrencias.length}
+            </span>
+          )}
+        </button>
+
+        <OpOccurrenceModal
+          order={order}
+          selectedOperator={selectedOperator}
+          selectedSector={selectedSector}
+          currentTerminal={currentTerminal}
+          isOpen={showOccurrenceModal}
+          onClose={() => setShowOccurrenceModal(false)}
+        />
       </div>
     );
   }
@@ -1069,6 +1220,34 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           )}
         </button>
       )}
+
+      {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
+      <button
+        type="button"
+        onClick={() => {
+          playClick();
+          setShowOccurrenceModal(true);
+        }}
+        className="w-full mt-2 py-2 px-3 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+        title="Registrar ocorrência ou justificar atraso sem pausar a produção"
+      >
+        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+        <span>Registrar Ocorrência / Motivo de Atraso</span>
+        {ocorrencias.length > 0 && (
+          <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-200 rounded text-[10px] font-black border border-amber-500/40">
+            {ocorrencias.length}
+          </span>
+        )}
+      </button>
+
+      <OpOccurrenceModal
+        order={order}
+        selectedOperator={selectedOperator}
+        selectedSector={selectedSector}
+        currentTerminal={currentTerminal}
+        isOpen={showOccurrenceModal}
+        onClose={() => setShowOccurrenceModal(false)}
+      />
     </div>
   );
 };

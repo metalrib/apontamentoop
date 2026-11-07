@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { updateProductionOrder, verificarECorrigirRotaOp } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -12,8 +12,10 @@ import {
   Monitor,
   Sparkles,
   CheckCircle2,
-  Trash2
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
+import { OpOccurrenceModal } from './OpOccurrenceModal';
 
 interface OpProductionCardProps {
   order?: ProductionOrder;
@@ -40,6 +42,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   const steps = etapasCalculadas;
 
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
+  const ocorrencias = obterOcorrenciasDaOp(order);
 
   // Cálculo de Prazo e Atraso
   const deadline = calculateDeadlineInfo(order.data_entrega);
@@ -245,13 +249,32 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
       </div>
 
       {/* 3. FAIXA DE STATUS OPERACIONAL E EXPANSÃO */}
-      <div className="mt-3 pt-3 border-t border-blue-950 flex items-center justify-between gap-2">
-        {/* Tag de Prazo/Alerta */}
-        <span
-          className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono border ${deadline.badgeClass}`}
-        >
-          {deadline.label}
-        </span>
+      <div className="mt-3 pt-3 border-t border-blue-950 flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          {/* Tag de Prazo/Alerta */}
+          <span
+            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono border ${deadline.badgeClass}`}
+          >
+            {deadline.label}
+          </span>
+
+          {/* Badge de Ocorrências Registradas pelo Chão de Fábrica */}
+          {ocorrencias.length > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                playClick();
+                setShowOccurrenceModal(true);
+              }}
+              className="px-2.5 py-1 rounded-lg text-[11px] font-bold font-mono border bg-amber-500/15 border-amber-500/50 text-amber-300 hover:bg-amber-500/25 transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-95"
+              title="Ver ocorrências registradas pelo chão de fábrica"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+              <span>{ocorrencias.length} Ocorrência{ocorrencias.length > 1 ? 's' : ''}</span>
+            </button>
+          )}
+        </div>
 
         {/* Botão de expansão: "Detalhes ∨" / "Ocultar ∧" */}
         <button
@@ -293,6 +316,42 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                 {order.observacao || '—'}
               </span>
             </div>
+          </div>
+
+          {/* Ocorrências / Motivos de Atraso Registrados pelo Chão de Fábrica */}
+          <div className="bg-slate-950/90 p-3 rounded-xl border border-amber-500/30 text-xs font-mono space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold text-amber-300 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                <span>Ocorrências / Motivos de Atraso ({ocorrencias.length})</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  playClick();
+                  setShowOccurrenceModal(true);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[10px] font-bold transition cursor-pointer"
+              >
+                + Registrar / Ver Histórico
+              </button>
+            </div>
+
+            {ocorrencias.length === 0 ? (
+              <p className="text-[11px] text-slate-500">Nenhuma ocorrência registrada para esta ordem de produção.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {ocorrencias.map((oc) => (
+                  <div key={oc.id} className="p-2 bg-slate-900/80 rounded-lg border border-slate-800 text-[11px]">
+                    <div className="flex items-center justify-between text-slate-400 text-[10px] mb-0.5">
+                      <span className="font-bold text-amber-300">{oc.operador} • Posto: {oc.posto}</span>
+                      <span>{new Date(oc.dataHora).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} • {new Date(oc.dataHora).toLocaleDateString('pt-BR')}</span>
+                    </div>
+                    <p className="text-slate-200 whitespace-pre-wrap">{oc.descricao}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Âncora: Controle de Solda e Montagem sob demanda */}
@@ -422,6 +481,12 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
           ) : null}
         </div>
       )}
+
+      <OpOccurrenceModal
+        order={order}
+        isOpen={showOccurrenceModal}
+        onClose={() => setShowOccurrenceModal(false)}
+      />
     </div>
   );
 };

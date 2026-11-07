@@ -1,4 +1,4 @@
-import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo } from '../types/mes';
+import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo, OpOcorrencia } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
@@ -2499,6 +2499,83 @@ export async function addOpMessage(
     console.error('[Firebase] Erro ao adicionar mensagem na OP:', err);
   }
   broadcastUpdate();
+}
+
+/**
+ * Retorna lista de ocorrências da OP ordenadas por data/hora (mais recentes primeiro).
+ */
+export function obterOcorrenciasDaOp(order?: ProductionOrder | null): OpOcorrencia[] {
+  if (!order || !order.ocorrencias) return [];
+  if (Array.isArray(order.ocorrencias)) {
+    return [...order.ocorrencias].sort((a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime());
+  }
+  if (typeof order.ocorrencias === 'object') {
+    return Object.values(order.ocorrencias).sort((a, b) => new Date(b.dataHora).getTime() - new Date(a.dataHora).getTime());
+  }
+  return [];
+}
+
+/**
+ * Registra uma ocorrência / motivo de atraso na OP sem travar ou pausar a produção.
+ * Grava no Firebase Realtime Database:
+ * Caminho: ordens/${opId}/ocorrencias/${Date.now()}
+ */
+export async function addOpOccurrence(
+  opNumero: string,
+  occurrence: {
+    operador?: string;
+    posto?: string;
+    terminal?: number | string;
+    descricao: string;
+  }
+): Promise<OpOcorrencia> {
+  const timestamp = Date.now().toString();
+  const novaOcorrencia: OpOcorrencia = {
+    id: timestamp,
+    dataHora: new Date().toISOString(),
+    operador: occurrence.operador || 'Não identificado',
+    posto: occurrence.posto || 'Posto Geral',
+    terminal: occurrence.terminal || 1,
+    descricao: occurrence.descricao.trim()
+  };
+
+  const opId = opNumero.trim();
+  const opKey = toFirebaseKey(opId);
+
+  // 1. Grava no Firebase Realtime Database (https://apontamentoop-default-rtdb.firebaseio.com)
+  try {
+    const updates: Record<string, any> = {};
+    updates[`ordens/${toFirebaseKey(opId)}/ocorrencias/${timestamp}`] = novaOcorrencia;
+    updates[`ordens_producao/${opKey}/ocorrencias/${timestamp}`] = novaOcorrencia;
+    await update(ref(db), updates);
+  } catch (err) {
+    console.warn('[RTDB] Erro ao gravar ocorrência no Realtime Database:', err);
+  }
+
+  // 2. Atualiza LocalStorage para disponibilidade imediata na tela
+  try {
+    const raw = localStorage.getItem(STORAGE_ORDERS_KEY);
+    if (raw) {
+      const orders = JSON.parse(raw);
+      const foundKey = Object.keys(orders).find(
+        k => k === opId || toFirebaseKey(k) === opKey || k.replace(/[-_\s]/g, '').replace(/^OP/i, '') === opId.replace(/[-_\s]/g, '').replace(/^OP/i, '')
+      );
+      if (foundKey && orders[foundKey]) {
+        if (!orders[foundKey].ocorrencias) orders[foundKey].ocorrencias = {};
+        if (Array.isArray(orders[foundKey].ocorrencias)) {
+          orders[foundKey].ocorrencias.push(novaOcorrencia);
+        } else {
+          orders[foundKey].ocorrencias[timestamp] = novaOcorrencia;
+        }
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+      }
+    }
+  } catch (err) {
+    console.warn('Erro ao atualizar ocorrência no LocalStorage:', err);
+  }
+
+  broadcastUpdate();
+  return novaOcorrencia;
 }
 
 /**

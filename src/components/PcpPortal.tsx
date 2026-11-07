@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
 import { OpChatModal } from './OpChatModal';
+import { OpOccurrenceModal } from './OpOccurrenceModal';
 import { TeamManagementModal } from './TeamManagementModal';
 import { TeamProductivity } from './TeamProductivity';
 import { TerminalsOverview } from './TerminalsOverview';
@@ -66,6 +67,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EM_PRODUCAO' | 'FINALIZADA'>('ALL');
   const [orderViewMode, setOrderViewMode] = useState<'cards' | 'table'>('cards');
   const [chatOrder, setChatOrder] = useState<ProductionOrder | null>(null);
+  const [occurrenceOrder, setOccurrenceOrder] = useState<ProductionOrder | null>(null);
 
   // Toast de Feedback Operacional
   const [feedbackToast, setFeedbackToast] = useState<{ message: string; type?: 'success' | 'info' | 'error' } | null>(null);
@@ -830,6 +832,24 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                           </td>
                           <td className="p-3.5 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {obterOcorrenciasDaOp(op).length > 0 ? (
+                                <button
+                                  onClick={() => setOccurrenceOrder(op)}
+                                  className="p-1.5 text-amber-300 hover:text-amber-100 hover:bg-amber-500/20 bg-amber-500/10 border border-amber-500/30 rounded-lg transition cursor-pointer flex items-center gap-1"
+                                  title={`${obterOcorrenciasDaOp(op).length} ocorrência(s) registrada(s)`}
+                                >
+                                  <AlertTriangle className="w-4 h-4 text-amber-400" />
+                                  <span className="text-[10px] font-bold">{obterOcorrenciasDaOp(op).length}</span>
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => setOccurrenceOrder(op)}
+                                  className="p-1.5 text-slate-500 hover:text-amber-300 hover:bg-amber-500/10 rounded-lg transition cursor-pointer"
+                                  title="Registrar ocorrência na OP"
+                                >
+                                  <AlertTriangle className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => setChatOrder(op)}
                                 className="p-1.5 text-blue-400 hover:text-blue-200 hover:bg-blue-500/20 rounded-lg transition cursor-pointer"
@@ -1499,6 +1519,15 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         <OpChatModal
           order={orders[chatOrder.op_numero] || chatOrder}
           onClose={() => setChatOrder(null)}
+        />
+      )}
+
+      {/* Modal de Ocorrências / Motivos de Atraso */}
+      {occurrenceOrder && (
+        <OpOccurrenceModal
+          order={orders[occurrenceOrder.op_numero] || occurrenceOrder}
+          isOpen={Boolean(occurrenceOrder)}
+          onClose={() => setOccurrenceOrder(null)}
         />
       )}
 
