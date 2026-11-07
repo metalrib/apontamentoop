@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, update, push } from "firebase/database";
-import { getFirestore, doc as firestoreDoc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc as firestoreDoc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot, writeBatch } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCF7Q6J8I6fBZ3kaGbxq4rlefVzFaQrUnA",
@@ -29,5 +29,5 @@ export const doc = (dbOrFirestore: any, path: string, ...pathSegments: string[])
 };
 
 export { ref, set, get, onValue, update, push };
-export { updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot };
+export { updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot, writeBatch };
 export default db;

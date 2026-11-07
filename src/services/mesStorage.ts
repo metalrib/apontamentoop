@@ -1,7 +1,7 @@
 import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
-import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push } from './firebase';
+import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
 
@@ -2536,19 +2536,19 @@ export async function saveMultipleOrders(
   const orders: Record<string, ProductionOrder> = replaceAll ? {} : { ...currentOrders };
   let count = 0;
   const updates: Record<string, any> = {};
+  const firestoreBatchOps: Array<{ ref: any; data: any }> = [];
 
-  await Promise.all(
-    newOrders.map(async (opImportada) => {
-      const numeroOp = String(
-        (opImportada as any).numeroOp ||
-        (opImportada as any).numeroOP ||
-        opImportada.op_numero ||
-        opImportada.numero ||
-        (opImportada as any).id ||
-        ''
-      ).trim();
+  for (const opImportada of newOrders) {
+    const numeroOp = String(
+      (opImportada as any).numeroOp ||
+      (opImportada as any).numeroOP ||
+      opImportada.op_numero ||
+      opImportada.numero ||
+      (opImportada as any).id ||
+      ''
+    ).trim();
 
-      if (!numeroOp) return;
+    if (!numeroOp) continue;
 
     // Normalização para busca em memória / RTDB
     const normNumeroOp = numeroOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toUpperCase();
@@ -2558,41 +2558,11 @@ export async function saveMultipleOrders(
     });
     const existingLocalOrder = existingOrderKey ? orders[existingOrderKey] : undefined;
 
-    // 1. Verificação no Firestore pelo ID/Número da OP (ex: OP 023803-01 ou 024126-01)
-    const firestoreDocId = numeroOp.replace(/\//g, '-');
-    let opRef = doc(firestore, 'ordens_producao', firestoreDocId);
-    let docSnap: any = null;
-    try {
-      docSnap = await getDoc(opRef);
-      if (!docSnap.exists()) {
-        const semPrefixo = firestoreDocId.replace(/^OP\s*/i, '').trim();
-        if (semPrefixo && semPrefixo !== firestoreDocId) {
-          const altRef = doc(firestore, 'ordens_producao', semPrefixo);
-          const altSnap = await getDoc(altRef);
-          if (altSnap.exists()) {
-            opRef = altRef;
-            docSnap = altSnap;
-          }
-        }
-      }
-      if (!docSnap.exists()) {
-        const comPrefixo = `OP ${firestoreDocId.replace(/^OP\s*/i, '').trim()}`;
-        if (comPrefixo !== firestoreDocId) {
-          const altRef = doc(firestore, 'ordens_producao', comPrefixo);
-          const altSnap = await getDoc(altRef);
-          if (altSnap.exists()) {
-            opRef = altRef;
-            docSnap = altSnap;
-          }
-        }
-      }
-    } catch (fsErr) {
-      console.warn('[Firestore] Erro ao consultar documento da OP:', firestoreDocId, fsErr);
-    }
+    // Referência direta no Firestore (sem getDoc prévio para não saturar conexões)
+    const firestoreDocId = numeroOp.replace(/\//g, '-').trim();
+    const opRef = doc(firestore, 'ordens_producao', firestoreDocId);
 
-    const firestoreExists = Boolean(docSnap && docSnap.exists());
-    const isExisting = firestoreExists || Boolean(existingLocalOrder);
-
+    const isExisting = Boolean(existingLocalOrder);
     const qtd = obterQuantidadeTotal(opImportada);
     const rotaInfo = processarRotaProduto(opImportada);
     const rotasCalculadas = rotaInfo.rota && rotaInfo.rota.length > 0 ? rotaInfo.rota : obterEtapasDaRota(opImportada);
@@ -2635,34 +2605,16 @@ export async function saveMultipleOrders(
       };
 
       const serializableNew = JSON.parse(JSON.stringify(cleanNewOp));
-      console.log('OP importada:', cleanNewOp.numeroOp || cleanNewOp.op_numero, 'Código:', cleanNewOp.codigo, 'Rota definida:', cleanNewOp.rota);
-
-      // Salva novo registro completo inicial no Firestore
-      try {
-        await setDoc(opRef, serializableNew);
-      } catch (fsErr) {
-        console.warn('[Firestore] Erro ao salvar nova OP:', firestoreDocId, fsErr);
-      }
-
-      // Prepara registro no Realtime Database e memória
+      firestoreBatchOps.push({ ref: opRef, data: serializableNew });
       updates[`ordens_producao/${opKey}`] = serializableNew;
       orders[numeroOp] = cleanNewOp;
       count++;
     } else {
       // 3. Se a OP JÁ existir:
-      // - NUNCA dê setDoc completo substituindo o objeto.
-      // - Atualize APENAS os metadados vindos do ERP (ex.: prazoEntrega, observacoesNomus, statusNomus, cliente).
-      // - PRESERVE OBRIGATORIAMENTE os seguintes campos existentes:
-      //   * apontamentos (histórico de apontamentos de todos os setores)
-      //   * statusExecucao (ex: 'em_andamento', 'concluido')
-      //   * pecas (status unitário de cada cartão de peça)
-      //   * requerLaser / requerRouter (flags condicionais marcadas no chão de fábrica)
-      //   * operadores / iniciadoEm / concluidoEm
-      const firestoreData = firestoreExists ? docSnap.data() : {};
-      const dadosAtuais: any = {
-        ...(existingLocalOrder || {}),
-        ...firestoreData
-      };
+      // - NUNCA substitua o objeto completo no banco (merge: true).
+      // - Atualize APENAS os metadados vindos do ERP (prazoEntrega, observacoesNomus, statusNomus, cliente).
+      // - PRESERVE OBRIGATORIAMENTE apontamentos, pecas, statusExecucao, operadores, etc.
+      const dadosAtuais: any = existingLocalOrder;
 
       const prazoEntregaVal = opImportada.prazoEntrega || opImportada.data_entrega || dadosAtuais.prazoEntrega || dadosAtuais.data_entrega || '';
       const statusNomusVal = opImportada.statusNomus || opImportada.status_nomus || dadosAtuais.statusNomus || dadosAtuais.status_nomus || 'Liberada';
@@ -2686,14 +2638,7 @@ export async function saveMultipleOrders(
       if (opImportada.codigoProduto && !dadosAtuais.codigoProduto) metadadosParaAtualizar.codigoProduto = opImportada.codigoProduto;
       if (opImportada.lote && (!dadosAtuais.lote || dadosAtuais.lote === '—')) metadadosParaAtualizar.lote = opImportada.lote;
 
-      // Correção inteligente para OPs que foram importadas anteriormente com rota curta incorreta
-      // e devem receber a rota completa oficial por não serem padrão (ex: OP 024352-01 / cód 003.0140):
-      const etapasAtuaisArr = Array.isArray(dadosAtuais.etapas)
-        ? dadosAtuais.etapas
-        : (dadosAtuais.etapas && typeof dadosAtuais.etapas === 'object' ? Object.keys(dadosAtuais.etapas) : []);
-
       const semApontamentos = !dadosAtuais.apontamentos || Object.keys(dadosAtuais.apontamentos).length === 0;
-
       let etapasFinais = dadosAtuais.etapas || rotasCalculadas;
       let etapaAtualFinal = dadosAtuais.etapaAtual || etapaInicial;
       let statusEtapaFinal = dadosAtuais.statusEtapa || `Aguardando Início em: ${etapaAtualFinal}`;
@@ -2772,47 +2717,29 @@ export async function saveMultipleOrders(
         metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
       }
 
-      console.log('OP importada:', numeroOp, 'Código:', opImportada.codigo || dadosAtuais.codigo, 'Rota definida:', etapasFinais);
-
-      // Atualização no Firestore (NUNCA setDoc completo substituindo o chão de fábrica)
-      try {
-        if (firestoreExists) {
-          await updateDoc(opRef, JSON.parse(JSON.stringify(metadadosParaAtualizar)));
-        } else {
-          // Se não existia no Firestore mas já existia no RTDB/local, salva mesclando com campos existentes
-          await setDoc(opRef, JSON.parse(JSON.stringify({
-            ...dadosAtuais,
-            ...metadadosParaAtualizar
-          })));
-        }
-      } catch (fsErr) {
-        console.warn('[Firestore] Erro ao atualizar metadados da OP existente:', firestoreDocId, fsErr);
-      }
+      firestoreBatchOps.push({
+        ref: opRef,
+        data: JSON.parse(JSON.stringify(metadadosParaAtualizar))
+      });
 
       // Preservação mandatória dos dados de chão de fábrica para Realtime Database e memória
       const opPreservada: ProductionOrder = {
         ...dadosAtuais,
         ...metadadosParaAtualizar,
-        // PRESERVAÇÃO OBRIGATÓRIA DOS SEGUINTES CAMPOS EXISTENTES:
-        // 1. apontamentos (histórico de apontamentos de todos os setores)
         apontamentos: dadosAtuais.apontamentos ?? {},
-        // 2. statusExecucao (ex: 'em_andamento', 'concluido', 'pendente')
         statusExecucao: dadosAtuais.statusExecucao || dadosAtuais.status || 'pendente',
         status: dadosAtuais.status || 'EM_PRODUCAO',
         status_fabrica: dadosAtuais.status_fabrica || 'Produzindo Hoje',
         statusEtapa: statusEtapaFinal,
         etapaAtual: etapaAtualFinal,
         etapas: etapasFinais,
-        // 3. pecas (status unitário de cada cartão de peça)
         pecas: dadosAtuais.pecas !== undefined ? dadosAtuais.pecas : undefined,
-        // 4. requerLaser / requerRouter (flags condicionais marcadas no chão de fábrica)
         requerLaser: dadosAtuais.requerLaser !== undefined ? dadosAtuais.requerLaser : dadosAtuais.requer_laser,
         requer_laser: dadosAtuais.requer_laser !== undefined ? dadosAtuais.requer_laser : dadosAtuais.requerLaser,
         requerRouter: dadosAtuais.requerRouter !== undefined ? dadosAtuais.requerRouter : dadosAtuais.requer_router,
         requer_router: dadosAtuais.requer_router !== undefined ? dadosAtuais.requer_router : dadosAtuais.requerRouter,
         encaminhar_router: dadosAtuais.encaminhar_router !== undefined ? dadosAtuais.encaminhar_router : (dadosAtuais.requerRouter || dadosAtuais.requer_router),
         requer_solda: dadosAtuais.requer_solda,
-        // 5. operadores / iniciadoEm / concluidoEm
         operadores: dadosAtuais.operadores,
         operadorAtual: dadosAtuais.operadorAtual,
         colaboradorIniciou: dadosAtuais.colaboradorIniciou,
@@ -2820,7 +2747,6 @@ export async function saveMultipleOrders(
         dataInicio: dadosAtuais.dataInicio || dadosAtuais.iniciadoEm,
         concluidoEm: dadosAtuais.concluidoEm || dadosAtuais.dataConclusao,
         dataConclusao: dadosAtuais.dataConclusao || dadosAtuais.concluidoEm,
-        // Outros campos de chão de fábrica
         qtde_produzida: dadosAtuais.qtde_produzida !== undefined ? dadosAtuais.qtde_produzida : (opImportada.qtde_produzida || 0),
         progressoPostos: dadosAtuais.progressoPostos,
         mensagens: dadosAtuais.mensagens,
@@ -2833,7 +2759,22 @@ export async function saveMultipleOrders(
       orders[existingOrderKey || numeroOp] = opPreservada;
       count++;
     }
-  }));
+  }
+
+  // Gravação em lotes (writeBatch) no Firestore - chunks de até 250 operações (limite do Firestore: 500)
+  const CHUNK_SIZE = 250;
+  for (let i = 0; i < firestoreBatchOps.length; i += CHUNK_SIZE) {
+    const chunk = firestoreBatchOps.slice(i, i + CHUNK_SIZE);
+    try {
+      const batch = writeBatch(firestore);
+      for (const opItem of chunk) {
+        batch.set(opItem.ref, opItem.data, { merge: true });
+      }
+      await batch.commit();
+    } catch (batchErr) {
+      console.warn('[Firestore] Erro ao commitar lote de OPs no Firestore:', batchErr);
+    }
+  }
 
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
 
