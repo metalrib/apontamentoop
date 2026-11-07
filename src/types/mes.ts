@@ -77,12 +77,16 @@ export const CODIGOS_PADRAO_GIRO = new Set([
   ...Array.from(CODIGOS_GIRATORIA_PADRAO)
 ]);
 
+const CODIGOS_CORRER_BASE = [
+  '0020100', '0020101', '0020102', '0020103', '0020104', '0020105',
+  '0020106', '0020107', '0020108', '0020109', '0020110', '0020111',
+  '0050100', '0050101', '0050102', '0050103', '0050104', '0050105',
+  '0050106', '0050107', '0050108', '0050109', '0050110', '0050111'
+];
+
 export const CODIGOS_PADRAO_CORRER = new Set([
-  // Chapa Branca Resfriado / Padrão (Família 002 e 005)
-  '002.0100', '002.0101', '002.0102', '002.0103', '002.0104', '002.0105',
-  '002.0106', '002.0107', '002.0108', '002.0109', '002.0110', '002.0111',
-  '005.0100', '005.0101', '005.0102', '005.0103', '005.0104', '005.0105',
-  '005.0106', '005.0107', '005.0108', '005.0109', '005.0110', '005.0111'
+  ...CODIGOS_CORRER_BASE,
+  ...CODIGOS_CORRER_BASE.map(c => `${c.slice(0, 3)}.${c.slice(3)}`)
 ]);
 
 // Trilhos LGT Alumínio (Porta de Correr)
@@ -152,18 +156,25 @@ export const ROUTE_RULES: RouteRule[] = [
     badge: "Especial sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
-  // Rota 16 - Porta Padrão Correr (Terminal 4)
+  // Rota 16 - Porta Padrão Correr (Whitelist Exclusiva - Terminal 4: Montagem Direta)
   {
-    keyword: "PT COR",
-    label: "Rota 16 - Porta Padrão Correr",
+    keyword: "PT COR PADRAO",
+    label: "Porta de Correr Padrão",
     steps: ["Montagem Portas de Correr Padrão e Especial"],
     badge: "Linha Padrão (Montagem Direta)",
     isStandardLine: true
   },
-  // Rota 13/14 - Porta Especial de Correr (T1 -> T2/T3 -> T4)
+  // Rota Completa - Porta Especial de Correr / Sob Medida (Padrão para qualquer PT COR fora da Whitelist)
+  {
+    keyword: "PT COR",
+    label: "Porta de Correr Especial",
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    badge: "Especial sob Medida (Fabricação Completa)",
+    isStandardLine: false
+  },
   {
     keyword: "PT COR ESPECIAL",
-    label: "Rota 13/14 - Porta Especial de Correr",
+    label: "Porta de Correr Especial",
     steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial sob Medida (Fabricação Completa)",
     isStandardLine: false

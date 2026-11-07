@@ -1,4 +1,4 @@
-import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
+import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push } from './firebase';
@@ -2491,7 +2491,7 @@ export async function saveMultipleOrders(
 
       const codChecagem = String(opImportada.codigo || dadosAtuais.codigo || (opImportada as any).codigoProduto || (dadosAtuais as any).codigoProduto || '').replace(/[^0-9]/g, '');
       const descChecagem = String(opImportada.descricao || dadosAtuais.descricao || '').toUpperCase();
-      const ehGiro = descChecagem.includes('PT GIR') || descChecagem.includes('GIRAT') || descChecagem.includes('GIRO') || codChecagem.startsWith('001') || codChecagem.startsWith('003');
+      const ehGiro = descChecagem.includes('PT GIR') || descChecagem.includes('GIRAT') || descChecagem.includes('GIRO') || codChecagem.startsWith('001') || codChecagem.startsWith('002') || codChecagem.startsWith('003') || codChecagem.startsWith('004');
       const ehGiroPadrao = Boolean(codChecagem && CODIGOS_GIRATORIA_PADRAO.has(codChecagem));
 
       if (ehGiro && !ehGiroPadrao && semApontamentos) {
@@ -2512,6 +2512,54 @@ export async function saveMultipleOrders(
         metadadosParaAtualizar.rota = etapasFinais;
         metadadosParaAtualizar.familia = 'Porta Giratória Especial';
         metadadosParaAtualizar.tipoMontagem = 'Porta Giratória Especial';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
+      }
+
+      const ehCorrer =
+        descChecagem.includes('PT COR') ||
+        descChecagem.includes('PORTA CORRER') ||
+        descChecagem.includes('PORTA DE CORRER') ||
+        descChecagem.includes('CORRER') ||
+        descChecagem.includes('EMENDAD') ||
+        codChecagem.startsWith('005') ||
+        codChecagem.startsWith('006') ||
+        codChecagem.startsWith('007') ||
+        codChecagem.startsWith('008') ||
+        codChecagem.startsWith('029') ||
+        codChecagem.startsWith('025');
+
+      const ehCorrerPadrao =
+        Boolean(codChecagem && CODIGOS_PADRAO_CORRER.has(codChecagem)) &&
+        !descChecagem.includes('EMENDAD') &&
+        !descChecagem.includes('INOX') &&
+        !descChecagem.includes('I304') &&
+        !descChecagem.includes('I430') &&
+        !descChecagem.includes('SUPER CONG') &&
+        !descChecagem.includes('ESPECIAL') &&
+        !descChecagem.includes('ESP') &&
+        !codChecagem.startsWith('006') &&
+        !codChecagem.startsWith('007') &&
+        !codChecagem.startsWith('008') &&
+        !codChecagem.startsWith('029') &&
+        !codChecagem.startsWith('025');
+
+      if (ehCorrer && !ehCorrerPadrao && semApontamentos) {
+        etapasFinais = [
+          'Corte',
+          'Dobra',
+          'Preparação de Folha',
+          'Injeção',
+          'Montagem Portas de Correr Padrão e Especial'
+        ];
+        etapaAtualFinal = 'Corte';
+        statusEtapaFinal = 'Aguardando Início em: Corte';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Porta de Correr Especial';
+        metadadosParaAtualizar.tipoMontagem = 'Porta de Correr Especial';
         metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
       }
 

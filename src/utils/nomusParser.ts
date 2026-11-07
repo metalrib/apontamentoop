@@ -1,4 +1,4 @@
-import { ProductionOrder, FactoryStatus, CODIGOS_GIRATORIA_PADRAO } from '../types/mes';
+import { ProductionOrder, FactoryStatus, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
 export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string }): {
@@ -19,6 +19,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     }
   }
 
+  // 1. FAMÍLIA PORTA GIRATÓRIA (PADRÃO VS ESPECIAL)
   const ehGiratoria =
     desc.includes('PT GIR') ||
     desc.includes('PORTA GIR') ||
@@ -45,7 +46,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       };
     }
 
-    // Qualquer outro código cai compulsoriamente aqui (ex: 003.0140 ou qualquer medida especial):
+    // Qualquer outro código cai compulsoriamente aqui (ex: 003.0140, 700L ou qualquer medida especial):
     return {
       familia: 'Porta Giratória Especial',
       tipoMontagem: 'Porta Giratória Especial',
@@ -56,6 +57,63 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
+      ],
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+    };
+  }
+
+  // 2. FAMÍLIA PORTAS DE CORRER (PADRÃO VS ESPECIAL / SOB MEDIDA / EMENDADA)
+  const ehCorrer =
+    desc.includes('PT COR') ||
+    desc.includes('PORTA CORRER') ||
+    desc.includes('PORTA DE CORRER') ||
+    desc.includes('CORRER') ||
+    desc.includes('EMENDAD') ||
+    codNormalizado.startsWith('005') ||
+    codNormalizado.startsWith('006') ||
+    codNormalizado.startsWith('007') ||
+    codNormalizado.startsWith('008') ||
+    codNormalizado.startsWith('029') ||
+    codNormalizado.startsWith('025');
+
+  if (ehCorrer) {
+    // Uma porta de correr SÓ é padrão se constar explicitamente na Whitelist e não for sob medida/especial
+    const ehPadrao =
+      Boolean(codNormalizado && CODIGOS_PADRAO_CORRER.has(codNormalizado)) &&
+      !desc.includes('EMENDAD') &&
+      !desc.includes('INOX') &&
+      !desc.includes('I304') &&
+      !desc.includes('I430') &&
+      !desc.includes('SUPER CONG') &&
+      !desc.includes('ESPECIAL') &&
+      !desc.includes('ESP') &&
+      !codNormalizado.startsWith('006') &&
+      !codNormalizado.startsWith('007') &&
+      !codNormalizado.startsWith('008') &&
+      !codNormalizado.startsWith('029') &&
+      !codNormalizado.startsWith('025');
+
+    if (ehPadrao) {
+      return {
+        familia: 'Porta de Correr Padrão',
+        tipoMontagem: 'Porta de Correr Padrão',
+        rota: [
+          'Montagem Portas de Correr Padrão e Especial'
+        ],
+        statusAtual: 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial'
+      };
+    }
+
+    // Se NÃO for código padrão (ex: OP 023865-01 / Cód: 005.0149, medidas fora de padrão):
+    return {
+      familia: 'Porta de Correr Especial',
+      tipoMontagem: 'Porta de Correr Especial',
+      rota: [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Montagem Portas de Correr Padrão e Especial'
       ],
       statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
     };

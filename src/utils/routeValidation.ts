@@ -79,7 +79,7 @@ export function verificarSeExigeEmenda(descricao: string): boolean {
   return false;
 }
 
-import { CODIGOS_TRILHOS_LGT_PADRAO, CODIGOS_GIRATORIA_PADRAO, normalizarCodigo } from '../types/mes';
+import { CODIGOS_TRILHOS_LGT_PADRAO, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo } from '../types/mes';
 
 export function normalizeValidationText(text: string): string {
   return (text || '')
@@ -715,6 +715,7 @@ export function obterEtapasDaRota(op: any): string[] {
     desc.includes('PORTA DE CORRER') ||
     desc.includes('EMENDAD')
   ) {
+    const codLimpo = normalizarCodigo(cod);
     const ehInox = 
       desc.includes('I304') || 
       desc.includes('I430') || 
@@ -725,30 +726,36 @@ export function obterEtapasDaRota(op: any): string[] {
     const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011';
     const ehEmendada = desc.includes('EMENDAD') || cod.startsWith('029.') || cod.startsWith('025.');
 
-    // MEDIDAS PADRÃO METALRIB (COM FOLHA EM ESTOQUE)
-    const medidasPadrao = [
-      '600A X 600L', '800A X 800L', '1.000A X 1.000L', '1.800A X 800L',
-      '2.000A X 1.000L', '2.000A X 1.200L', '600 X 600', '800 X 800',
-      '1000A X 1000L', '1000 X 1000', '1.000 X 1.000', '1800A X 800L',
-      '1800 X 800', '1.800 X 800', '2000A X 1000L', '2000 X 1000',
-      '2.000 X 1.000', '2000A X 1200L', '2000 X 1200', '2.000 X 1.200'
-    ];
-    const ehMedidaPadrao = medidasPadrao.some(m => desc.includes(m));
+    // WHITELIST ESTRITA POR CÓDIGO DO PRODUTO:
+    // Uma porta de correr SÓ recebe rota curta de 1 etapa se constar explicitamente na Whitelist
+    // E não contiver indicadores especiais (Inox, Super Cong, Emendada, etc.)
+    const ehCodigoPadrao = Boolean(
+      codLimpo &&
+      (CODIGOS_PADRAO_CORRER.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(cod))
+    ) &&
+      !ehInox &&
+      !ehSuperCong &&
+      !ehEmendada &&
+      !desc.includes('ESP') &&
+      !desc.includes('ESPECIAL') &&
+      !cod.startsWith('006.') &&
+      !cod.startsWith('007.') &&
+      !cod.startsWith('008.') &&
+      !cod.startsWith('029.') &&
+      !cod.startsWith('025.');
 
-    // Se for Inox, Super Cong, Emendada ou Fora de Medida -> Especial: 5 etapas
-    const ehEspecialOuEmendada = ehInox || ehSuperCong || ehEmendada || (!ehMedidaPadrao && !cod.startsWith('005.') && !cod.startsWith('007.'));
-
-    if (ehEspecialOuEmendada) {
+    if (ehCodigoPadrao) {
+      // Porta de Correr Padrão -> 1 etapa direta (Terminal 4)
+      steps = [
+        'Montagem Portas de Correr Padrão e Especial'
+      ];
+    } else {
+      // Porta de Correr Especial / Sob Medida / Fora da Whitelist (ex: 005.0149) -> 5 etapas completas
       steps = [
         'Corte',
         'Dobra',
         'Preparação de Folha',
         'Injeção',
-        'Montagem Portas de Correr Padrão e Especial'
-      ];
-    } else {
-      // Porta de Correr Padrão -> 1 etapa direta (Terminal 4)
-      steps = [
         'Montagem Portas de Correr Padrão e Especial'
       ];
     }
@@ -805,7 +812,7 @@ export function definirRotaProduto(op: {
   }
   const codLimpo = normalizarCodigo(cod);
 
-  // Verifica se é da família Giratória
+  // 1. Verifica se é da família Giratória
   const ehFamiliaGiratoria =
     desc.includes('PT GIR') ||
     desc.includes('PORTA GIRATORIA') ||
@@ -813,11 +820,14 @@ export function definirRotaProduto(op: {
     desc.includes('PORTA GIR') ||
     desc.includes('GIRATÓRIA') ||
     desc.includes('GIRATORIA') ||
+    desc.includes('GIRO') ||
     codLimpo.startsWith('001') ||
-    codLimpo.startsWith('003');
+    codLimpo.startsWith('002') ||
+    codLimpo.startsWith('003') ||
+    codLimpo.startsWith('004');
 
   if (ehFamiliaGiratoria) {
-    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codRaw)));
+    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codRaw) || CODIGOS_GIRATORIA_PADRAO.has(cod)));
 
     if (ehCodigoPadrao) {
       return {
@@ -839,6 +849,63 @@ export function definirRotaProduto(op: {
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
+      ]
+    };
+  }
+
+  // 2. Verifica se é da família de Correr
+  const ehFamiliaCorrer =
+    desc.includes('PT COR') ||
+    desc.includes('PORTA CORRER') ||
+    desc.includes('PORTA DE CORRER') ||
+    desc.includes('EMENDAD') ||
+    codLimpo.startsWith('005') ||
+    codLimpo.startsWith('006') ||
+    codLimpo.startsWith('007') ||
+    codLimpo.startsWith('008') ||
+    codLimpo.startsWith('029') ||
+    codLimpo.startsWith('025');
+
+  if (ehFamiliaCorrer) {
+    const ehInox = 
+      desc.includes('I304') || 
+      desc.includes('I430') || 
+      desc.includes('INOX') || 
+      cod.startsWith('006.') || 
+      cod.startsWith('008.');
+    const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011';
+    const ehEmendada = desc.includes('EMENDAD') || cod.startsWith('029.') || cod.startsWith('025.');
+
+    const ehCodigoPadrao = Boolean(
+      codLimpo &&
+      (CODIGOS_PADRAO_CORRER.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codRaw) || CODIGOS_PADRAO_CORRER.has(cod))
+    ) &&
+      !ehInox &&
+      !ehSuperCong &&
+      !ehEmendada &&
+      !desc.includes('ESP') &&
+      !desc.includes('ESPECIAL') &&
+      !cod.startsWith('006.') &&
+      !cod.startsWith('007.') &&
+      !cod.startsWith('008.') &&
+      !cod.startsWith('029.') &&
+      !cod.startsWith('025.');
+
+    if (ehCodigoPadrao) {
+      return {
+        familia: 'Porta de Correr Padrão',
+        rota: ['Montagem Portas de Correr Padrão e Especial']
+      };
+    }
+
+    return {
+      familia: 'Porta de Correr Especial',
+      rota: [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Montagem Portas de Correr Padrão e Especial'
       ]
     };
   }
