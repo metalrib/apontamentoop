@@ -236,67 +236,73 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     e.target.value = '';
   };
 
-  // Confirma a importação das OPs do Nomus direto para o Firestore (batch), Realtime Database e LocalStorage
-  const handleConfirmImportNomus = async () => {
-    if (!nomusParseResult || nomusParseResult.orders.length === 0 || isImportingNomus) return;
-    playClick();
+  // Função para salvar ordens importadas em lotes no Firestore
+  async function salvarOrdensImportadas(listaOrdens: any[]) {
     setIsImportingNomus(true);
-
-    const listaOps = nomusParseResult.orders;
     try {
-      // 1. Grava no Firestore em lotes de 100 com writeBatch e merge: true (sem getDoc)
-      const tamanhoLote = 100;
-      for (let i = 0; i < listaOps.length; i += tamanhoLote) {
-        const pedaco = listaOps.slice(i, i + tamanhoLote);
-        const batch = writeBatch(firestore);
+      // Gravação direta em lotes de 50 documentos para evitar queda de rede
+      const TAMANHO_LOTE = 50;
+      for (let i = 0; i < listaOrdens.length; i += TAMANHO_LOTE) {
+        const pedaco = listaOrdens.slice(i, i + TAMANHO_LOTE);
+        const batch = writeBatch(db);
 
         for (const op of pedaco) {
-          const idDocumento = String(op.op_numero || (op as any).id || (op as any).numeroOp || op.numero || '').replace(/\//g, '-').trim();
-          if (!idDocumento) continue;
-          const refDoc = doc(firestore, 'ordens_producao', idDocumento);
-          batch.set(refDoc, JSON.parse(JSON.stringify(op)), { merge: true });
+          const docId = String(op.id || op.numeroOp || op.numero || (op as any).op_numero || '').replace(/\//g, '-').trim();
+          if (!docId) continue;
+
+          // Sanitização para garantir que não existam campos undefined no Firestore
+          const cleanOp = JSON.parse(JSON.stringify({
+            ...op,
+            id: docId,
+            numeroOp: docId,
+            numero: docId,
+            op_numero: docId
+          }));
+
+          const docRef = doc(db, 'ordens_producao', docId);
+          batch.set(docRef, cleanOp, { merge: true });
         }
 
         await batch.commit();
       }
 
-      // 2. Grava no Realtime Database e LocalStorage para sincronização instantânea dos totens
-      const updates: Record<string, any> = {};
-      const ordersMap: Record<string, ProductionOrder> = {};
-
-      for (const op of listaOps) {
-        const idDocumento = String(op.op_numero || (op as any).id || (op as any).numeroOp || op.numero || '').trim();
-        if (!idDocumento) continue;
-        const opKey = toFirebaseKey(idDocumento);
-        const serializable = JSON.parse(JSON.stringify(op));
-        updates[`ordens_producao/${opKey}`] = serializable;
-        ordersMap[idDocumento] = op;
-      }
-
-      if (Object.keys(updates).length > 0) {
-        try {
-          await update(ref(db), updates);
-        } catch (rtdbErr) {
-          console.warn('[RTDB] Erro ao sincronizar OPs:', rtdbErr);
+      // Sincronização auxiliar no LocalStorage e Realtime Database para os totens
+      try {
+        const ordersMap: Record<string, ProductionOrder> = {};
+        const rtdbUpdates: Record<string, any> = {};
+        for (const op of listaOrdens) {
+          const docId = String(op.id || op.numeroOp || op.numero || (op as any).op_numero || '').replace(/\//g, '-').trim();
+          if (!docId) continue;
+          const safeOp = JSON.parse(JSON.stringify(op));
+          ordersMap[docId] = safeOp;
+          rtdbUpdates[`ordens_producao/${toFirebaseKey(docId)}`] = safeOp;
         }
-      }
-
-      localStorage.setItem('mes_pcp_orders', JSON.stringify(ordersMap));
-
-      if (onOrdersUpdated) {
-        onOrdersUpdated(ordersMap);
+        localStorage.setItem('mes_pcp_orders', JSON.stringify(ordersMap));
+        if (onOrdersUpdated) {
+          onOrdersUpdated(ordersMap);
+        }
+        update(ref(db), rtdbUpdates).catch(err => console.warn('[RTDB background update]', err));
+      } catch (cacheErr) {
+        console.warn('Erro ao atualizar cache local:', cacheErr);
       }
 
       playSuccessStart();
-      alert(`${listaOps.length} Ordens importadas e sincronizadas com sucesso!`);
+      alert(`${listaOrdens.length} Ordens de Produção salvas com sucesso!`);
       setShowNomusImportModal(false);
       window.location.reload();
-    } catch (erro: any) {
-      console.error('Erro ao salvar lote:', erro);
-      alert('Falha ao salvar no banco: ' + (erro?.message || erro));
+    } catch (err: any) {
+      console.error('Falha ao gravar ordens:', err);
+      alert('Erro ao persistir no Firestore: ' + (err?.message || err));
     } finally {
       setIsImportingNomus(false);
     }
+  }
+
+  // Confirma a importação das OPs do Nomus direto para o Firestore
+  const handleConfirmImportNomus = async () => {
+    if (!nomusParseResult || nomusParseResult.orders.length === 0 || isImportingNomus) return;
+    playClick();
+    await salvarOrdensImportadas(nomusParseResult.orders);
   };
 
   // Limpa lista de OPs: aciona confirmação via window.confirm

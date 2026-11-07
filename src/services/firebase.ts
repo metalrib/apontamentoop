@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, update, push } from "firebase/database";
-import { getFirestore, doc as firestoreDoc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot, writeBatch } from "firebase/firestore";
+import { getFirestore, doc as firestoreDoc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot, writeBatch as firestoreWriteBatch } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCF7Q6J8I6fBZ3kaGbxq4rlefVzFaQrUnA",
@@ -28,6 +28,17 @@ export const doc = (dbOrFirestore: any, path: string, ...pathSegments: string[])
   return firestoreDoc(target, path, ...pathSegments);
 };
 
+// Wrapper resiliente para writeBatch que aceita firestore, db ou nenhum argumento
+export const writeBatch = (dbOrFirestore?: any) => {
+  const isFirestore = dbOrFirestore && (
+    dbOrFirestore === firestore ||
+    dbOrFirestore.type === 'firestore' ||
+    (typeof dbOrFirestore === 'object' && (dbOrFirestore._delegate?.type === 'firestore' || dbOrFirestore._delegate?._databaseId))
+  );
+  const target = isFirestore ? dbOrFirestore : firestore;
+  return firestoreWriteBatch(target);
+};
+
 export { ref, set, get, onValue, update, push };
-export { updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot, writeBatch };
+export { updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot };
 export default db;

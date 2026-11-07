@@ -2761,8 +2761,8 @@ export async function saveMultipleOrders(
     }
   }
 
-  // Gravação em lotes (writeBatch) no Firestore - chunks de até 250 operações (limite do Firestore: 500)
-  const CHUNK_SIZE = 250;
+  // Gravação em lotes (writeBatch) no Firestore - chunks de até 50 operações para máxima estabilidade de rede
+  const CHUNK_SIZE = 50;
   for (let i = 0; i < firestoreBatchOps.length; i += CHUNK_SIZE) {
     const chunk = firestoreBatchOps.slice(i, i + CHUNK_SIZE);
     try {
