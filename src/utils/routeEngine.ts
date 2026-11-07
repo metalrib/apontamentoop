@@ -45,10 +45,12 @@ import {
   validarPostoTrilho,
   verificarRouterLiberada,
   verificarDobraLiberada,
-  verificarPreparacaoFolhasLiberada
+  verificarPreparacaoFolhasLiberada,
+  isFolhaOrder
 } from './routeValidation';
 
 export {
+  isFolhaOrder,
   verificarSeExigeEmenda,
   getRotaTrilhoCorrer,
   getRotaEstanteCompleta,
@@ -1315,6 +1317,16 @@ export function getRouteEvaluation(
           canStart = false;
           blockingReason = prepCheck.motivo || 'Aguardando início da etapa Dobra';
         }
+      } else if (
+        normStep.includes('LASER') ||
+        (normStep.includes('CORTE') && !normStep.includes('ALUMINIO') && normPrevStep.includes('LASER')) ||
+        (isFolhaOrder(op) && (normStep.includes('LASER') || (normStep.includes('CORTE') && !normStep.includes('ALUMINIO'))))
+      ) {
+        // REGRA GERAL DE PARALELISMO: Corte e Laser são postos de entrada em paralelo no Terminal 1.
+        // O Laser NUNCA deve ser bloqueado pelo status do Corte ("Aguardando término do lote no setor anterior").
+        // O operador deve ter total liberdade para selecionar e iniciar o lote no Laser imediatamente, mesmo que o Corte ainda esteja com 0 peças apontadas ou em andamento.
+        canStart = true;
+        blockingReason = undefined;
       } else if (isBatch) {
         if (prevFinishedCount === 0) {
           canStart = false;

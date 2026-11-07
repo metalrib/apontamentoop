@@ -481,6 +481,9 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                   if (isSobDemanda && !order.requer_solda) {
                     await updateProductionOrder(order.op_numero, { requer_solda: true });
                   }
+                  if (isLaserSector && !order.requer_laser) {
+                    await updateProductionOrder(order.op_numero, { requer_laser: true });
+                  }
                   onSelectSector(sector);
                 }}
                 title={isBlockedByRouteRule ? routeValidation.motivo : undefined}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder } from '../utils/routeEngine';
 import { updateProductionOrder } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -771,7 +771,19 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     (normSelectedPosto === 'PREPARACAO' && prevStepName && prevStepName.toUpperCase().includes('DOBRA'));
   const prepCheck = verificarPreparacaoFolhasLiberada(order, apontamentos);
 
-  if (ehGaxetaParaMontagem) {
+  // REGRA GERAL DE PARALELISMO: Corte e Laser são postos de entrada em paralelo no Terminal 1
+  const isLaser = normSelectedPosto.includes('LASER');
+  const isCorte = normSelectedPosto.includes('CORTE') && !normSelectedPosto.includes('ALUMINIO');
+  const opEhFolha = isFolhaOrder(order);
+
+  if (isLaser || (opEhFolha && isCorte)) {
+    // Se o posto ativo for 'Laser', ele NUNCA deve ser bloqueado por dependência do setor 'Corte'
+    // O operador tem total liberdade para selecionar e iniciar o lote no Laser imediatamente.
+    if (stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    }
+  } else if (ehGaxetaParaMontagem) {
     if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
       podeIniciar = true;
       bloqueadoPorSetorAnterior = false;
@@ -815,6 +827,8 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
+    : isLaser && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0
+    ? undefined
     : isDobra && !dobraCheck.dobraLiberada
     ? (dobraCheck.motivo || 'Aguardando início do Corte ou Laser')
     : isPrepFolhas && !prepCheck.preparacaoLiberada

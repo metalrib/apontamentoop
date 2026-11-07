@@ -79,7 +79,14 @@ export function verificarSeExigeEmenda(descricao: string): boolean {
   return false;
 }
 
-import { CODIGOS_TRILHOS_LGT_PADRAO, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo } from '../types/mes';
+import {
+  CODIGOS_TRILHOS_LGT_PADRAO,
+  CODIGOS_GIRATORIA_PADRAO,
+  CODIGOS_PADRAO_CORRER,
+  CODIGOS_FOLHAS_PADRAO,
+  CODIGOS_BATENTES_PADRAO,
+  normalizarCodigo
+} from '../types/mes';
 
 export function normalizeValidationText(text: string): string {
   return (text || '')
@@ -87,6 +94,53 @@ export function normalizeValidationText(text: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
     .trim();
+}
+
+/**
+ * Identifica se uma OP ou especificação de produto refere-se a Ordens de Folhas
+ * ('Folha de Linha Padrão', 'Folha Especial', 'FOLHA GIR', 'FOLHA COR', códigos 020.0009 a 020.0031, etc.).
+ */
+export function isFolhaOrder(op: any, explicitCodigo?: string): boolean {
+  if (!op) return false;
+  const desc = normalizeValidationText(
+    typeof op === 'string'
+      ? op
+      : op.descricao || op.produto || op.description || ''
+  );
+  const fam = normalizeValidationText(
+    typeof op === 'object' && op !== null
+      ? (op.familia || '')
+      : ''
+  );
+  let rawCod = String(
+    explicitCodigo ||
+    (typeof op === 'object' && op !== null
+      ? op.codigoProduto || op.cod || op.codigo || op.code || ''
+      : '')
+  ).trim();
+
+  const matchCode = rawCod.match(/^(\d{3})\.?(\d{4})$/);
+  if (matchCode) {
+    rawCod = `${matchCode[1]}.${matchCode[2]}`;
+  }
+  const cleanDigits = rawCod.replace(/\D/g, '');
+
+  if (CODIGOS_FOLHAS_PADRAO.has(rawCod)) return true;
+  if (fam.includes('FOLHA')) return true;
+  if (
+    desc.includes('FOLHA') ||
+    desc.includes('FOLHAS') ||
+    desc.includes('FLH ') ||
+    desc.includes('FLH-')
+  ) {
+    return true;
+  }
+  if ((rawCod >= '020.0009' && rawCod <= '020.0031') || (rawCod.startsWith('020.') && !CODIGOS_BATENTES_PADRAO.has(rawCod)) || cleanDigits.startsWith('020')) {
+    if (CODIGOS_BATENTES_PADRAO.has(rawCod)) return false;
+    if (desc.startsWith('BAT ') || desc.startsWith('BAT-') || desc.startsWith('BATENTE')) return false;
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1280,7 +1334,7 @@ export function validarPostoIndustrial(
       if (normStep.includes('VAI VEM') && normPosto.includes('VAI VEM')) return true;
       if (normStep.includes('ROUTER') && normPosto.includes('ROUTER')) return true;
       return false;
-    }) || (normPosto.includes('LASER') && Boolean(op?.requer_laser));
+    }) || (normPosto.includes('LASER') && (Boolean(op?.requer_laser) || terminalId === 1 || isFolhaOrder(op)));
 
     if (isPostoValido) {
       return { valido: true };
