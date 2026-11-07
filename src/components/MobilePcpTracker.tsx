@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterEtapasDaRota } from '../utils/routeEngine';
+import { verificarECorrigirRotaOp } from '../services/mesStorage';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { Html5Qrcode } from 'html5-qrcode';
 import {
@@ -239,12 +240,12 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
   // Sincroniza OP inicial se fornecida
   useEffect(() => {
     if (initialOpNumber && orders[initialOpNumber]) {
-      setSelectedOp(orders[initialOpNumber]);
+      setSelectedOp(verificarECorrigirRotaOp(orders[initialOpNumber]));
       setSearchTerm(initialOpNumber);
     }
   }, [initialOpNumber, orders]);
 
-  const orderList = useMemo(() => Object.values(orders), [orders]);
+  const orderList = useMemo(() => Object.values(orders).map(verificarECorrigirRotaOp), [orders]);
 
   // Mapa rápido de apontamentos ativos indexados por OP
   const activeApontamentoByOp = useMemo(() => {

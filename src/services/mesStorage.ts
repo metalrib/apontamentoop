@@ -1,4 +1,4 @@
-import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER } from '../types/mes';
+import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push } from './firebase';
@@ -90,6 +90,211 @@ function broadcastUpdate() {
       // silent
     }
   }
+}
+
+const persistQueue = new Set<string>();
+
+function persistirCorrecaoOp(docId: string, dadosParaAtualizar: Record<string, any>) {
+  if (persistQueue.has(docId)) return;
+  persistQueue.add(docId);
+
+  // 1. Atualiza no Firestore (usando cliente autenticado do navegador)
+  try {
+    const cleanId = docId.trim();
+    const firestoreRef = doc(firestore, 'ordens_producao', cleanId);
+    updateDoc(firestoreRef, dadosParaAtualizar).catch(() => {
+      const altId = cleanId.startsWith('OP ') ? cleanId.replace(/^OP\s*/i, '').trim() : `OP ${cleanId}`;
+      updateDoc(doc(firestore, 'ordens_producao', altId), dadosParaAtualizar).catch(() => {});
+    });
+  } catch {}
+
+  // 2. Atualiza no Realtime Database (em segundo plano sem travar render)
+  try {
+    const key = toFirebaseKey(docId);
+    update(ref(db, `ordens_producao/${key}`), dadosParaAtualizar).catch(() => {});
+  } catch {}
+}
+
+/**
+ * AUTO-CORREÇÃO EM TEMPO REAL NO RUNTIME DO FRONTEND
+ * Verifica se a OP é Porta Especial (Correr Especial ou Giratória fora da Whitelist)
+ * e, caso tenha menos de 4 ou 5 etapas gravadas no banco:
+ * 1. Corrigir o estado em memória imediatamente para a rota completa de 5 ou 6 etapas.
+ * 2. Disparar persistência assíncrona em segundo plano no Firestore e Realtime Database.
+ */
+export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
+  if (!op || typeof op !== 'object') return op;
+
+  const desc = String(op.descricao || (op as any).produto || '').toUpperCase();
+  const codRaw = String(op.codigo || (op as any).codigoProduto || (op as any).cod || '').trim();
+  let codNormalizado = normalizarCodigo(codRaw);
+  if (!codNormalizado && desc) {
+    const matchCod = desc.match(/\b(\d{3}[\.-]?\d{4})\b/);
+    if (matchCod) {
+      codNormalizado = normalizarCodigo(matchCod[1]);
+    }
+  }
+
+  // Não intercepta subcomponentes (Batentes, Folhas avulsas, Trilhos, Âncoras, etc.)
+  const ehSubcomponente =
+    codNormalizado.startsWith('020') ||
+    codNormalizado.startsWith('021') ||
+    codNormalizado.startsWith('028') ||
+    codNormalizado.startsWith('011') ||
+    codNormalizado.startsWith('009') ||
+    codNormalizado.startsWith('010') ||
+    desc.startsWith('BAT') ||
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('FOLHA') ||
+    desc.startsWith('TRILHO') ||
+    desc.includes('ANCORA') ||
+    desc.includes('VAI VEM') ||
+    desc.includes('OFFICE DOOR');
+
+  if (ehSubcomponente) return op;
+
+  const ehGiratoria =
+    desc.includes('PT GIR') ||
+    desc.includes('PORTA GIR') ||
+    desc.includes('GIRATORIA') ||
+    desc.includes('GIRATÓRIA') ||
+    desc.includes('GIRO') ||
+    codNormalizado.startsWith('001') ||
+    codNormalizado.startsWith('002') ||
+    codNormalizado.startsWith('003') ||
+    codNormalizado.startsWith('004');
+
+  const ehCorrer =
+    desc.includes('PT COR') ||
+    desc.includes('PORTA CORRER') ||
+    desc.includes('PORTA DE CORRER') ||
+    desc.includes('CORRER') ||
+    desc.includes('EMENDAD') ||
+    codNormalizado.startsWith('005') ||
+    codNormalizado.startsWith('006') ||
+    codNormalizado.startsWith('007') ||
+    codNormalizado.startsWith('008') ||
+    codNormalizado.startsWith('029') ||
+    codNormalizado.startsWith('025');
+
+  const docId = (op.op_numero || (op as any).numeroOP || op.numero || (op as any).id || '').trim();
+
+  // 1. Giratória Especial: Não está na whitelist oficial de padrão
+  const ehGiroPadrao = Boolean(codNormalizado && CODIGOS_GIRATORIA_PADRAO.has(codNormalizado));
+  const ehGiroEspecial = ehGiratoria && (!ehGiroPadrao || desc.includes('ESP') || desc.includes('ESPECIAL') || op.familia?.includes('Especial'));
+
+  if (ehGiroEspecial) {
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+    if (!rotaAtual || rotaAtual.length < 5 || !rotaAtual.includes('Corte')) {
+      const novaRota = [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória Padrão e Especial'
+      ];
+
+      op.rota = novaRota;
+      op.etapas = novaRota;
+      op.familia = 'Porta Giratória Especial';
+      op.tipoMontagem = 'Porta Giratória Especial';
+
+      const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+      if (semApts) {
+        if (!op.etapaAtual || op.etapaAtual.includes('Instalação') || op.etapaAtual.includes('Montagem')) {
+          op.etapaAtual = 'Corte';
+          op.statusEtapa = 'Aguardando Início em: Corte';
+          op.status = 'Aguardando Início em: Corte';
+        }
+        if (!op.statusAtual || op.statusAtual.includes('Instalação') || op.statusAtual.includes('Montagem')) {
+          op.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
+        }
+      }
+
+      if (docId) {
+        persistirCorrecaoOp(docId, {
+          rota: novaRota,
+          etapas: novaRota,
+          familia: 'Porta Giratória Especial',
+          tipoMontagem: 'Porta Giratória Especial',
+          etapaAtual: op.etapaAtual,
+          statusEtapa: op.statusEtapa,
+          status: op.status,
+          statusAtual: op.statusAtual
+        });
+      }
+    }
+  }
+
+  // 2. Correr Especial / Sob Medida: Não está na whitelist padrão ou possui marcadores especiais
+  const ehCorrerPadrao =
+    Boolean(codNormalizado && CODIGOS_PADRAO_CORRER.has(codNormalizado)) &&
+    !desc.includes('EMENDAD') &&
+    !desc.includes('INOX') &&
+    !desc.includes('I304') &&
+    !desc.includes('I430') &&
+    !desc.includes('SUPER CONG') &&
+    !desc.includes('ESPECIAL') &&
+    !desc.includes('ESP') &&
+    !codNormalizado.startsWith('006') &&
+    !codNormalizado.startsWith('007') &&
+    !codNormalizado.startsWith('008') &&
+    !codNormalizado.startsWith('029') &&
+    !codNormalizado.startsWith('025');
+
+  const ehCorrerEspecial =
+    ehCorrer &&
+    (!ehCorrerPadrao ||
+      op.familia?.includes('Especial') ||
+      desc.includes('ESP') ||
+      desc.includes('ESPECIAL') ||
+      Boolean((op as any).medidaEspecial));
+
+  if (ehCorrerEspecial) {
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+    if (!rotaAtual || rotaAtual.length < 4 || !rotaAtual.includes('Corte')) {
+      const novaRota = [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Montagem Portas de Correr Padrão e Especial'
+      ];
+
+      op.rota = novaRota;
+      op.etapas = novaRota;
+      op.familia = 'Porta de Correr Especial';
+      op.tipoMontagem = 'Porta de Correr Especial';
+
+      const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+      if (semApts) {
+        if (!op.etapaAtual || op.etapaAtual.includes('Montagem')) {
+          op.etapaAtual = 'Corte';
+          op.statusEtapa = 'Aguardando Início em: Corte';
+          op.status = 'Aguardando Início em: Corte';
+        }
+        if (!op.statusAtual || op.statusAtual.includes('Montagem')) {
+          op.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
+        }
+      }
+
+      if (docId) {
+        persistirCorrecaoOp(docId, {
+          rota: novaRota,
+          etapas: novaRota,
+          familia: 'Porta de Correr Especial',
+          tipoMontagem: 'Porta de Correr Especial',
+          etapaAtual: op.etapaAtual,
+          statusEtapa: op.statusEtapa,
+          status: op.status,
+          statusAtual: op.statusAtual
+        });
+      }
+    }
+  }
+
+  return op;
 }
 
 /**
@@ -891,7 +1096,8 @@ export function initFirebaseRealtimeListeners(): void {
                 quantidade_total: qtd,
                 quantidade: qtd
               });
-              ordersMap[opNumero] = syncedItem;
+              const correctedItem = verificarECorrigirRotaOp(syncedItem);
+              ordersMap[opNumero] = correctedItem;
             }
           }
         });
@@ -1159,7 +1365,8 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
               quantidade_total: qtd,
               quantidade: qtd
             });
-            ordersMap[opNumero] = syncedItem;
+            const correctedItem = verificarECorrigirRotaOp(syncedItem);
+            ordersMap[opNumero] = correctedItem;
           }
         }
       });
@@ -1186,6 +1393,7 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
       }
       const o = orders[key];
       if (o) {
+        orders[key] = verificarECorrigirRotaOp(o);
         const qtd = obterQuantidadeTotal(o);
         if (o.quantidade_total !== qtd || o.quantidade !== qtd) {
           o.quantidade_total = qtd;

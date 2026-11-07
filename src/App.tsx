@@ -11,7 +11,8 @@ import {
   finishBatch,
   subscribeToMesUpdates,
   fetchTerminalsConfig,
-  TEST_DUMMY_OPS
+  TEST_DUMMY_OPS,
+  verificarECorrigirRotaOp
 } from './services/mesStorage';
 import { db, ref, onValue } from './services/firebase';
 import { Header } from './components/Header';
@@ -88,7 +89,11 @@ export default function App() {
         fetchProductionOrders(),
         fetchApontamentos()
       ]);
-      setOrders(allOrders || {});
+      const correctedMap: Record<string, ProductionOrder> = {};
+      Object.keys(allOrders || {}).forEach((k) => {
+        correctedMap[k] = verificarECorrigirRotaOp(allOrders[k]);
+      });
+      setOrders(correctedMap);
       setApontamentos(allApts || []);
 
       // Sincroniza configuração de terminais e setores caso tenham sido editados no PCP
@@ -125,13 +130,14 @@ export default function App() {
             const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
             if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
               const qtd = obterQuantidadeTotal(item);
-              map[opNumero] = {
+              const correctedItem = verificarECorrigirRotaOp({
                 ...item,
                 op_numero: opNumero,
                 numero: item.numero || opNumero,
                 quantidade_total: qtd,
                 quantidade: qtd
-              };
+              });
+              map[opNumero] = correctedItem;
             }
           }
         });

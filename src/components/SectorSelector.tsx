@@ -10,7 +10,7 @@ import {
   validarPostoIndustrial,
   etapaPertenceARota
 } from '../utils/routeEngine';
-import { updateProductionOrder } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp } from '../services/mesStorage';
 import { playClick, playBlockedError } from '../utils/audio';
 import { Check, AlertCircle, Lock } from 'lucide-react';
 
@@ -24,11 +24,12 @@ interface SectorSelectorProps {
 
 export const SectorSelector: React.FC<SectorSelectorProps> = ({
   terminal,
-  order,
+  order: propOrder,
   apontamentos,
   selectedSector,
   onSelectSector
 }) => {
+  const order = verificarECorrigirRotaOp(propOrder);
   const [blockedWarning, setBlockedWarning] = useState<string | null>(null);
   const qtdTotal = obterQuantidadeTotal(order);
 

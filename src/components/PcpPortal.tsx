@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp } from '../services/mesStorage';
 import { db, ref, update } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
@@ -125,7 +125,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const [newOpLote, setNewOpLote] = useState<string>('LT-2026-01');
   const [newOpClient, setNewOpClient] = useState<string>('');
 
-  const orderList = Object.values(orders);
+  const orderList = Object.values(orders).map(verificarECorrigirRotaOp);
 
   // Filtro de OPs
   const filteredOrders = orderList.filter((op) => {

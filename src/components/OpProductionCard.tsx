@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { updateProductionOrder } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -31,11 +31,11 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   onSelectForTotem,
   onDelete
 }) => {
-  const op = (propOrder || propOp)!;
+  const op = verificarECorrigirRotaOp((propOrder || propOp)!);
   const order = op;
 
-  // 1. FORÇAR CÁLCULO DINÂMICO DAS ETAPAS (IGNORANDO DADOS ESTÁTICOS DO BANCO op.etapas)
-  const etapasCalculadas = obterEtapasDaRota(op);
+  // 1. FORÇAR CÁLCULO DINÂMICO DAS ETAPAS
+  const etapasCalculadas = Array.isArray(op.rota) && op.rota.length >= 4 ? op.rota : obterEtapasDaRota(op);
   const totalEtapas = etapasCalculadas.length;
   const steps = etapasCalculadas;
 
