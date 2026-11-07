@@ -400,7 +400,9 @@ function resolveBaseRoute(
   // 7. Portas de Correr (Padrão vs Especial e Emendadas)
   if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('EMENDADA')) {
     const exigeEmenda = verificarSeExigeEmenda(desc || '');
-    const isEspecial = (code && !CODIGOS_PADRAO_CORRER.has(code)) || norm.includes('ESPECIAL') || norm.includes('INOX') || norm.includes('SUPER CONG') || exigeEmenda;
+    const codLimpo = normalizarCodigo(code || '');
+    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_PADRAO_CORRER.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(code || '')));
+    const isEspecial = !ehCodigoPadrao || norm.includes('ESPECIAL') || norm.includes('ESP') || norm.includes('INOX') || norm.includes('SUPER CONG') || exigeEmenda;
     const montagemStep = 'Montagem Portas de Correr Padrão e Especial';
 
     if (!isEspecial) {
@@ -877,7 +879,11 @@ export function initOrSyncOrderEtapas(
   // Auto-correção caso uma porta especial estava com etapa inicial incorreta em Gaxeta/Montagem sem apontamento
   if (
     steps[0] === 'Corte' &&
-    (!etapaAtual || etapaAtual === 'Instalação de Gaxeta' || etapaAtual === 'Montagem de Portas Giratória Padrão e Especial') &&
+    (!etapaAtual ||
+      etapaAtual === 'Instalação de Gaxeta' ||
+      etapaAtual === 'Montagem de Portas Giratória Padrão e Especial' ||
+      etapaAtual === 'Montagem Portas de Correr Padrão e Especial' ||
+      etapaAtual.includes('Montagem')) &&
     apontamentos.length === 0 &&
     (!order.statusExecucao || order.statusExecucao === 'pendente' || String(status || '').includes('Aguardando Início'))
   ) {
@@ -890,9 +896,11 @@ export function initOrSyncOrderEtapas(
 
   return {
     ...order,
+    rota: steps,
     etapaAtual,
     statusEtapa,
     status,
+    statusAtual: order.statusAtual && !order.statusAtual.includes('Aguardando Início') ? order.statusAtual : `AGUARDANDO INÍCIO EM: ${etapaAtual}`,
     etapas: currentEtapas
   };
 }

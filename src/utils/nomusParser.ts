@@ -19,6 +19,47 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     }
   }
 
+  // Se for subcomponente (Batente, Folha, Trilho, Âncora, Vai-Vem, Office Door, etc.), delega para obterEtapasDaRota
+  const ehSubcomponenteOuOutro =
+    codNormalizado.startsWith('020') ||
+    codNormalizado.startsWith('021') ||
+    codNormalizado.startsWith('028') ||
+    codNormalizado.startsWith('011') ||
+    codNormalizado.startsWith('009') ||
+    codNormalizado.startsWith('010') ||
+    codNormalizado.startsWith('014') ||
+    codNormalizado.startsWith('015') ||
+    codNormalizado.startsWith('022') ||
+    codNormalizado.startsWith('090') ||
+    desc.startsWith('BAT') ||
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('FOLHA') ||
+    desc.startsWith('TRILHO') ||
+    desc.includes('ANCORA') ||
+    desc.includes('VAI VEM') ||
+    desc.includes('OFFICE DOOR') ||
+    desc.includes('ABRIGO DOCA') ||
+    desc.includes('ESTANTE') ||
+    desc.startsWith('PERFIL PP');
+
+  if (ehSubcomponenteOuOutro) {
+    const rotas = obterEtapasDaRota(op);
+    let familia = 'Geral';
+    if (codNormalizado.startsWith('020') || desc.startsWith('BAT') || desc.startsWith('BATENTE')) familia = 'Batente';
+    else if (codNormalizado.startsWith('028') || desc.startsWith('TRILHO')) familia = 'Trilho';
+    else if (desc.startsWith('FOLHA')) familia = 'Folha Avulsa';
+    else if (codNormalizado.startsWith('021') || desc.includes('ANCORA')) familia = 'Âncora';
+    else if (codNormalizado.startsWith('011') || desc.includes('VAI VEM')) familia = 'Porta Vai e Vem';
+    else if (codNormalizado.startsWith('009') || codNormalizado.startsWith('010') || desc.includes('OFFICE DOOR')) familia = 'Office Door';
+
+    return {
+      familia,
+      tipoMontagem: familia,
+      rota: rotas,
+      statusAtual: `AGUARDANDO INÍCIO EM: ${rotas[0] || 'Corte'}`
+    };
+  }
+
   // 1. FAMÍLIA PORTA GIRATÓRIA (PADRÃO VS ESPECIAL)
   const ehGiratoria =
     desc.includes('PT GIR') ||
@@ -27,7 +68,9 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     desc.includes('GIRATÓRIA') ||
     desc.includes('GIRO') ||
     codNormalizado.startsWith('001') ||
-    codNormalizado.startsWith('003');
+    codNormalizado.startsWith('002') ||
+    codNormalizado.startsWith('003') ||
+    codNormalizado.startsWith('004');
 
   if (ehGiratoria) {
     // REGRA RESTRITIVA (WHITELIST POR CÓDIGO NORMALIZADO):

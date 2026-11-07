@@ -812,6 +812,44 @@ export function definirRotaProduto(op: {
   }
   const codLimpo = normalizarCodigo(cod);
 
+  // Subcomponentes delegam diretamente para obterEtapasDaRota
+  const ehSubcomponenteOuOutro =
+    codLimpo.startsWith('020') ||
+    codLimpo.startsWith('021') ||
+    codLimpo.startsWith('028') ||
+    codLimpo.startsWith('011') ||
+    codLimpo.startsWith('009') ||
+    codLimpo.startsWith('010') ||
+    codLimpo.startsWith('014') ||
+    codLimpo.startsWith('015') ||
+    codLimpo.startsWith('022') ||
+    codLimpo.startsWith('090') ||
+    desc.startsWith('BAT') ||
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('FOLHA') ||
+    desc.startsWith('TRILHO') ||
+    desc.includes('ANCORA') ||
+    desc.includes('VAI VEM') ||
+    desc.includes('OFFICE DOOR') ||
+    desc.includes('ABRIGO DOCA') ||
+    desc.includes('ESTANTE') ||
+    desc.startsWith('PERFIL PP');
+
+  if (ehSubcomponenteOuOutro) {
+    let familia = 'Geral';
+    if (codLimpo.startsWith('020') || desc.startsWith('BAT') || desc.startsWith('BATENTE')) familia = 'Batente';
+    else if (codLimpo.startsWith('028') || desc.startsWith('TRILHO')) familia = 'Trilho';
+    else if (desc.startsWith('FOLHA')) familia = 'Folha Avulsa';
+    else if (codLimpo.startsWith('021') || desc.includes('ANCORA')) familia = 'Âncora';
+    else if (codLimpo.startsWith('011') || desc.includes('VAI VEM')) familia = 'Porta Vai e Vem';
+    else if (codLimpo.startsWith('009') || codLimpo.startsWith('010') || desc.includes('OFFICE DOOR')) familia = 'Office Door';
+
+    return {
+      familia,
+      rota: obterEtapasDaRota(op)
+    };
+  }
+
   // 1. Verifica se é da família Giratória
   const ehFamiliaGiratoria =
     desc.includes('PT GIR') ||
