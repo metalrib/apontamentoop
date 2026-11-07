@@ -2537,17 +2537,18 @@ export async function saveMultipleOrders(
   let count = 0;
   const updates: Record<string, any> = {};
 
-  for (const opImportada of newOrders) {
-    const numeroOp = String(
-      (opImportada as any).numeroOp ||
-      (opImportada as any).numeroOP ||
-      opImportada.op_numero ||
-      opImportada.numero ||
-      (opImportada as any).id ||
-      ''
-    ).trim();
+  await Promise.all(
+    newOrders.map(async (opImportada) => {
+      const numeroOp = String(
+        (opImportada as any).numeroOp ||
+        (opImportada as any).numeroOP ||
+        opImportada.op_numero ||
+        opImportada.numero ||
+        (opImportada as any).id ||
+        ''
+      ).trim();
 
-    if (!numeroOp) continue;
+      if (!numeroOp) return;
 
     // Normalização para busca em memória / RTDB
     const normNumeroOp = numeroOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toUpperCase();
@@ -2832,7 +2833,7 @@ export async function saveMultipleOrders(
       orders[existingOrderKey || numeroOp] = opPreservada;
       count++;
     }
-  }
+  }));
 
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
 

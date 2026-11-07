@@ -39,7 +39,8 @@ import {
   Sparkles,
   LayoutGrid,
   List,
-  MessageSquare
+  MessageSquare,
+  Loader2
 } from 'lucide-react';
 import { playClick, playSuccessStart } from '../utils/audio';
 
@@ -86,6 +87,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const [nomusParseResult, setNomusParseResult] = useState<NomusParseResult | null>(null);
   const [replaceExistingOrders, setReplaceExistingOrders] = useState<boolean>(true);
   const [importSuccessMsg, setImportSuccessMsg] = useState<string | null>(null);
+  const [isImportingNomus, setIsImportingNomus] = useState<boolean>(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   // Modal Gestão de Equipe e Colaboradores
@@ -225,37 +227,47 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     reader.onload = (ev) => {
       const content = ev.target?.result as string;
       if (content) {
+        setNomusHtmlInput(content);
         handleAnalyzeNomusHtml(content);
         setShowNomusImportModal(true);
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   // Confirma a importação das OPs do Nomus para a fábrica com blindagem de ordens em andamento
   const handleConfirmImportNomus = async () => {
-    if (!nomusParseResult || nomusParseResult.orders.length === 0) return;
+    if (!nomusParseResult || nomusParseResult.orders.length === 0 || isImportingNomus) return;
     playClick();
+    setIsImportingNomus(true);
 
-    // Salva com mesclagem e blindagem condicional no Firestore e Realtime Database
-    const result = await saveMultipleOrders(nomusParseResult.orders, false);
-    const count = typeof result === 'object' && 'count' in result ? result.count : Number(result);
-    const nextOrders = typeof result === 'object' && result.orders ? result.orders : orders;
+    try {
+      // Salva com mesclagem e blindagem condicional no Firestore e Realtime Database
+      const result = await saveMultipleOrders(nomusParseResult.orders, false);
+      const count = typeof result === 'object' && 'count' in result ? result.count : Number(result);
+      const nextOrders = typeof result === 'object' && result.orders ? result.orders : orders;
 
-    if (onOrdersUpdated) {
-      onOrdersUpdated(nextOrders);
+      if (onOrdersUpdated) {
+        onOrdersUpdated(nextOrders);
+      }
+
+      playSuccessStart();
+      setImportSuccessMsg(`🎉 ${count} Ordens de Produção do Nomus processadas e blindadas com sucesso!`);
+      showToast(`🎉 ${count} Ordens de Produção processadas com sucesso!`, 'success');
+
+      setTimeout(() => {
+        setShowNomusImportModal(false);
+        setNomusHtmlInput('');
+        setNomusParseResult(null);
+        setImportSuccessMsg(null);
+        setIsImportingNomus(false);
+      }, 1200);
+    } catch (err) {
+      console.error('[PCP] Erro ao importar OPs do Nomus:', err);
+      showToast('Erro ao gravar ordens de produção. Tente novamente.', 'error');
+      setIsImportingNomus(false);
     }
-
-    playSuccessStart();
-    setImportSuccessMsg(`🎉 ${count} Ordens de Produção do Nomus processadas e blindadas com sucesso!`);
-    showToast(`🎉 ${count} Ordens de Produção processadas com sucesso!`, 'success');
-    
-    setTimeout(() => {
-      setShowNomusImportModal(false);
-      setNomusHtmlInput('');
-      setNomusParseResult(null);
-      setImportSuccessMsg(null);
-    }, 1500);
   };
 
   // Limpa lista de OPs: aciona confirmação via window.confirm
@@ -322,17 +334,6 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
   return (
     <div className="min-h-screen bg-[#070B16] text-slate-100 flex flex-col font-sans relative">
-      {/* Input invisível de arquivo para importação do HTML do Nomus */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".html,.htm"
-        className="hidden"
-        onClick={(e) => {
-          (e.target as HTMLInputElement).value = '';
-        }}
-        onChange={handleFileInputChange}
-      />
 
       {/* Toast de Confirmação de Operações */}
       {feedbackToast && (
@@ -1268,6 +1269,16 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                     <span>Cole o HTML do Nomus abaixo:</span>
                   </label>
 
+                  {/* Input de arquivo .html oculto diretamente no modal */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".html,.htm"
+                    className="hidden"
+                    style={{ display: 'none' }}
+                    onChange={handleFileInputChange}
+                  />
+
                   {/* Upload de arquivo .html */}
                   <button
                     type="button"
@@ -1393,32 +1404,51 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
             {/* Footer de Ações do Modal - Fixo e Sempre Visível */}
             <div className="p-5 border-t border-blue-900/80 flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0 bg-[#090F21]">
-              <span className="text-xs text-slate-400 font-mono text-center sm:text-left">
-                Ao clicar em confirmar, todas as ordens ficarão disponíveis instantaneamente nos 5 terminais do chão de fábrica.
+              <span className="text-xs font-mono text-center sm:text-left">
+                {isImportingNomus ? (
+                  <span className="text-emerald-400 font-bold animate-pulse flex items-center gap-1.5 justify-center sm:justify-start">
+                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    <span>Gravando ordens no banco e sincronizando os 5 terminais em lote...</span>
+                  </span>
+                ) : (
+                  <span className="text-slate-400">
+                    Ao clicar em confirmar, todas as ordens ficarão disponíveis instantaneamente nos 5 terminais do chão de fábrica.
+                  </span>
+                )}
               </span>
 
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   type="button"
+                  disabled={isImportingNomus}
                   onClick={() => setShowNomusImportModal(false)}
-                  className="px-4 py-2.5 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer transition hover:bg-slate-800"
+                  className="px-4 py-2.5 rounded-xl text-slate-400 hover:text-white text-xs font-bold cursor-pointer transition hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
-                  disabled={!nomusParseResult || nomusParseResult.orders.length === 0}
+                  disabled={!nomusParseResult || nomusParseResult.orders.length === 0 || isImportingNomus}
                   onClick={handleConfirmImportNomus}
                   className={`px-6 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition cursor-pointer active:scale-95 shadow-lg ${
-                    nomusParseResult && nomusParseResult.orders.length > 0
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/50 shadow-emerald-950'
-                      : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
+                    nomusParseResult && nomusParseResult.orders.length > 0 && !isImportingNomus
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white border border-emerald-400/50 shadow-emerald-950 ring-2 ring-emerald-500/20'
+                      : 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-80'
                   }`}
                 >
-                  <Check className="w-4 h-4" />
-                  <span>
-                    Confirmar e Carregar {nomusParseResult ? nomusParseResult.orders.length : 0} OPs na Fábrica
-                  </span>
+                  {isImportingNomus ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-200" />
+                      <span>Gravando {nomusParseResult?.orders.length || 0} OPs na Fábrica...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      <span>
+                        Confirmar e Carregar {nomusParseResult ? nomusParseResult.orders.length : 0} OPs na Fábrica
+                      </span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
