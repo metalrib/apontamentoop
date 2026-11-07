@@ -79,7 +79,7 @@ export function verificarSeExigeEmenda(descricao: string): boolean {
   return false;
 }
 
-import { CODIGOS_TRILHOS_LGT_PADRAO } from '../types/mes';
+import { CODIGOS_TRILHOS_LGT_PADRAO, CODIGOS_GIRATORIA_PADRAO, normalizarCodigo } from '../types/mes';
 
 export function normalizeValidationText(text: string): string {
   return (text || '')
@@ -668,7 +668,7 @@ export function obterEtapasDaRota(op: any): string[] {
     ];
   }
 
-  // 7. PORTAS GIRATÓRIAS (PADRÃO E ESPECIAL / INOX / SUPER CONG / MEDIDA ESPECIAL) -> T4
+  // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO)
   else if (
     cod.startsWith('001.') ||
     cod.startsWith('002.') ||
@@ -677,12 +677,29 @@ export function obterEtapasDaRota(op: any): string[] {
     desc.includes('PT GIR') ||
     desc.includes('PORTA GIR') ||
     desc.includes('GIRATORIA') ||
+    desc.includes('GIRATÓRIA') ||
     desc.includes('GIRO')
   ) {
-    steps = [
-      'Instalação de Gaxeta',
-      'Montagem de Portas Giratória Padrão e Especial'
-    ];
+    const codLimpo = normalizarCodigo(cod);
+    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(cod)));
+
+    if (ehCodigoPadrao) {
+      // Porta Giratória Padrão (Whitelist): 2 etapas (Terminal 4)
+      steps = [
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória Padrão e Especial'
+      ];
+    } else {
+      // Porta Giratória Especial (Fora da Whitelist, ex: 003.0140): ROTA COMPLETA de fabricação
+      steps = [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória Padrão e Especial'
+      ];
+    }
   }
 
   // 8. PORTAS DE CORRER (PADRÃO, ESPECIAL E EMENDADAS)
@@ -764,6 +781,73 @@ export function obterEtapasDaRota(op: any): string[] {
   }
 
   return steps;
+}
+
+/**
+ * Define a rota do produto com prioridade absoluta por código (Whitelist).
+ * Uma porta giratória SÓ recebe rota curta de 2 etapas se o código estiver
+ * presente explicitamente em CODIGOS_GIRATORIA_PADRAO. Caso contrário,
+ * é obrigatoriamente Porta Giratória Especial (Rota Completa de 6 etapas).
+ */
+export function definirRotaProduto(op: {
+  codigo?: string;
+  codigoProduto?: string;
+  cod?: string;
+  descricao?: string;
+  produto?: string;
+}): { familia: string; rota: string[] } {
+  const codRaw = String(op?.codigoProduto || (op as any)?.cod || op?.codigo || '').trim();
+  const desc = String(op?.descricao || (op as any)?.produto || '').toUpperCase();
+  let cod = codRaw;
+  if (!cod && desc) {
+    const match = desc.match(/\b(\d{3}[\.-]?\d{4})\b/);
+    if (match) cod = match[1];
+  }
+  const codLimpo = normalizarCodigo(cod);
+
+  // Verifica se é da família Giratória
+  const ehFamiliaGiratoria =
+    desc.includes('PT GIR') ||
+    desc.includes('PORTA GIRATORIA') ||
+    desc.includes('PORTA GIRATÓRIA') ||
+    desc.includes('PORTA GIR') ||
+    desc.includes('GIRATÓRIA') ||
+    desc.includes('GIRATORIA') ||
+    codLimpo.startsWith('001') ||
+    codLimpo.startsWith('003');
+
+  if (ehFamiliaGiratoria) {
+    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codRaw)));
+
+    if (ehCodigoPadrao) {
+      return {
+        familia: 'Porta Giratória Padrão',
+        rota: [
+          'Instalação de Gaxeta',
+          'Montagem de Portas Giratória Padrão e Especial'
+        ]
+      };
+    }
+
+    // Se NÃO for código padrão (como 003.0140), é OBRIGATORIAMENTE Especial (Rota Completa)
+    return {
+      familia: 'Porta Giratória Especial',
+      rota: [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória Padrão e Especial'
+      ]
+    };
+  }
+
+  // Demais famílias delegam para o roteador central
+  return {
+    familia: 'Outros',
+    rota: obterEtapasDaRota(op)
+  };
 }
 
 // Funções de Classificação de Produtos Industriais

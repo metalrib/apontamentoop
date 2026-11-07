@@ -54,14 +54,27 @@ export interface RouteRule {
   isStandardLine?: boolean;
 }
 
-// Códigos Padrão de Linha (Exclusivamente Chapa Branca Resfriado - Portas Congeladas 003 e Especiais caem na rota Especial Completa)
+export const normalizarCodigo = (c: string) => (c || '').replace(/\D/g, '');
+
+// Tabela oficial de CÓDIGOS DE PORTAS GIRATÓRIAS PADRÃO (WHITELIST RESTRITIVA)
+// Exclusivamente Chapa Branca Resfriado da Linha Padrão Oficial Metalrib (Família 001.01xx)
+// Portas Congeladas (003.xxxx) e Especiais caem OBRIGATORIAMENTE na rota Especial Completa.
+const CODIGOS_GIRATORIA_BASE = [
+  '0010100', '0010101', '0010102', '0010103', '0010104', '0010105', '0010106', '0010107',
+  '0010108', '0010109', '0010110', '0010111', '0010112', '0010113', '0010114', '0010115',
+  '0010116', '0010117', '0010118', '0010119', '0010120', '0010121', '0010122', '0010123',
+  '0010124', '0010125', '0010126', '0010127', '0010128', '0010129', '0010130', '0010131',
+  '0010135', '0010136', '0010137', '0010138'
+];
+
+export const CODIGOS_GIRATORIA_PADRAO = new Set([
+  ...CODIGOS_GIRATORIA_BASE,
+  ...CODIGOS_GIRATORIA_BASE.map(c => `${c.slice(0, 3)}.${c.slice(3)}`)
+]);
+
 export const CODIGOS_PADRAO_GIRO = new Set([
-  // Chapa Branca Resfriado (36)
-  '001.0100', '001.0101', '001.0102', '001.0103', '001.0104', '001.0105', '001.0106', '001.0107',
-  '001.0108', '001.0109', '001.0110', '001.0111', '001.0112', '001.0113', '001.0114', '001.0115',
-  '001.0116', '001.0117', '001.0118', '001.0119', '001.0120', '001.0121', '001.0122', '001.0123',
-  '001.0124', '001.0125', '001.0126', '001.0127', '001.0128', '001.0129', '001.0130', '001.0131',
-  '001.0135', '001.0136', '001.0137', '001.0138'
+  ...Array.from(CODIGOS_GIRATORIA_PADRAO).map(c => `${c.slice(0, 3)}.${c.slice(3)}`),
+  ...Array.from(CODIGOS_GIRATORIA_PADRAO)
 ]);
 
 export const CODIGOS_PADRAO_CORRER = new Set([
@@ -102,20 +115,42 @@ export const CODIGOS_ANCORAS_PADRAO = new Set([
 ]);
 
 export const ROUTE_RULES: RouteRule[] = [
-  // Rota 15 - Porta Giratória (Padrão e Especial - Terminal 4)
+  // Rota 15 - Porta Giratória Padrão (Whitelist Exclusiva - Terminal 4: Montagem Direta)
   {
-    keyword: "PT GIR",
-    label: "Porta Giratória (Padrão e Especial)",
+    keyword: "PT GIR PADRAO",
+    label: "Porta Giratória Padrão",
     steps: ["Instalação de Gaxeta", "Montagem de Portas Giratória Padrão e Especial"],
     badge: "Linha Padrão (Montagem Direta)",
     isStandardLine: true
   },
+  // Rota Completa - Porta Giratória Especial (Padrão para qualquer PT GIR fora da Whitelist - T1 -> T2 -> T4)
+  {
+    keyword: "PT GIR",
+    label: "Porta Giratória Especial",
+    steps: [
+      "Corte",
+      "Dobra",
+      "Preparação de Folha",
+      "Injeção",
+      "Instalação de Gaxeta",
+      "Montagem de Portas Giratória Padrão e Especial"
+    ],
+    badge: "Especial sob Medida (Fabricação Completa)",
+    isStandardLine: false
+  },
   {
     keyword: "PT GIR ESPECIAL",
-    label: "Porta Giratória (Padrão e Especial)",
-    steps: ["Instalação de Gaxeta", "Montagem de Portas Giratória Padrão e Especial"],
-    badge: "Montagem T4 (Unitário)",
-    isStandardLine: true
+    label: "Porta Giratória Especial",
+    steps: [
+      "Corte",
+      "Dobra",
+      "Preparação de Folha",
+      "Injeção",
+      "Instalação de Gaxeta",
+      "Montagem de Portas Giratória Padrão e Especial"
+    ],
+    badge: "Especial sob Medida (Fabricação Completa)",
+    isStandardLine: false
   },
   // Rota 16 - Porta Padrão Correr (Terminal 4)
   {
@@ -258,6 +293,7 @@ export interface ProductionOrder {
   op_numero: string;              // ex: OP 023010-01 ou 023010-01
   numero?: string;                 // ex: OP 023010-01
   numeroOP?: string;              // alias compatível com Nomus
+  numeroOp?: string;              // alias compatível com Nomus
   descricao: string;              // ex: BAT GIRO 600A X 600L 4BAT C/ RESIST
   codigo?: string;                // ex: 020.0033
   codigoProduto?: string;         // alias compatível com Nomus
@@ -267,24 +303,48 @@ export interface ProductionOrder {
   qtde_produzida?: number;        // ex: 0
   lote: string;                   // ex: Lote / Ordem
   data_entrega?: string;          // ex: 10/09/2026
+  prazoEntrega?: string;          // alias de data_entrega
   status_nomus?: string;          // ex: Requisitada totalmente, Liberada, etc.
+  statusNomus?: string;           // alias de status_nomus
   status_fabrica?: FactoryStatus; // ex: Produzindo Hoje, Falta Injetar, Atrasada, etc.
   observacao?: string;            // ex: Observações
+  observacoes?: string;           // alias de observacao
+  observacoesNomus?: string;      // alias Nomus
   unidade_medida?: string;        // ex: PC ou M²
   data_criacao?: string;
+  criadoEm?: string;
+  atualizadoPeloPcpEm?: string;
+  importadoEm?: string;
   cliente?: string;
   status: "PLANEJADA" | "EM_PRODUCAO" | "FINALIZADA" | string;
+  statusExecucao?: 'pendente' | 'em_andamento' | 'concluido' | string;
   favorita?: boolean;
   pausada?: boolean;
   requer_solda?: boolean; // Inclusão sob demanda de Solda e Montagem (Terminal 5) para Âncoras
   requer_laser?: boolean; // Inclusão sob demanda de Laser CNC no Terminal 1 antes da Dobra
+  requerLaser?: boolean; // Alias compatível
   encaminhar_router?: boolean; // Inclusão condicional da etapa Router após Injeção para Vai-Vem e Office Door
   requer_router?: boolean; // Alias de encaminhar_router
+  requerRouter?: boolean; // Alias compatível
   etapas?: string[] | Record<string, OpEtapaState>; // Lista de etapas oficiais ou estado individual isolado de cada etapa
+  rota?: string[];
+  familia?: string;
+  tipoMontagem?: string;
+  statusAtual?: string;
   etapaAtual?: string;
   statusEtapa?: string;
   cod?: string;
   produto?: string;
+  pecas?: any[];
+  apontamentos?: Record<string, any> | any[];
+  operadores?: any;
+  operadorAtual?: string;
+  colaboradorIniciou?: string;
+  iniciadoEm?: string;
+  dataInicio?: string;
+  concluidoEm?: string;
+  dataConclusao?: string;
+  postoSelecionado?: string;
   progressoPostos?: Record<string, { concluido?: boolean; concluidas?: number; dataConclusao?: string }>;
   ultimo_aviso?: {
     autor: string;

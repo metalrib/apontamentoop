@@ -232,75 +232,23 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     reader.readAsText(file);
   };
 
-  // Confirma a importação das OPs do Nomus para a fábrica
+  // Confirma a importação das OPs do Nomus para a fábrica com blindagem de ordens em andamento
   const handleConfirmImportNomus = async () => {
     if (!nomusParseResult || nomusParseResult.orders.length === 0) return;
     playClick();
 
-    // 1. Gravação direta e permanente no Firebase Realtime Database (/ordens_producao)
-    const updates: Record<string, any> = {};
-    nomusParseResult.orders.forEach((op: any) => {
-      const opKey = String(op.numeroOP || op.op_numero || op.numero || op.id || '').replace(/[.#$[\]/]/g, '_');
-      if (!opKey) return;
-      const qtd = obterQuantidadeTotal(op);
-
-      const descUpper = String(op.descricao || '').toUpperCase();
-      const codStr = String(op.codigoProduto || op.cod || op.codigo || '').trim();
-
-      let etapas = op.etapas;
-      let etapaAtual = op.etapaAtual || 'Corte';
-      let status = op.status || 'EM_PRODUCAO';
-
-      // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
-      const rotasCalculadas = obterEtapasDaRota(op);
-      etapas = rotasCalculadas;
-      etapaAtual = rotasCalculadas[0] || 'Corte';
-      status = `Aguardando Início em: ${etapaAtual}`;
-
-      op.etapas = etapas;
-      op.etapaAtual = etapaAtual;
-      op.statusEtapa = status;
-      op.status = status;
-
-      const cleanOp = JSON.parse(JSON.stringify({
-        ...op,
-        op_numero: op.op_numero || opKey,
-        numero: op.numero || opKey,
-        numeroOP: op.numeroOP || opKey,
-        quantidade_total: qtd,
-        quantidade: qtd,
-        etapas,
-        etapaAtual,
-        statusEtapa: status,
-        status,
-        importadoEm: new Date().toISOString()
-      }));
-      updates[`ordens_producao/${opKey}`] = cleanOp;
-    });
-
-    try {
-      await update(ref(db), updates);
-    } catch (err) {
-      console.error('[PCP] Erro ao gravar ordens diretamente no nó permanente do Firebase:', err);
-    }
-
-    const count = await saveMultipleOrders(nomusParseResult.orders, false);
-    
-    // Atualização imediata do estado em memória para reatividade instantânea
-    const nextOrders: Record<string, ProductionOrder> = { ...orders };
-    nomusParseResult.orders.forEach((o) => {
-      if (o.op_numero) {
-        nextOrders[o.op_numero] = o;
-      }
-    });
+    // Salva com mesclagem e blindagem condicional no Firestore e Realtime Database
+    const result = await saveMultipleOrders(nomusParseResult.orders, false);
+    const count = typeof result === 'object' && 'count' in result ? result.count : Number(result);
+    const nextOrders = typeof result === 'object' && result.orders ? result.orders : orders;
 
     if (onOrdersUpdated) {
       onOrdersUpdated(nextOrders);
     }
 
     playSuccessStart();
-    setImportSuccessMsg(`🎉 ${count} Ordens de Produção do Nomus importadas e gravadas com sucesso no Firebase Realtime Database!`);
-    showToast(`🎉 ${count} Ordens de Produção do Nomus importadas com sucesso!`, 'success');
+    setImportSuccessMsg(`🎉 ${count} Ordens de Produção do Nomus processadas e blindadas com sucesso!`);
+    showToast(`🎉 ${count} Ordens de Produção processadas com sucesso!`, 'success');
     
     setTimeout(() => {
       setShowNomusImportModal(false);

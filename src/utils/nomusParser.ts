@@ -1,5 +1,75 @@
-import { ProductionOrder, FactoryStatus } from '../types/mes';
+import { ProductionOrder, FactoryStatus, CODIGOS_GIRATORIA_PADRAO } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
+
+export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string }): {
+  familia: string;
+  tipoMontagem: string;
+  rota: string[];
+  statusAtual: string;
+} {
+  const codRaw = String(op.codigo || (op as any).codigoProduto || (op as any).cod || '').trim();
+  let codNormalizado = codRaw.replace(/[^0-9]/g, '');
+  const desc = String(op.descricao || (op as any).produto || '').toUpperCase();
+
+  // Se o código não veio explícito, tenta extrair da descrição (ex: "003.0140 - PT GIR...")
+  if (!codNormalizado && desc) {
+    const matchCod = desc.match(/\b(\d{3}[\.-]?\d{4})\b/);
+    if (matchCod) {
+      codNormalizado = matchCod[1].replace(/[^0-9]/g, '');
+    }
+  }
+
+  const ehGiratoria =
+    desc.includes('PT GIR') ||
+    desc.includes('PORTA GIR') ||
+    desc.includes('GIRATORIA') ||
+    desc.includes('GIRATÓRIA') ||
+    desc.includes('GIRO') ||
+    codNormalizado.startsWith('001') ||
+    codNormalizado.startsWith('003');
+
+  if (ehGiratoria) {
+    // REGRA RESTRITIVA (WHITELIST POR CÓDIGO NORMALIZADO):
+    // Uma porta giratória SÓ é padrão se o código normalizado constar no Set oficial
+    const ehPadrao = Boolean(codNormalizado && CODIGOS_GIRATORIA_PADRAO.has(codNormalizado));
+
+    if (ehPadrao) {
+      return {
+        familia: 'Porta Giratória Padrão',
+        tipoMontagem: 'Porta Giratória Padrão',
+        rota: [
+          'Instalação de Gaxeta',
+          'Montagem de Portas Giratória Padrão e Especial'
+        ],
+        statusAtual: 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta'
+      };
+    }
+
+    // Qualquer outro código cai compulsoriamente aqui (ex: 003.0140 ou qualquer medida especial):
+    return {
+      familia: 'Porta Giratória Especial',
+      tipoMontagem: 'Porta Giratória Especial',
+      rota: [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória Padrão e Especial'
+      ],
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+    };
+  }
+
+  // Demais famílias delegam para o roteador central
+  const rotas = obterEtapasDaRota(op);
+  return {
+    familia: 'Geral',
+    tipoMontagem: 'Padrão',
+    rota: rotas,
+    statusAtual: `AGUARDANDO INÍCIO EM: ${rotas[0] || 'Corte'}`
+  };
+}
 
 export interface NomusParseResult {
   orders: ProductionOrder[];
@@ -318,13 +388,13 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       else if (norm.includes('ordem') || norm.includes('op') || norm.includes('numero') || norm.includes('num op') || norm.includes('nº op')) {
         idxOp = idx;
       }
-      // 'descricao' -> Descrição do Produto
-      else if (norm.includes('desc') || norm.includes('produto') || norm.includes('item')) {
-        idxDescricao = idx;
-      }
-      // 'codigo' -> Código do Produto
+      // 'codigo' -> Código do Produto (prioritário sobre produto/descrição para capturar "Cód. Produto" e "Código")
       else if (norm.includes('cod') || norm.includes('ref')) {
         idxCodigo = idx;
+      }
+      // 'descricao' -> Descrição do Produto
+      else if (norm.includes('desc') || norm.includes('item') || (norm.includes('produto') && !norm.includes('cod'))) {
+        idxDescricao = idx;
       }
       // 'lote' -> Informações do Lote
       else if (norm.includes('lote')) {
@@ -432,9 +502,30 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       descTexto = ultimaDescricaoValida; // Herda imediatamente da linha anterior
     }
 
-    // Código do Produto (com memória carry-down para células mescladas)
+    // Código do Produto (com memória carry-down e escaneamento tolerante da linha)
     const celulaCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cells[idxCodigo] : null;
     let codTexto = celulaCodigo ? cleanCellText(celulaCodigo) : '';
+
+    // Se o índice mapeado não contiver um código com padrão numérico Metalrib (ex: 003.0140 ou 0030140),
+    // varre todas as células da linha buscando o formato de código de produto
+    if (!codTexto || !isValidDataValue(codTexto) || !/^\d{3}[\.-]?\d{4}$/.test(codTexto.trim())) {
+      const celulaComCod = cells.find((c) => {
+        const txt = cleanCellText(c).trim();
+        return /^\d{3}[\.-]\d{4}$/.test(txt) || (/^\d{7}$/.test(txt) && !txt.startsWith('202'));
+      });
+      if (celulaComCod) {
+        codTexto = cleanCellText(celulaComCod).trim();
+      }
+    }
+
+    // Se ainda não encontrou código, tenta extrair da própria descrição (ex: "003.0140 - PT GIR...")
+    if (!codTexto || !isValidDataValue(codTexto)) {
+      const matchInDesc = (descTexto || '').match(/\b(\d{3}[\.-]\d{4})\b/);
+      if (matchInDesc) {
+        codTexto = matchInDesc[1];
+      }
+    }
+
     if (codTexto && isValidDataValue(codTexto)) {
       ultimoCodigoValido = codTexto;
     } else {
@@ -550,32 +641,44 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       op_numero: numero,
       numero: numero,
       numeroOP: numero,
+      numeroOp: numero,
       descricao: descricao.toUpperCase(),
       codigo: codigo,
       codigoProduto: codigo || '',
       lote: lote,
       observacao: observacao,
+      observacoes: observacao,
+      observacoesNomus: observacao,
       quantidade_total: quantidadeTotal,
       quantidade: quantidadeTotal,
       quantidade_m2: quantidadeM2,
       qtde_produzida: qtdeProduzida,
       data_entrega: dataEntrega || undefined,
+      prazoEntrega: dataEntrega || undefined,
       status_nomus: statusNomus || 'Liberada',
+      statusNomus: statusNomus || 'Liberada',
       status_fabrica: defaultFactoryStatus,
       unidade_medida: unidadeMedida,
       cliente: 'Nomus ERP',
       status: 'EM_PRODUCAO',
+      statusExecucao: 'pendente',
+      apontamentos: {},
+      criadoEm: new Date().toISOString(),
       data_criacao: new Date().toISOString()
     };
 
-    const codStr = String(novaOp.codigoProduto || (novaOp as any).cod || novaOp.codigo || '').trim();
-
-    // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
-    const rotasCalculadas = obterEtapasDaRota(novaOp);
-    novaOp.etapas = rotasCalculadas;
-    novaOp.etapaAtual = rotasCalculadas[0] || 'Corte';
+    // DEFINIÇÃO OFICIAL DA ROTA E FAMÍLIA (WHITELIST POR CÓDIGO)
+    const rotaInfo = processarRotaProduto(novaOp);
+    novaOp.familia = rotaInfo.familia;
+    novaOp.tipoMontagem = rotaInfo.tipoMontagem;
+    novaOp.rota = rotaInfo.rota;
+    novaOp.statusAtual = rotaInfo.statusAtual;
+    novaOp.etapas = rotaInfo.rota;
+    novaOp.etapaAtual = rotaInfo.rota[0] || 'Corte';
     novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
     novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
+
+    console.log('OP importada:', novaOp.numero, 'Código:', novaOp.codigo, 'Rota definida:', novaOp.rota);
 
     orders.push(novaOp);
   }
@@ -588,12 +691,18 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
 
   const finalOrders = Array.from(uniqueMap.values());
 
-  // SOBREPOSIÇÃO OBRIGATÓRIA DE ROTA INDUSTRIAL (MATRIZ OFICIAL METALRIB)
+  // SOBREPOSIÇÃO OBRIGATÓRIA DE ROTA INDUSTRIAL (MATRIZ OFICIAL METALRIB / WHITELIST ESTRITA)
   finalOrders.forEach((op: any) => {
-    const rotas = obterEtapasDaRota(op);
-    op.etapas = rotas;
-    op.etapaAtual = rotas[0] || 'Corte';
+    const rotaInfo = processarRotaProduto(op);
+    op.familia = rotaInfo.familia;
+    op.tipoMontagem = rotaInfo.tipoMontagem;
+    op.rota = rotaInfo.rota;
+    op.statusAtual = rotaInfo.statusAtual;
+    op.etapas = rotaInfo.rota;
+    op.etapaAtual = rotaInfo.rota[0] || 'Corte';
     op.statusEtapa = `Aguardando Início em: ${op.etapaAtual}`;
+    op.status = `Aguardando Início em: ${op.etapaAtual}`;
+    console.log('OP importada:', op.numero, 'Código:', op.codigo, 'Rota definida:', op.rota);
   });
 
   if (finalOrders.length === 0) {

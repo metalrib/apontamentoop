@@ -1,7 +1,7 @@
 import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS } from '../types/mes';
-import { deducePhysicalUnitsFromM2 } from '../utils/nomusParser';
+import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
-import { db, firestore, doc, updateDoc, arrayRemove, ref, set, get, onValue, update, push } from './firebase';
+import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
 
@@ -2185,6 +2185,18 @@ export async function deleteProductionOrder(opNumero: string): Promise<void> {
         await set(ref(db, `ordens_producao/${k}`), null);
       }
     }
+
+    // Exclusão definitiva também no Firestore
+    const firestoreIds = [
+      cleanInput.replace(/\//g, '-'),
+      pureNum,
+      `OP ${pureNum}`
+    ];
+    for (const fsId of firestoreIds) {
+      try {
+        await deleteDoc(doc(firestore, 'ordens_producao', fsId));
+      } catch {}
+    }
   } catch (err) {
     console.error('[Firebase] Erro ao deletar ordem:', err);
   }
@@ -2294,51 +2306,276 @@ export async function clearAllOrders(): Promise<void> {
   broadcastUpdate();
 }
 
+export interface SaveMultipleOrdersResult {
+  count: number;
+  orders: Record<string, ProductionOrder>;
+  valueOf(): number;
+}
+
 /**
- * Salva múltiplas OPs importadas em lote (ex: importação do Nomus) diretamente no Firebase Realtime Database
+ * Salva múltiplas OPs importadas em lote (ex: importação do Nomus HTML)
+ * Implementa BLINDAGEM com Upsert Condicional no Firestore e Realtime Database:
+ * 1. Se a OP não existir: cria com statusExecucao = 'pendente', apontamentos = {}, rota inicial padrão.
+ * 2. Se a OP já existir: NUNCA sobrescreve com setDoc integral. Atualiza APENAS metadados do ERP
+ *    (prazoEntrega, statusNomus, observacoesNomus, cliente, etc.) e PRESERVA OBRIGATORIAMENTE
+ *    apontamentos, statusExecucao, pecas, requerLaser/requerRouter, operadores, iniciadoEm/concluidoEm, etc.
  */
-export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAll: boolean = false): Promise<number> {
+export async function saveMultipleOrders(
+  newOrders: ProductionOrder[],
+  replaceAll: boolean = false
+): Promise<SaveMultipleOrdersResult> {
   const currentOrders = await fetchProductionOrders();
   const orders: Record<string, ProductionOrder> = replaceAll ? {} : { ...currentOrders };
   let count = 0;
   const updates: Record<string, any> = {};
 
-  for (const o of newOrders) {
-    const rawKey = String(o.op_numero || o.numero || (o as any).numeroOP || (o as any).id || '').trim();
-    if (!rawKey) continue;
-    const opKey = toFirebaseKey(rawKey);
-    const qtd = obterQuantidadeTotal(o);
+  for (const opImportada of newOrders) {
+    const numeroOp = String(
+      (opImportada as any).numeroOp ||
+      (opImportada as any).numeroOP ||
+      opImportada.op_numero ||
+      opImportada.numero ||
+      (opImportada as any).id ||
+      ''
+    ).trim();
 
-    const descUpper = String(o.descricao || '').toUpperCase();
-    const codStr = String(o.codigoProduto || (o as any).cod || o.codigo || '').trim();
+    if (!numeroOp) continue;
 
-    let etapas = o.etapas;
-    let etapaAtual = (o as any).etapaAtual || 'Corte';
-    let status = o.status || 'EM_PRODUCAO';
+    // Normalização para busca em memória / RTDB
+    const normNumeroOp = numeroOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toUpperCase();
+    const existingOrderKey = Object.keys(orders).find((k) => {
+      const normK = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toUpperCase();
+      return k === numeroOp || normK === normNumeroOp;
+    });
+    const existingLocalOrder = existingOrderKey ? orders[existingOrderKey] : undefined;
 
-    // SE FOR LINHA SUPER CONG (007, 003 OU TEXTO SUPER CONG)
-    const rotasCalculadas = obterEtapasDaRota(o);
-    etapas = rotasCalculadas;
-    etapaAtual = rotasCalculadas[0] || 'Corte';
-    status = `Aguardando Início em: ${etapaAtual}`;
+    // 1. Verificação no Firestore pelo ID/Número da OP (ex: OP 023803-01 ou 024126-01)
+    const firestoreDocId = numeroOp.replace(/\//g, '-');
+    let opRef = doc(firestore, 'ordens_producao', firestoreDocId);
+    let docSnap: any = null;
+    try {
+      docSnap = await getDoc(opRef);
+      if (!docSnap.exists()) {
+        const semPrefixo = firestoreDocId.replace(/^OP\s*/i, '').trim();
+        if (semPrefixo && semPrefixo !== firestoreDocId) {
+          const altRef = doc(firestore, 'ordens_producao', semPrefixo);
+          const altSnap = await getDoc(altRef);
+          if (altSnap.exists()) {
+            opRef = altRef;
+            docSnap = altSnap;
+          }
+        }
+      }
+      if (!docSnap.exists()) {
+        const comPrefixo = `OP ${firestoreDocId.replace(/^OP\s*/i, '').trim()}`;
+        if (comPrefixo !== firestoreDocId) {
+          const altRef = doc(firestore, 'ordens_producao', comPrefixo);
+          const altSnap = await getDoc(altRef);
+          if (altSnap.exists()) {
+            opRef = altRef;
+            docSnap = altSnap;
+          }
+        }
+      }
+    } catch (fsErr) {
+      console.warn('[Firestore] Erro ao consultar documento da OP:', firestoreDocId, fsErr);
+    }
 
-    const cleanOrder = JSON.parse(JSON.stringify({
-      ...o,
-      op_numero: o.op_numero || rawKey,
-      numero: o.numero || rawKey,
-      numeroOP: (o as any).numeroOP || rawKey,
-      quantidade_total: qtd,
-      quantidade: qtd,
-      etapas,
-      etapaAtual,
-      statusEtapa: status,
-      status,
-      importadoEm: new Date().toISOString()
-    }));
+    const firestoreExists = Boolean(docSnap && docSnap.exists());
+    const isExisting = firestoreExists || Boolean(existingLocalOrder);
 
-    orders[o.op_numero || rawKey] = cleanOrder;
-    updates[`ordens_producao/${opKey}`] = cleanOrder;
-    count++;
+    const qtd = obterQuantidadeTotal(opImportada);
+    const rotaInfo = processarRotaProduto(opImportada);
+    const rotasCalculadas = rotaInfo.rota && rotaInfo.rota.length > 0 ? rotaInfo.rota : obterEtapasDaRota(opImportada);
+    const etapaInicial = rotasCalculadas[0] || 'Corte';
+    const statusInicial = `Aguardando Início em: ${etapaInicial}`;
+    const opKey = toFirebaseKey(numeroOp);
+
+    if (!isExisting) {
+      // 2. Se a OP NÃO existir: crie o registro normalmente com os campos padrão da rota e status inicial
+      const cleanNewOp: ProductionOrder = {
+        ...opImportada,
+        op_numero: numeroOp,
+        numero: numeroOp,
+        numeroOP: numeroOp,
+        numeroOp: numeroOp,
+        quantidade_total: qtd,
+        quantidade: qtd,
+        familia: rotaInfo.familia,
+        tipoMontagem: rotaInfo.tipoMontagem,
+        rota: rotasCalculadas,
+        statusAtual: rotaInfo.statusAtual || statusInicial,
+        etapas: rotasCalculadas,
+        etapaAtual: etapaInicial,
+        statusEtapa: statusInicial,
+        status: statusInicial,
+        status_fabrica: opImportada.status_fabrica || 'Produzindo Hoje',
+        statusExecucao: 'pendente',
+        apontamentos: {},
+        prazoEntrega: opImportada.prazoEntrega || opImportada.data_entrega || '',
+        data_entrega: opImportada.data_entrega || opImportada.prazoEntrega || '',
+        statusNomus: opImportada.statusNomus || opImportada.status_nomus || 'Liberada',
+        status_nomus: opImportada.status_nomus || opImportada.statusNomus || 'Liberada',
+        observacoes: opImportada.observacoes || opImportada.observacoesNomus || opImportada.observacao || '',
+        observacoesNomus: opImportada.observacoesNomus || opImportada.observacoes || opImportada.observacao || '',
+        observacao: opImportada.observacao || opImportada.observacoes || '',
+        cliente: opImportada.cliente || 'Nomus ERP',
+        criadoEm: new Date().toISOString(),
+        data_criacao: new Date().toISOString(),
+        importadoEm: new Date().toISOString()
+      };
+
+      const serializableNew = JSON.parse(JSON.stringify(cleanNewOp));
+      console.log('OP importada:', cleanNewOp.numeroOp || cleanNewOp.op_numero, 'Código:', cleanNewOp.codigo, 'Rota definida:', cleanNewOp.rota);
+
+      // Salva novo registro completo inicial no Firestore
+      try {
+        await setDoc(opRef, serializableNew);
+      } catch (fsErr) {
+        console.warn('[Firestore] Erro ao salvar nova OP:', firestoreDocId, fsErr);
+      }
+
+      // Prepara registro no Realtime Database e memória
+      updates[`ordens_producao/${opKey}`] = serializableNew;
+      orders[numeroOp] = cleanNewOp;
+      count++;
+    } else {
+      // 3. Se a OP JÁ existir:
+      // - NUNCA dê setDoc completo substituindo o objeto.
+      // - Atualize APENAS os metadados vindos do ERP (ex.: prazoEntrega, observacoesNomus, statusNomus, cliente).
+      // - PRESERVE OBRIGATORIAMENTE os seguintes campos existentes:
+      //   * apontamentos (histórico de apontamentos de todos os setores)
+      //   * statusExecucao (ex: 'em_andamento', 'concluido')
+      //   * pecas (status unitário de cada cartão de peça)
+      //   * requerLaser / requerRouter (flags condicionais marcadas no chão de fábrica)
+      //   * operadores / iniciadoEm / concluidoEm
+      const firestoreData = firestoreExists ? docSnap.data() : {};
+      const dadosAtuais: any = {
+        ...(existingLocalOrder || {}),
+        ...firestoreData
+      };
+
+      const prazoEntregaVal = opImportada.prazoEntrega || opImportada.data_entrega || dadosAtuais.prazoEntrega || dadosAtuais.data_entrega || '';
+      const statusNomusVal = opImportada.statusNomus || opImportada.status_nomus || dadosAtuais.statusNomus || dadosAtuais.status_nomus || 'Liberada';
+      const observacoesVal = opImportada.observacoes || opImportada.observacoesNomus || opImportada.observacao || dadosAtuais.observacoes || dadosAtuais.observacoesNomus || dadosAtuais.observacao || '';
+      const clienteVal = opImportada.cliente || dadosAtuais.cliente || 'Nomus ERP';
+
+      const metadadosParaAtualizar: Record<string, any> = {
+        prazoEntrega: prazoEntregaVal,
+        data_entrega: prazoEntregaVal,
+        statusNomus: statusNomusVal,
+        status_nomus: statusNomusVal,
+        observacoes: observacoesVal,
+        observacoesNomus: observacoesVal,
+        observacao: observacoesVal,
+        cliente: clienteVal,
+        atualizadoPeloPcpEm: new Date().toISOString()
+      };
+
+      if (opImportada.descricao && !dadosAtuais.descricao) metadadosParaAtualizar.descricao = opImportada.descricao;
+      if (opImportada.codigo && !dadosAtuais.codigo) metadadosParaAtualizar.codigo = opImportada.codigo;
+      if (opImportada.codigoProduto && !dadosAtuais.codigoProduto) metadadosParaAtualizar.codigoProduto = opImportada.codigoProduto;
+      if (opImportada.lote && (!dadosAtuais.lote || dadosAtuais.lote === '—')) metadadosParaAtualizar.lote = opImportada.lote;
+
+      // Correção inteligente para OPs que foram importadas anteriormente com rota curta incorreta
+      // e devem receber a rota completa oficial por não serem padrão (ex: OP 024352-01 / cód 003.0140):
+      const etapasAtuaisArr = Array.isArray(dadosAtuais.etapas)
+        ? dadosAtuais.etapas
+        : (dadosAtuais.etapas && typeof dadosAtuais.etapas === 'object' ? Object.keys(dadosAtuais.etapas) : []);
+
+      const semApontamentos = !dadosAtuais.apontamentos || Object.keys(dadosAtuais.apontamentos).length === 0;
+
+      let etapasFinais = dadosAtuais.etapas || rotasCalculadas;
+      let etapaAtualFinal = dadosAtuais.etapaAtual || etapaInicial;
+      let statusEtapaFinal = dadosAtuais.statusEtapa || `Aguardando Início em: ${etapaAtualFinal}`;
+
+      const codChecagem = String(opImportada.codigo || dadosAtuais.codigo || (opImportada as any).codigoProduto || (dadosAtuais as any).codigoProduto || '').replace(/[^0-9]/g, '');
+      const descChecagem = String(opImportada.descricao || dadosAtuais.descricao || '').toUpperCase();
+      const ehGiro = descChecagem.includes('PT GIR') || descChecagem.includes('GIRAT') || descChecagem.includes('GIRO') || codChecagem.startsWith('001') || codChecagem.startsWith('003');
+      const ehGiroPadrao = Boolean(codChecagem && CODIGOS_GIRATORIA_PADRAO.has(codChecagem));
+
+      if (ehGiro && !ehGiroPadrao && semApontamentos) {
+        etapasFinais = [
+          'Corte',
+          'Dobra',
+          'Preparação de Folha',
+          'Injeção',
+          'Instalação de Gaxeta',
+          'Montagem de Portas Giratória Padrão e Especial'
+        ];
+        etapaAtualFinal = 'Corte';
+        statusEtapaFinal = 'Aguardando Início em: Corte';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Porta Giratória Especial';
+        metadadosParaAtualizar.tipoMontagem = 'Porta Giratória Especial';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
+      }
+
+      console.log('OP importada:', numeroOp, 'Código:', opImportada.codigo || dadosAtuais.codigo, 'Rota definida:', etapasFinais);
+
+      // Atualização no Firestore (NUNCA setDoc completo substituindo o chão de fábrica)
+      try {
+        if (firestoreExists) {
+          await updateDoc(opRef, JSON.parse(JSON.stringify(metadadosParaAtualizar)));
+        } else {
+          // Se não existia no Firestore mas já existia no RTDB/local, salva mesclando com campos existentes
+          await setDoc(opRef, JSON.parse(JSON.stringify({
+            ...dadosAtuais,
+            ...metadadosParaAtualizar
+          })));
+        }
+      } catch (fsErr) {
+        console.warn('[Firestore] Erro ao atualizar metadados da OP existente:', firestoreDocId, fsErr);
+      }
+
+      // Preservação mandatória dos dados de chão de fábrica para Realtime Database e memória
+      const opPreservada: ProductionOrder = {
+        ...dadosAtuais,
+        ...metadadosParaAtualizar,
+        // PRESERVAÇÃO OBRIGATÓRIA DOS SEGUINTES CAMPOS EXISTENTES:
+        // 1. apontamentos (histórico de apontamentos de todos os setores)
+        apontamentos: dadosAtuais.apontamentos ?? {},
+        // 2. statusExecucao (ex: 'em_andamento', 'concluido', 'pendente')
+        statusExecucao: dadosAtuais.statusExecucao || dadosAtuais.status || 'pendente',
+        status: dadosAtuais.status || 'EM_PRODUCAO',
+        status_fabrica: dadosAtuais.status_fabrica || 'Produzindo Hoje',
+        statusEtapa: statusEtapaFinal,
+        etapaAtual: etapaAtualFinal,
+        etapas: etapasFinais,
+        // 3. pecas (status unitário de cada cartão de peça)
+        pecas: dadosAtuais.pecas !== undefined ? dadosAtuais.pecas : undefined,
+        // 4. requerLaser / requerRouter (flags condicionais marcadas no chão de fábrica)
+        requerLaser: dadosAtuais.requerLaser !== undefined ? dadosAtuais.requerLaser : dadosAtuais.requer_laser,
+        requer_laser: dadosAtuais.requer_laser !== undefined ? dadosAtuais.requer_laser : dadosAtuais.requerLaser,
+        requerRouter: dadosAtuais.requerRouter !== undefined ? dadosAtuais.requerRouter : dadosAtuais.requer_router,
+        requer_router: dadosAtuais.requer_router !== undefined ? dadosAtuais.requer_router : dadosAtuais.requerRouter,
+        encaminhar_router: dadosAtuais.encaminhar_router !== undefined ? dadosAtuais.encaminhar_router : (dadosAtuais.requerRouter || dadosAtuais.requer_router),
+        requer_solda: dadosAtuais.requer_solda,
+        // 5. operadores / iniciadoEm / concluidoEm
+        operadores: dadosAtuais.operadores,
+        operadorAtual: dadosAtuais.operadorAtual,
+        colaboradorIniciou: dadosAtuais.colaboradorIniciou,
+        iniciadoEm: dadosAtuais.iniciadoEm || dadosAtuais.dataInicio,
+        dataInicio: dadosAtuais.dataInicio || dadosAtuais.iniciadoEm,
+        concluidoEm: dadosAtuais.concluidoEm || dadosAtuais.dataConclusao,
+        dataConclusao: dadosAtuais.dataConclusao || dadosAtuais.concluidoEm,
+        // Outros campos de chão de fábrica
+        qtde_produzida: dadosAtuais.qtde_produzida !== undefined ? dadosAtuais.qtde_produzida : (opImportada.qtde_produzida || 0),
+        progressoPostos: dadosAtuais.progressoPostos,
+        mensagens: dadosAtuais.mensagens,
+        ultimo_aviso: dadosAtuais.ultimo_aviso,
+        criadoEm: dadosAtuais.criadoEm || dadosAtuais.data_criacao
+      };
+
+      const serializablePreserved = JSON.parse(JSON.stringify(opPreservada));
+      updates[`ordens_producao/${opKey}`] = serializablePreserved;
+      orders[existingOrderKey || numeroOp] = opPreservada;
+      count++;
+    }
   }
 
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
@@ -2348,11 +2585,17 @@ export async function saveMultipleOrders(newOrders: ProductionOrder[], replaceAl
       await update(ref(db), updates);
     }
   } catch (err) {
-    console.error('[Firebase] Erro ao salvar múltiplas ordens via update:', err);
+    console.error('[Firebase] Erro ao sincronizar ordens no RTDB via update:', err);
   }
 
   broadcastUpdate();
-  return count;
+  return {
+    count,
+    orders,
+    valueOf() {
+      return this.count;
+    }
+  };
 }
 
 /**

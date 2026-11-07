@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, update, push } from "firebase/database";
-import { getFirestore, doc, updateDoc, arrayRemove, setDoc, getDoc, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc as firestoreDoc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCF7Q6J8I6fBZ3kaGbxq4rlefVzFaQrUnA",
@@ -16,6 +16,18 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 export const db = getDatabase(app);
 export const rtdb = db;
 export const firestore = getFirestore(app);
+
+// Wrapper resiliente para doc que aceita firestore ou db (caso db seja fornecido)
+export const doc = (dbOrFirestore: any, path: string, ...pathSegments: string[]) => {
+  const isFirestore = dbOrFirestore && (
+    dbOrFirestore === firestore ||
+    dbOrFirestore.type === 'firestore' ||
+    (typeof dbOrFirestore === 'object' && dbOrFirestore._delegate?.type === 'firestore')
+  );
+  const target = isFirestore ? dbOrFirestore : firestore;
+  return firestoreDoc(target, path, ...pathSegments);
+};
+
 export { ref, set, get, onValue, update, push };
-export { doc, updateDoc, arrayRemove, setDoc, getDoc, onSnapshot };
+export { updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, onSnapshot };
 export default db;

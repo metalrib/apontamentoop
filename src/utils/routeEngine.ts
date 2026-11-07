@@ -4,15 +4,18 @@ import {
   ROUTE_RULES,
   DEFAULT_ROUTE,
   RouteRule,
+  CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_GIRO,
   CODIGOS_PADRAO_CORRER,
   CODIGOS_TRILHOS_LGT_PADRAO,
   CODIGOS_FOLHAS_PADRAO,
   CODIGOS_BATENTES_PADRAO,
-  CODIGOS_ANCORAS_PADRAO
+  CODIGOS_ANCORAS_PADRAO,
+  normalizarCodigo
 } from '../types/mes';
 import {
   verificarSeExigeEmenda,
+  definirRotaProduto,
   getRotaTrilhoCorrer,
   getRotaEstanteCompleta,
   getRotaQuadroEstante,
@@ -330,26 +333,59 @@ function resolveBaseRoute(
     }
   }
 
-  // 5. Linha Super Cong / Especiais Sob Medida (Giro e Correr) -> 5 Etapas Completas
+  // 5. Portas Giratórias (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO)
+  const isGiro =
+    norm.includes('PT GIR') ||
+    norm.includes('PORTA GIRATORIA') ||
+    norm.includes('PORTA GIRATÓRIA') ||
+    norm.includes('PORTA GIR') ||
+    norm.includes('GIRATORIA') ||
+    norm.includes('GIRATÓRIA') ||
+    norm.includes('GIRO') ||
+    (code && (code.startsWith('001.') || code.startsWith('003.')));
+
+  if (isGiro) {
+    const codLimpo = normalizarCodigo(code || '');
+    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(code || '')));
+
+    if (ehCodigoPadrao) {
+      const rule: RouteRule = {
+        keyword: 'PT GIR',
+        label: 'Porta Giratória Padrão',
+        steps: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'],
+        badge: 'Linha Padrão (Montagem Direta)',
+        isStandardLine: true
+      };
+      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+    } else {
+      // Se NÃO for código padrão (como 003.0140), é OBRIGATORIAMENTE Especial (Rota Completa)
+      const steps = [
+        'Corte',
+        'Dobra',
+        'Preparação de Folha',
+        'Injeção',
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratória Padrão e Especial'
+      ];
+      const rule: RouteRule = {
+        keyword: 'PT GIR ESPECIAL',
+        label: 'Porta Giratória Especial',
+        steps,
+        badge: 'Especial sob Medida (Fabricação Completa)',
+        isStandardLine: false
+      };
+      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
+    }
+  }
+
+  // 6. Linha Super Cong de Correr / Especiais Sob Medida
   const ehSuperCong =
-    (code && (code.startsWith('007.') || code.startsWith('003.'))) ||
+    (code && code.startsWith('007.')) ||
     norm.includes('SUPER CONG') ||
     norm.includes('SUPER CONGELADO') ||
     norm.includes('PORTA ESPECIAL');
 
   if (ehSuperCong) {
-    const isGiro = norm.includes('PT GIR') || norm.includes('GIRO') || norm.includes('GIRATORIA') || (code && (code.startsWith('003.') || code.startsWith('001.')));
-    if (isGiro) {
-      const rule: RouteRule = {
-        keyword: 'PT GIR ESPECIAL',
-        label: 'Porta Giratória Super Cong (Padrão e Especial)',
-        steps: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'],
-        badge: 'Montagem T4 (Unitário)',
-        isStandardLine: true
-      };
-      return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
-    }
-
     const steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', 'Montagem Portas de Correr Padrão e Especial'];
     const rule: RouteRule = {
       keyword: 'PT COR ESPECIAL',
@@ -359,19 +395,6 @@ function resolveBaseRoute(
       isStandardLine: false
     };
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
-  }
-
-  // 6. Portas Giratórias (Padrão e Especial) -> Terminal 4 (Unitário)
-  if (norm.includes('PT GIR') || norm.includes('PORTA GIRATORIA') || norm.includes('GIRATORIA') || norm.includes('GIRO')) {
-    const montagemStep = 'Montagem de Portas Giratória Padrão e Especial';
-    const rule: RouteRule = {
-      keyword: 'PT GIR',
-      label: 'Porta Giratória (Padrão e Especial)',
-      steps: ['Instalação de Gaxeta', montagemStep],
-      badge: 'Montagem T4 (Unitário)',
-      isStandardLine: true
-    };
-    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
   }
 
   // 7. Portas de Correr (Padrão vs Especial e Emendadas)
@@ -847,8 +870,29 @@ export function initOrSyncOrderEtapas(
     }
   });
 
+  let etapaAtual = order.etapaAtual;
+  let statusEtapa = order.statusEtapa;
+  let status = order.status;
+
+  // Auto-correção caso uma porta especial estava com etapa inicial incorreta em Gaxeta/Montagem sem apontamento
+  if (
+    steps[0] === 'Corte' &&
+    (!etapaAtual || etapaAtual === 'Instalação de Gaxeta' || etapaAtual === 'Montagem de Portas Giratória Padrão e Especial') &&
+    apontamentos.length === 0 &&
+    (!order.statusExecucao || order.statusExecucao === 'pendente' || String(status || '').includes('Aguardando Início'))
+  ) {
+    etapaAtual = 'Corte';
+    statusEtapa = 'Aguardando Início em: Corte';
+    if (!status || status.includes('Aguardando Início')) {
+      status = 'Aguardando Início em: Corte';
+    }
+  }
+
   return {
     ...order,
+    etapaAtual,
+    statusEtapa,
+    status,
     etapas: currentEtapas
   };
 }
