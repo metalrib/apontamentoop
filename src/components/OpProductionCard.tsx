@@ -100,28 +100,49 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   // Renderizado sempre que:
   // a) O código pertencer à família de Vai-Vem (011.0012, 011.0013, 011.0117, ou qualquer código iniciado por 011.); OU
   // b) A descrição contiver o termo DUPLA ou VAI VEM; OU
-  // c) O usuário desejar ajustar a quantidade física manualmente via botões [+] e [-].
-  const descUpper = (order.descricao || '').toUpperCase();
-  const codeClean = String(order.codigo || order.codigoProduto || '').trim();
+  // c) A quantidade total for igual a 1 e o usuário precisar definir a quantidade de folhas físicas (ex: 2 folhas); OU
+  // d) O usuário desejar ajustar a quantidade física manualmente via botões [+] e [-].
+  const descUpper = String(order.descricao || (order as any).produto || '').toUpperCase();
+  const rawCode = String(order.codigo || order.codigoProduto || (order as any).cod || '').trim();
+  const codeClean = rawCode;
   const isFamilia011 =
     codeClean.startsWith('011.') ||
     codeClean.startsWith('011') ||
     codeClean.includes('011.0012') ||
     codeClean.includes('011.0013') ||
-    codeClean.includes('011.0117');
+    codeClean.includes('011.0117') ||
+    codeClean.includes('0110012') ||
+    codeClean.includes('0110013') ||
+    codeClean.includes('0110117') ||
+    descUpper.includes('011.');
   const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(order.isDupla);
-  const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || isFamilia011 || rule.keyword === 'PT VAI VEM';
+  const isVaiVem =
+    descUpper.includes('VAI VEM') ||
+    descUpper.includes('VAI-VEM') ||
+    descUpper.includes('VV') ||
+    isFamilia011 ||
+    rule.keyword === 'PT VAI VEM' ||
+    Boolean(order.familia?.toLowerCase().includes('vai e vem'));
   const isM2 = Boolean(order.unidade_medida === 'M²' || order.quantidade_m2);
   const m2Num = Number(order.quantidade_m2 ?? (order.unidade_medida === 'M²' ? (order.quantidade ?? order.quantidade_total) : 0));
   const isM2Fracionado = isM2 && m2Num > 0 && !Number.isInteger(m2Num);
-  const showPhysicalQuantitySelector = isFamilia011 || isDupla || isVaiVem || isM2 || isM2Fracionado;
+  const isQtdUm = totalPhysicalUnits === 1 || order.quantidade === 1 || order.quantidade_total === 1;
+
+  const showPhysicalQuantitySelector =
+    isFamilia011 ||
+    isDupla ||
+    isVaiVem ||
+    isQtdUm ||
+    isM2 ||
+    isM2Fracionado ||
+    order.quantidadeFisica !== undefined;
 
   // Ajuste rápido de quantidade física a produzir
   const handleAdjustPhysicalQuantity = async (delta: number) => {
     playClick();
     const current = Math.round(
       order.quantidadeFisica ??
-      (isDupla && isVaiVem && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : totalPhysicalUnits)
+      (isDupla && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : totalPhysicalUnits)
     );
     const nextVal = Math.max(1, current + delta);
     if (nextVal === current) return;
@@ -130,7 +151,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
       quantidade_total: nextVal,
       quantidade: nextVal,
       quantidadeFisica: nextVal,
-      ...(isDupla ? { quantidadeFolhas: nextVal } : {})
+      ...(isDupla ? { quantidadeFolhas: nextVal, isDupla: true } : {})
     });
   };
 
@@ -203,7 +224,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                 </span>
               ) : (
                 <span className="text-[10px] font-mono font-bold text-amber-400 uppercase leading-none">
-                  {isDupla ? 'DUPLA' : 'VAI-VEM'}
+                  {isDupla ? 'DUPLA' : isVaiVem ? 'VAI-VEM' : 'FÍSICA'}
                 </span>
               )}
               <span className="text-xs font-black text-white font-mono leading-tight mt-1 whitespace-nowrap">

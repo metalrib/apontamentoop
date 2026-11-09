@@ -117,6 +117,54 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     await updateProductionOrder(order.op_numero, { requer_laser: nextVal });
   };
 
+  // Regra do Seletor de Quantidade Física (Totem):
+  const descUpper = String(order.descricao || (order as any).produto || '').toUpperCase();
+  const rawCode = String(order.codigo || order.codigoProduto || (order as any).cod || '').trim();
+  const codeClean = rawCode;
+  const isFamilia011 =
+    codeClean.startsWith('011.') ||
+    codeClean.startsWith('011') ||
+    codeClean.includes('011.0012') ||
+    codeClean.includes('011.0013') ||
+    codeClean.includes('011.0117') ||
+    codeClean.includes('0110012') ||
+    codeClean.includes('0110013') ||
+    codeClean.includes('0110117') ||
+    descUpper.includes('011.');
+  const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(order.isDupla);
+  const isVaiVem =
+    descUpper.includes('VAI VEM') ||
+    descUpper.includes('VAI-VEM') ||
+    descUpper.includes('VV') ||
+    isFamilia011 ||
+    routeData.rule.keyword === 'PT VAI VEM' ||
+    Boolean(order.familia?.toLowerCase().includes('vai e vem'));
+  const isQtdUm = totalPhysicalUnits === 1 || order.quantidade === 1 || order.quantidade_total === 1;
+
+  const showPhysicalQuantitySelector =
+    isFamilia011 ||
+    isDupla ||
+    isVaiVem ||
+    isQtdUm ||
+    order.quantidadeFisica !== undefined;
+
+  const handleAdjustPhysicalQuantity = async (delta: number) => {
+    playClick();
+    const current = Math.round(
+      order.quantidadeFisica ??
+      (isDupla && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : totalPhysicalUnits)
+    );
+    const nextVal = Math.max(1, current + delta);
+    if (nextVal === current) return;
+
+    await updateProductionOrder(order.op_numero, {
+      quantidade_total: nextVal,
+      quantidade: nextVal,
+      quantidadeFisica: nextVal,
+      ...(isDupla ? { quantidadeFolhas: nextVal, isDupla: true } : {})
+    });
+  };
+
   // Timer para operação em andamento
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [refugoInput, setRefugoInput] = useState<number>(0);
@@ -1156,6 +1204,43 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                 ⚙ Requer Router (Com Visor)
               </span>
             )}
+          </div>
+        )}
+
+        {/* Seletor de Quantidade Física a Produzir no Passo 3 do Lote */}
+        {showPhysicalQuantitySelector && isUnblocked && (
+          <div className="w-full mb-3 p-3 bg-slate-900/90 border border-amber-500/50 rounded-xl flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex flex-col">
+              <span className="text-xs font-mono font-bold text-amber-300">
+                Qtde Física a Produzir no Lote:
+              </span>
+              <span className="text-[11px] font-mono text-slate-400">
+                {isDupla ? 'Porta Dupla (2 folhas físicas por conjunto)' : 'Selecione a quantidade de peças'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleAdjustPhysicalQuantity(-1)}
+                disabled={totalPhysicalUnits <= 1 || isLoading}
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                title="Diminuir peças físicas do lote"
+              >
+                -
+              </button>
+              <span className="px-3 py-1 bg-slate-950 border border-slate-700 rounded-lg font-mono font-black text-white text-base min-w-[36px] text-center">
+                {totalPhysicalUnits}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleAdjustPhysicalQuantity(1)}
+                disabled={isLoading}
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                title="Aumentar peças físicas do lote"
+              >
+                +
+              </button>
+            </div>
           </div>
         )}
 

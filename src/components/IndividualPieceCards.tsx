@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
+import { updateProductionOrder } from '../services/mesStorage';
 import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
 import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -132,6 +133,53 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
   const totalEmAndamento = pieceCards.filter((p) => p.isActive).length;
   const percentConcluido = Math.round((totalConcluidas / totalPhysicalUnits) * 100);
 
+  // Regra do Seletor de Quantidade Física nos Cartões Unitários:
+  const descUpper = String(order.descricao || (order as any).produto || '').toUpperCase();
+  const rawCode = String(order.codigo || order.codigoProduto || (order as any).cod || '').trim();
+  const codeClean = rawCode;
+  const isFamilia011 =
+    codeClean.startsWith('011.') ||
+    codeClean.startsWith('011') ||
+    codeClean.includes('011.0012') ||
+    codeClean.includes('011.0013') ||
+    codeClean.includes('011.0117') ||
+    codeClean.includes('0110012') ||
+    codeClean.includes('0110013') ||
+    codeClean.includes('0110117') ||
+    descUpper.includes('011.');
+  const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(order.isDupla);
+  const isVaiVem =
+    descUpper.includes('VAI VEM') ||
+    descUpper.includes('VAI-VEM') ||
+    descUpper.includes('VV') ||
+    isFamilia011 ||
+    Boolean(order.familia?.toLowerCase().includes('vai e vem'));
+  const isQtdUm = totalPhysicalUnits === 1 || order.quantidade === 1 || order.quantidade_total === 1;
+
+  const showPhysicalQuantitySelector =
+    isFamilia011 ||
+    isDupla ||
+    isVaiVem ||
+    isQtdUm ||
+    order.quantidadeFisica !== undefined;
+
+  const handleAdjustPhysicalQuantity = async (delta: number) => {
+    playClick();
+    const current = Math.round(
+      order.quantidadeFisica ??
+      (isDupla && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : totalPhysicalUnits)
+    );
+    const nextVal = Math.max(1, current + delta);
+    if (nextVal === current) return;
+
+    await updateProductionOrder(order.op_numero, {
+      quantidade_total: nextVal,
+      quantidade: nextVal,
+      quantidadeFisica: nextVal,
+      ...(isDupla ? { quantidadeFolhas: nextVal, isDupla: true } : {})
+    });
+  };
+
   return (
     <div className="w-full bg-[#0b101d] border border-slate-800 rounded-2xl p-3.5 shadow-xl shrink-0 mt-auto flex flex-col gap-3">
       {/* CABEÇALHO DO PAINEL DE CARTÕES UNITÁRIOS */}
@@ -151,6 +199,39 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
         </div>
 
         {/* Indicadores de Progresso */}
+          {/* Seletor rápido de quantidade física a produzir nos cartões unitários */}
+          {showPhysicalQuantitySelector && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-amber-500/50">
+              <span className="text-[11px] font-mono font-bold text-amber-300">
+                Qtde Física:
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => handleAdjustPhysicalQuantity(-1)}
+                  disabled={totalPhysicalUnits <= 1 || isLoading}
+                  className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold font-mono text-xs flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                  title="Diminuir peças físicas da OP"
+                >
+                  -
+                </button>
+                <span className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded font-mono font-black text-white text-xs min-w-[24px] text-center">
+                  {totalPhysicalUnits}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleAdjustPhysicalQuantity(1)}
+                  disabled={isLoading}
+                  className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold font-mono text-xs flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                  title="Aumentar peças físicas da OP"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
+          
         <div className="flex items-center gap-2 text-xs font-mono">
           {ehGaxetaParaMontagem && (
             <span

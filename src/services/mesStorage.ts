@@ -164,6 +164,19 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
     desc.includes('VAI VEM') ||
     desc.includes('OFFICE DOOR');
 
+  // Portas Duplas (Vai-Vem, Office Door, Giro ou Correr)
+  const ehDupla = desc.includes('DUPLA') || desc.includes('DUPLO') || Boolean(op.isDupla);
+  if (ehDupla) {
+    op.isDupla = true;
+    if (op.quantidadeFisica === undefined || op.quantidadeFisica === null) {
+      const q = (op.quantidade_total === 1 || op.quantidade === 1) ? 2 : (op.quantidade_total || op.quantidade || 2);
+      op.quantidadeFisica = q;
+    }
+    if (op.quantidadeFolhas === undefined || op.quantidadeFolhas === null) {
+      op.quantidadeFolhas = op.quantidadeFisica;
+    }
+  }
+
   if (ehSubcomponente) return op;
 
   const ehGiratoria =

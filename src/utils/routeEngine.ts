@@ -110,19 +110,22 @@ export const obterQuantidadeTotal = (op: any): number => {
     return Number(op.quantidadeFisica);
   }
 
+  // Prioridade 2: quantidadeFolhas se definida
+  if (op.quantidadeFolhas !== undefined && op.quantidadeFolhas !== null && !isNaN(Number(op.quantidadeFolhas)) && Number(op.quantidadeFolhas) > 0) {
+    return Number(op.quantidadeFolhas);
+  }
+
+  const desc = String(op.descricao || op.produto || '').toUpperCase();
+  const cod = String(op.codigo || op.codigoProduto || (op as any).cod || '').trim();
+  const ehDupla = desc.includes('DUPLA') || desc.includes('DUPLO') || Boolean(op.isDupla);
+
   const valor = op.quantidade ?? op.qtd ?? op.qtde ?? op.quantidadePlanejada ?? op.qtdTotal ?? op.quantidade_total ?? 1;
   const num = Number(String(valor).replace(',', '.').replace(/[^0-9.]/g, ''));
   const base = !isNaN(num) && num > 0 ? num : 1;
 
-  // Se for porta dupla cadastrada no Nomus como 1 conjunto (ex: OP 024537-01), fisicamente são 2 folhas
-  if (base === 1) {
-    const desc = (op.descricao || op.produto || '').toUpperCase();
-    const cod = String(op.codigo || op.codigoProduto || '').trim();
-    const ehDupla = desc.includes('DUPLA') || desc.includes('DUPLO') || Boolean(op.isDupla);
-    const ehVaiVem = desc.includes('VAI VEM') || desc.includes('VV') || cod.startsWith('011');
-    if (ehDupla && ehVaiVem) {
-      return 2;
-    }
+  // Se for porta dupla cadastrada no Nomus como 1 conjunto (ex: OP 024490-01, OP 024537-01), fisicamente são 2 folhas
+  if (ehDupla) {
+    return base === 1 ? 2 : base;
   }
 
   const fallbackNum = Number(String(op.quantidade_total).replace(',', '.').replace(/[^0-9.]/g, ''));
@@ -135,7 +138,7 @@ export const obterQuantidadeTotal = (op: any): number => {
 export function isDuplaOrder(op: any): boolean {
   if (!op) return false;
   if (op.isDupla === true) return true;
-  const desc = (op.descricao || op.produto || '').toUpperCase();
+  const desc = String(op.descricao || op.produto || '').toUpperCase();
   return desc.includes('DUPLA') || desc.includes('DUPLO');
 }
 
@@ -144,18 +147,22 @@ export function isDuplaOrder(op: any): boolean {
  */
 export function isVaiVemOrder(op: any): boolean {
   if (!op) return false;
-  const desc = (op.descricao || op.produto || '').toUpperCase();
-  const cod = String(op.codigo || op.codigoProduto || '').trim();
+  const desc = String(op.descricao || op.produto || '').toUpperCase();
+  const cod = String(op.codigo || op.codigoProduto || (op as any).cod || '').trim();
   return (
-    desc.includes('VAI VEM') ||
-    desc.includes('VV') ||
     cod.startsWith('011.') ||
     cod.startsWith('011') ||
-    cod.includes('011.0012') ||
+    cod.includes('011.0117') ||
     cod.includes('011.0013') ||
-    cod.includes('011.0117')
+    cod.includes('011.0012') ||
+    desc.includes('VAI VEM') ||
+    desc.includes('VAI-VEM') ||
+    desc.includes('VV') ||
+    Boolean(op.familia?.toLowerCase().includes('vai e vem'))
   );
 }
+
+
 
 /**
  * Regra geral para exibição do seletor de quantidade física a produzir: [-] [ QTD ] [+]
