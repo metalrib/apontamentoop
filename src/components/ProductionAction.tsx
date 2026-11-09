@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder } from '../utils/routeEngine';
 import { updateProductionOrder, obterOcorrenciasDaOp } from '../services/mesStorage';
-import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X } from 'lucide-react';
+import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 import { IndividualPieceCards } from './IndividualPieceCards';
 import { OpOccurrenceModal } from './OpOccurrenceModal';
@@ -17,6 +17,7 @@ interface ProductionActionProps {
   onFinishUnit: (apontamentoId: string, encaminharRouter?: boolean) => void;
   onStartBatch?: (etapaRota: string, quantidadeTotal: number) => void;
   onFinishBatch?: (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean) => void;
+  onCancelStart?: (apontamentoId: string, etapaRota: string) => void;
   isLoading?: boolean;
 }
 
@@ -30,6 +31,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   onFinishUnit,
   onStartBatch,
   onFinishBatch,
+  onCancelStart,
   isLoading = false
 }) => {
   // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
@@ -43,6 +45,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
 
   // Controle de Ocorrências / Motivo de Atraso
   const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const ocorrencias = obterOcorrenciasDaOp(order);
 
   // Identifica se a OP e o Setor utilizam Apontamento em Lote Completo ou Peça a Peça (Unitário)
@@ -245,6 +248,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           qtdGaxetaPronta={qtdGaxetaPronta}
           qtdMontagemPronta={qtdMontagemPronta}
           pecasDisponiveisParaMontar={pecasDisponiveisParaMontar}
+          onCancelStart={onCancelStart}
           onOpenOccurrenceModal={() => setShowOccurrenceModal(true)}
           ocorrenciasCount={ocorrencias.length}
         />
@@ -400,6 +404,21 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             )}
           </button>
 
+          {/* Botão Secundário: Cancelar Início (Estornar) */}
+          <button
+            type="button"
+            onClick={() => {
+              playClick();
+              setShowCancelModal(true);
+            }}
+            disabled={isLoading}
+            className="w-full mt-2.5 py-2.5 px-4 bg-rose-950/40 hover:bg-rose-900/60 active:scale-[0.99] border border-rose-500/40 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+            title="Desfazer o início acidental deste lote"
+          >
+            <RotateCcw className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>Cancelar Início (Estornar)</span>
+          </button>
+
           {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
           <button
             type="button"
@@ -407,7 +426,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
               playClick();
               setShowOccurrenceModal(true);
             }}
-            className="w-full mt-2.5 py-2.5 px-4 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+            className="w-full mt-2 py-2 px-4 bg-amber-500/10 hover:bg-amber-500/20 active:scale-[0.99] text-amber-300 hover:text-amber-200 border border-amber-500/40 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
             title="Registrar ocorrência ou justificar atraso sem pausar a produção"
           >
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
@@ -427,6 +446,56 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             isOpen={showOccurrenceModal}
             onClose={() => setShowOccurrenceModal(false)}
           />
+
+          {/* Modal de Confirmação de Estorno de Início de Lote */}
+          {showCancelModal && (
+            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#0f172a] border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
+                    <AlertTriangle className="w-6 h-6 text-rose-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-white leading-snug">
+                      Estornar Início de Lote
+                    </h3>
+                    <p className="text-xs text-slate-400 font-mono">
+                      OP {order.op_numero} • {selectedSector}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-300 leading-relaxed mb-6 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                  Deseja estornar o início deste lote? O apontamento atual deste posto será cancelado.
+                </p>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCancelModal(false)}
+                    className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+                  >
+                    Voltar / Não
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      playClick();
+                      setShowCancelModal(false);
+                      if (onCancelStart && activeForCurrentOperator) {
+                        await onCancelStart(activeForCurrentOperator.id, matchedStep || selectedSector);
+                      }
+                    }}
+                    disabled={isLoading}
+                    className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white font-bold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Sim, Estornar</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
           {showRouterModal && (
@@ -619,6 +688,21 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           )}
         </button>
 
+        {/* Botão Secundário: Cancelar Início (Estornar) */}
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            setShowCancelModal(true);
+          }}
+          disabled={isLoading}
+          className="w-full mt-2 py-2 px-3 bg-rose-950/40 hover:bg-rose-900/60 active:scale-[0.99] border border-rose-500/40 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
+          title="Desfazer o início acidental desta unidade"
+        >
+          <RotateCcw className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>Cancelar Início (Estornar)</span>
+        </button>
+
         {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
         <button
           type="button"
@@ -646,6 +730,56 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           isOpen={showOccurrenceModal}
           onClose={() => setShowOccurrenceModal(false)}
         />
+
+        {/* Modal de Confirmação de Estorno de Início de Unidade */}
+        {showCancelModal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-[#0f172a] border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
+                  <AlertTriangle className="w-6 h-6 text-rose-400" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white leading-snug">
+                    Estornar Início de Unidade
+                  </h3>
+                  <p className="text-xs text-slate-400 font-mono">
+                    OP {order.op_numero} • {selectedSector}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300 leading-relaxed mb-6 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+                Deseja estornar o início desta unidade? O apontamento atual deste posto será cancelado.
+              </p>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowCancelModal(false)}
+                  className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+                >
+                  Voltar / Não
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    playClick();
+                    setShowCancelModal(false);
+                    if (onCancelStart && activeForCurrentOperator) {
+                      await onCancelStart(activeForCurrentOperator.id, matchedStep || selectedSector);
+                    }
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white font-bold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                  <span>Sim, Estornar</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
         {showRouterModal && (

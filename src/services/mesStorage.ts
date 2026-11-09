@@ -2300,6 +2300,209 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
 }
 
 /**
+ * Cancela / estorna o início acidental de uma etapa da OP (Totem ou PCP)
+ * Retorna o status do posto para 'PENDENTE', remove o apontamento em andamento,
+ * limpa os campos de início/operador/cronômetro e preserva as etapas anteriores já concluídas.
+ */
+export async function cancelarInicioEtapa(
+  opNumero: string,
+  setorOuEtapa: string,
+  apontamentoId?: string
+): Promise<{ success: boolean; message: string }> {
+  ensureInitialData();
+  const cleanOp = opNumero.trim().toUpperCase();
+
+  // 1. Localiza e remove apontamentos EM_ANDAMENTO deste posto
+  const rawApts = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  let tree: Record<string, Record<string, Apontamento>> = {};
+  if (rawApts) {
+    try {
+      tree = JSON.parse(rawApts);
+    } catch {
+      tree = {};
+    }
+  }
+
+  const opTree = tree[cleanOp] || {};
+  const aptsParaRemover: string[] = [];
+
+  for (const [id, a] of Object.entries(opTree)) {
+    if (a.status === 'EM_ANDAMENTO') {
+      const matchId = apontamentoId ? a.id === apontamentoId : true;
+      const matchSetor =
+        matchStepName(a.etapa_rota || a.etapaRota || '', setorOuEtapa) ||
+        doesSectorMatchStep(a.setorFisico || a.setor || '', setorOuEtapa) ||
+        (a.setor && a.setor.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim()) ||
+        (a.etapa_rota && a.etapa_rota.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim());
+
+      if (matchId && matchSetor) {
+        aptsParaRemover.push(id);
+      }
+    }
+  }
+
+  // Se nenhum apontamento coincidiu exatamente pelo setor, mas um ID específico foi fornecido
+  if (aptsParaRemover.length === 0 && apontamentoId && opTree[apontamentoId]) {
+    aptsParaRemover.push(apontamentoId);
+  }
+
+  // Se ainda assim não encontrou pelo cleanOp, procura em todas as chaves
+  if (aptsParaRemover.length === 0 && apontamentoId) {
+    for (const k of Object.keys(tree)) {
+      if (tree[k] && tree[k][apontamentoId]) {
+        delete tree[k][apontamentoId];
+        try {
+          const aptKey = toFirebaseKey(apontamentoId);
+          await set(ref(db, `historico_apontamentos/${aptKey}`), null);
+          firebaseDelete(`apontamentos/${k}/${apontamentoId}`);
+        } catch {}
+      }
+    }
+  }
+
+  // Remove os apontamentos identificados
+  for (const id of aptsParaRemover) {
+    delete opTree[id];
+    try {
+      const aptKey = toFirebaseKey(id);
+      await set(ref(db, `historico_apontamentos/${aptKey}`), null);
+      firebaseDelete(`apontamentos/${cleanOp}/${id}`);
+    } catch (err) {
+      console.warn('[Firebase] Erro ao deletar apontamento estornado:', err);
+    }
+  }
+
+  tree[cleanOp] = opTree;
+  localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+
+  // 2. Atualiza a Ordem de Produção no localStorage e Realtime Database
+  const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+  let ordersMap: Record<string, ProductionOrder> = {};
+  if (rawOrders) {
+    try {
+      ordersMap = JSON.parse(rawOrders);
+    } catch {
+      ordersMap = {};
+    }
+  }
+
+  let matchedOpKey = cleanOp;
+  let targetOrder = ordersMap[cleanOp];
+  if (!targetOrder) {
+    const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+    const foundKey = Object.keys(ordersMap).find((k) => {
+      const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+      return kClean === cleanNoPrefix || k.trim().toUpperCase() === cleanOp;
+    });
+    if (foundKey) {
+      matchedOpKey = foundKey;
+      targetOrder = ordersMap[foundKey];
+    }
+  }
+
+  if (targetOrder) {
+    const { steps } = getRouteForOp(targetOrder);
+    const matchedStepKey =
+      steps.find(
+        (s) => matchStepName(s, setorOuEtapa) || doesSectorMatchStep(setorOuEtapa, s)
+      ) || setorOuEtapa;
+
+    if (!targetOrder.etapas) {
+      targetOrder.etapas = {};
+    }
+
+    const etapaAnterior = targetOrder.etapas[matchedStepKey] || { status: 'PENDENTE', concluidas: 0 };
+    targetOrder.etapas[matchedStepKey] = {
+      status: 'PENDENTE',
+      concluidas: etapaAnterior.concluidas || 0,
+      total: etapaAnterior.total
+    };
+
+    // Remove campos de operador e início
+    delete (targetOrder.etapas[matchedStepKey] as any).inicio;
+    delete (targetOrder.etapas[matchedStepKey] as any).horaInicio;
+    delete (targetOrder.etapas[matchedStepKey] as any).hora_inicio;
+    delete (targetOrder.etapas[matchedStepKey] as any).operadorId;
+    delete (targetOrder.etapas[matchedStepKey] as any).operadorNome;
+    delete (targetOrder.etapas[matchedStepKey] as any).operador;
+    delete (targetOrder.etapas[matchedStepKey] as any).colaborador;
+
+    // Verifica se restou alguma outra etapa ativa na OP
+    const otherActiveStep = steps.find(
+      (s) => s !== matchedStepKey && (targetOrder?.etapas?.[s]?.status === 'EM_PRODUCAO')
+    );
+    const anyCompletedStep = steps.some(
+      (s) => (targetOrder?.etapas?.[s]?.status === 'CONCLUIDO') || ((targetOrder?.etapas?.[s]?.concluidas || 0) > 0)
+    );
+
+    if (otherActiveStep) {
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.etapaAtual = otherActiveStep;
+      targetOrder.postoSelecionado = otherActiveStep;
+    } else if (anyCompletedStep) {
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.status_fabrica = 'Produzindo Hoje';
+      targetOrder.etapaAtual = undefined;
+      targetOrder.postoSelecionado = undefined;
+      targetOrder.colaboradorIniciou = undefined;
+      targetOrder.operadorAtual = undefined;
+    } else {
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.status_fabrica = 'Falta Injetar';
+      targetOrder.etapaAtual = undefined;
+      targetOrder.postoSelecionado = undefined;
+      targetOrder.colaboradorIniciou = undefined;
+      targetOrder.operadorAtual = undefined;
+      targetOrder.dataInicio = undefined;
+    }
+
+    ordersMap[matchedOpKey] = targetOrder;
+    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+
+    // Persistência no Firebase Realtime Database
+    const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
+    const fbStepKey = toFirebaseKey(matchedStepKey);
+
+    const opUpdates: Record<string, any> = {
+      etapas: targetOrder.etapas,
+      [`etapas/${fbStepKey}/status`]: 'PENDENTE',
+      [`etapas/${fbStepKey}/inicio`]: null,
+      [`etapas/${fbStepKey}/operadorId`]: null,
+      [`etapas/${fbStepKey}/operadorNome`]: null,
+      [`etapas/${fbStepKey}/horaInicio`]: null,
+      [`etapas/${fbStepKey}/hora_inicio`]: null,
+      [`etapas/${fbStepKey}/duracao`]: null,
+      [`etapas/${fbStepKey}/operador`]: null,
+      [`etapas/${fbStepKey}/colaborador`]: null,
+      [`progressoPostos/${fbStepKey}/iniciado`]: false,
+      [`progressoPostos/${fbStepKey}/status`]: 'PENDENTE',
+      status: targetOrder.status,
+      status_fabrica: targetOrder.status_fabrica,
+      data_atualizacao: new Date().toISOString()
+    };
+
+    if (!otherActiveStep) {
+      opUpdates.etapaAtual = null;
+      opUpdates.postoSelecionado = null;
+      opUpdates.colaboradorIniciou = null;
+      opUpdates.operadorAtual = null;
+      if (!anyCompletedStep) {
+        opUpdates.dataInicio = null;
+      }
+    }
+
+    try {
+      await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
+    } catch (err) {
+      console.error('[Firebase] Erro ao estornar etapa no Realtime Database:', err);
+    }
+  }
+
+  broadcastUpdate();
+  return { success: true, message: `Etapa ${setorOuEtapa} estornada com sucesso` };
+}
+
+/**
  * Limpa todo o histórico de apontamentos
  */
 export async function clearAllApontamentos(): Promise<void> {

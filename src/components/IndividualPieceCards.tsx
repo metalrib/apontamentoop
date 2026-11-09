@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada } from '../utils/routeEngine';
-import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle } from 'lucide-react';
+import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 
 interface IndividualPieceCardsProps {
@@ -15,6 +15,7 @@ interface IndividualPieceCardsProps {
   routeValidation: { valido: boolean; motivo?: string };
   onStartUnit: (unidadeNumero: number, etapaRota: string) => void;
   onFinishUnit: (apontamentoId: string, encaminharRouter?: boolean) => void;
+  onCancelStart?: (apontamentoId: string, etapaRota: string) => void;
   isLoading?: boolean;
   // Regra de Fluxo Contínuo Gaxeta -> Montagem
   ehGaxetaParaMontagem?: boolean;
@@ -36,6 +37,7 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
   routeValidation,
   onStartUnit,
   onFinishUnit,
+  onCancelStart,
   isLoading = false,
   ehGaxetaParaMontagem = false,
   qtdGaxetaPronta = 0,
@@ -394,6 +396,27 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                     </>
                   )}
                 </button>
+
+                {/* Botão Secundário: Estornar Início da Peça */}
+                {onCancelStart && (
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => {
+                      const confirmed = typeof window !== 'undefined'
+                        ? window.confirm(`Deseja estornar o início da Peça #${unitNum}? O apontamento em andamento será cancelado.`)
+                        : true;
+                      if (!confirmed) return;
+                      playClick();
+                      onCancelStart(activeApt.id, matchedStep);
+                    }}
+                    className="w-full mt-1.5 py-1 px-2 rounded-lg font-mono font-bold text-[10px] text-rose-300 hover:text-white bg-rose-950/40 hover:bg-rose-900/60 border border-rose-500/30 flex items-center justify-center gap-1 transition cursor-pointer active:scale-95"
+                    title={`Estornar início acidental da peça #${unitNum}`}
+                  >
+                    <RotateCcw className="w-3 h-3 text-rose-400" />
+                    <span>Estornar Início</span>
+                  </button>
+                )}
               </div>
             );
           }

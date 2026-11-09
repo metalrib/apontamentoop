@@ -9,6 +9,7 @@ import {
   finishUnit,
   startBatch,
   finishBatch,
+  cancelarInicioEtapa,
   subscribeToMesUpdates,
   fetchTerminalsConfig,
   TEST_DUMMY_OPS,
@@ -551,6 +552,36 @@ export default function App() {
     }
   };
 
+  // Cancelar / Estornar Início Acidental de Lote ou Unidade
+  const handleCancelStart = async (apontamentoId: string, etapaRota: string) => {
+    if (!currentOp || !selectedSector) return;
+    setIsLoading(true);
+    const opNum = currentOp.op_numero;
+    const sector = selectedSector;
+    try {
+      await cancelarInicioEtapa(opNum, sector, apontamentoId);
+      playClick();
+      await loadData();
+
+      setToastData({
+        message: `✔ Início da etapa ${sector} estornado com sucesso!`,
+        details: `OP: ${opNum} · Posto retornado para Pendente`
+      });
+
+      // Retorna imediatamente à tela inicial de bipar mantendo o toast visível
+      handleResetScreen(true);
+    } catch (err) {
+      console.error(err);
+      playBlockedError();
+      setToastData({
+        message: '⚠ Falha ao estornar início de etapa',
+        details: err instanceof Error ? err.message : 'Erro interno de processamento'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Se estiver no Modo Mobile (Consulta Rápida / Rastreio PCP)
   if (systemMode === 'mobile') {
     return (
@@ -784,6 +815,7 @@ export default function App() {
             onFinishUnit={handleFinishUnit}
             onStartBatch={handleStartBatch}
             onFinishBatch={handleFinishBatch}
+            onCancelStart={handleCancelStart}
             isLoading={isLoading}
           />
         </div>

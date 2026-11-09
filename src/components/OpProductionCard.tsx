@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -13,7 +13,8 @@ import {
   Sparkles,
   CheckCircle2,
   Trash2,
-  AlertTriangle
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 import { OpOccurrenceModal } from './OpOccurrenceModal';
 
@@ -111,6 +112,24 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
       quantidadeFisica: nextVal,
       ...(isDupla ? { quantidadeFolhas: nextVal } : {})
     });
+  };
+
+  // Controle de estorno / reset de etapa em andamento (PCP)
+  const [stepToReset, setStepToReset] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState<boolean>(false);
+
+  const handleConfirmResetStep = async () => {
+    if (!stepToReset) return;
+    setIsResetting(true);
+    playClick();
+    try {
+      await cancelarInicioEtapa(order.op_numero, stepToReset);
+    } catch (err) {
+      console.error('Erro ao resetar etapa no PCP:', err);
+    } finally {
+      setIsResetting(false);
+      setStepToReset(null);
+    }
   };
 
   return (
@@ -422,11 +441,25 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
             {!isConcluidaGeral && (
               <div className="mb-2">
                 {activeApt ? (
-                  <div className="flex items-center gap-2 px-2.5 py-1.5 bg-blue-950/80 border border-blue-500/40 rounded-lg text-xs font-mono text-blue-200">
-                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
-                    <span className="truncate">
-                      <strong>🔵 PROCESSO ATUAL:</strong> {activeApt.setorFisico || activeApt.setor} <span className="text-slate-400 text-[11px]">(Operador: {activeApt.colaborador || activeApt.operador || 'Operador'})</span>
-                    </span>
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-blue-950/80 border border-blue-500/40 rounded-lg text-xs font-mono text-blue-200">
+                    <div className="flex items-center gap-2 truncate">
+                      <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                      <span className="truncate">
+                        <strong>🔵 PROCESSO ATUAL:</strong> {activeApt.setorFisico || activeApt.setor} <span className="text-slate-400 text-[11px]">(Operador: {activeApt.colaborador || activeApt.operador || 'Operador'})</span>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setStepToReset(activeApt.etapa_rota || activeApt.setorFisico || activeApt.setor);
+                      }}
+                      className="px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
+                      title="Resetar etapa em andamento (cancelar início acidental)"
+                    >
+                      <RotateCcw className="w-3 h-3 text-rose-400" />
+                      <span>Resetar Etapa</span>
+                    </button>
                   </div>
                 ) : nextWaitingStep ? (
                   <div className="flex items-center gap-2 px-2.5 py-1.5 bg-amber-950/60 border border-amber-500/40 rounded-lg text-xs font-mono text-amber-200">
@@ -464,9 +497,23 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                           {finalizadas}/{total} concluídas
                         </span>
                       ) : isActive ? (
-                        <span className="text-[11px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
-                          {finalizadas}/{total} ({emAndamento} em andamento)
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[11px] font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30">
+                            {finalizadas}/{total} ({emAndamento} em andamento)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setStepToReset(step);
+                            }}
+                            className="px-1.5 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
+                            title={`Resetar etapa ${step} (cancelar início acidental)`}
+                          >
+                            <RotateCcw className="w-3 h-3 text-rose-400" />
+                            <span>Resetar</span>
+                          </button>
+                        </div>
                       ) : finalizadas > 0 ? (
                         <span className="text-[11px] font-bold text-amber-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
                           {finalizadas}/{total} concluídas
@@ -511,6 +558,56 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
         isOpen={showOccurrenceModal}
         onClose={() => setShowOccurrenceModal(false)}
       />
+
+      {/* Modal de Confirmação para Resetar Etapa no PCP */}
+      {stepToReset && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#0f172a] border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
+                <AlertTriangle className="w-6 h-6 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white leading-snug">
+                  Resetar Etapa
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  OP {order.op_numero} • {stepToReset}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed mb-6 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+              Deseja resetar a etapa <strong className="text-white">"{stepToReset}"</strong> desta OP? O início acidental deste posto será cancelado e o status retornará para <span className="text-amber-400 font-bold">Pendente</span>.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setStepToReset(null)}
+                className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetStep}
+                disabled={isResetting}
+                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white font-bold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+              >
+                {isResetting ? (
+                  <span className="animate-spin text-sm">↻</span>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Sim, Resetar</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
