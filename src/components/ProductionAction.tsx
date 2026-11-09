@@ -59,12 +59,14 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   );
 
   // Identifica se há lote ativo no setor (ou unidade ativa do operador no modo unitário)
-  const activeBatch = activeInSector.find(a => a.is_lote || a.unidade_numero === 0);
+  const activeBatch = activeInSector.find(a => a.is_lote || a.unidade_numero === 0) || activeInSector[0];
   const activeUnitForCurrentOperator = selectedOperator
-    ? activeInSector.find(a => a.operador === selectedOperator && !a.is_lote && a.unidade_numero > 0)
-    : null;
+    ? (activeInSector.find(a => a.operador === selectedOperator && !a.is_lote && a.unidade_numero > 0) || activeInSector[0])
+    : activeInSector[0] || null;
 
-  const activeForCurrentOperator = isBatch ? activeBatch : activeUnitForCurrentOperator;
+  const activeForCurrentOperator = isBatch 
+    ? (activeBatch || activeInSector[0] || null) 
+    : (activeUnitForCurrentOperator || activeInSector[0] || null);
 
   // Identifica se o setor selecionado é a Injeção
   const isInjecaoSector = Boolean(
@@ -379,45 +381,47 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
             </div>
           )}
 
-          {/* BOTÃO CONCLUIR LOTE COMPLETO */}
-          <button
-            onClick={() => {
-              playClick();
-              if (showRouterOption) {
-                setShowRouterModal(true);
-              } else if (onFinishBatch) {
-                onFinishBatch(activeForCurrentOperator.id, refugoInput);
-              } else {
-                onFinishUnit(activeForCurrentOperator.id);
-              }
-            }}
-            disabled={isLoading}
-            className="w-full py-3.5 px-6 bg-teal-600 hover:bg-teal-500 active:scale-[0.99] transition-all text-white font-bold text-base rounded-xl flex items-center justify-center gap-2 shadow-lg cursor-pointer tracking-wide uppercase"
-          >
-            {isLoading ? (
-              <span className="animate-spin text-xl">↻</span>
-            ) : (
-              <>
-                <CheckCircle2 className="w-5 h-5" />
-                <span>CONCLUIR LOTE COMPLETO ({totalPhysicalUnits} PEÇAS)</span>
-              </>
-            )}
-          </button>
+          {/* AÇÕES DO LOTE EM ANDAMENTO (CONCLUIR + ESTORNAR LADO A LADO) */}
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={() => {
+                playClick();
+                if (showRouterOption) {
+                  setShowRouterModal(true);
+                } else if (onFinishBatch) {
+                  onFinishBatch(activeForCurrentOperator.id, refugoInput);
+                } else {
+                  onFinishUnit(activeForCurrentOperator.id);
+                }
+              }}
+              disabled={isLoading}
+              className="flex-1 py-3.5 px-4 bg-teal-600 hover:bg-teal-500 active:scale-[0.99] transition-all text-white font-bold text-sm sm:text-base rounded-xl flex items-center justify-center gap-2 shadow-lg cursor-pointer tracking-wide uppercase"
+            >
+              {isLoading ? (
+                <span className="animate-spin text-xl">↻</span>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-5 h-5 shrink-0" />
+                  <span>CONCLUIR LOTE ({totalPhysicalUnits} PEÇAS)</span>
+                </>
+              )}
+            </button>
 
-          {/* Botão Secundário: Cancelar Início (Estornar) */}
-          <button
-            type="button"
-            onClick={() => {
-              playClick();
-              setShowCancelModal(true);
-            }}
-            disabled={isLoading}
-            className="w-full mt-2.5 py-2.5 px-4 bg-rose-950/40 hover:bg-rose-900/60 active:scale-[0.99] border border-rose-500/40 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
-            title="Desfazer o início acidental deste lote"
-          >
-            <RotateCcw className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>Cancelar Início (Estornar)</span>
-          </button>
+            {/* Botão Secundário ao Lado: Cancelar Início (Estornar) */}
+            <button
+              type="button"
+              onClick={() => {
+                playClick();
+                setShowCancelModal(true);
+              }}
+              disabled={isLoading}
+              className="py-3.5 px-4 bg-rose-950/60 hover:bg-rose-900/80 active:scale-[0.99] border border-rose-500/50 text-rose-300 hover:text-white rounded-xl text-xs sm:text-sm font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md shrink-0"
+              title="Desfazer o início acidental deste lote"
+            >
+              <RotateCcw className="w-4 h-4 text-rose-400 shrink-0" />
+              <span>Cancelar Início (Estornar)</span>
+            </button>
+          </div>
 
           {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
           <button
@@ -466,7 +470,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                 </div>
 
                 <p className="text-xs text-slate-300 leading-relaxed mb-6 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
-                  Deseja estornar o início deste lote? O apontamento atual deste posto será cancelado.
+                  Deseja estornar o início deste apontamento? O status deste posto retornará para pendente e o cronômetro será limpo.
                 </p>
 
                 <div className="flex items-center gap-3">
@@ -660,43 +664,45 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
           </div>
         )}
 
-        {/* BOTÃO FINALIZAR UNIDADE */}
-        <button
-          onClick={() => {
-            playClick();
-            if (showRouterOption) {
-              setShowRouterModal(true);
-            } else {
-              onFinishUnit(activeForCurrentOperator.id);
-            }
-          }}
-          disabled={isLoading}
-          className="w-full py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] transition-all text-white font-bold text-base rounded-xl flex items-center justify-center gap-2 shadow-md uppercase tracking-wide cursor-pointer"
-        >
-          {isLoading ? (
-            <span className="animate-spin text-xl">↻</span>
-          ) : (
-            <>
-              <Square className="w-5 h-5 fill-white" />
-              <span>FINALIZAR UNIDADE</span>
-            </>
-          )}
-        </button>
+        {/* AÇÕES DA UNIDADE EM ANDAMENTO (FINALIZAR + ESTORNAR LADO A LADO) */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              playClick();
+              if (showRouterOption) {
+                setShowRouterModal(true);
+              } else {
+                onFinishUnit(activeForCurrentOperator.id);
+              }
+            }}
+            disabled={isLoading}
+            className="flex-1 py-3 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] transition-all text-white font-bold text-sm sm:text-base rounded-xl flex items-center justify-center gap-2 shadow-md uppercase tracking-wide cursor-pointer"
+          >
+            {isLoading ? (
+              <span className="animate-spin text-xl">↻</span>
+            ) : (
+              <>
+                <Square className="w-5 h-5 fill-white shrink-0" />
+                <span>FINALIZAR UNIDADE</span>
+              </>
+            )}
+          </button>
 
-        {/* Botão Secundário: Cancelar Início (Estornar) */}
-        <button
-          type="button"
-          onClick={() => {
-            playClick();
-            setShowCancelModal(true);
-          }}
-          disabled={isLoading}
-          className="w-full mt-2 py-2 px-3 bg-rose-950/40 hover:bg-rose-900/60 active:scale-[0.99] border border-rose-500/40 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
-          title="Desfazer o início acidental desta unidade"
-        >
-          <RotateCcw className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>Cancelar Início (Estornar)</span>
-        </button>
+          {/* Botão Secundário ao Lado: Cancelar Início (Estornar) */}
+          <button
+            type="button"
+            onClick={() => {
+              playClick();
+              setShowCancelModal(true);
+            }}
+            disabled={isLoading}
+            className="py-3 px-4 bg-rose-950/60 hover:bg-rose-900/80 active:scale-[0.99] border border-rose-500/50 text-rose-300 hover:text-white rounded-xl text-xs sm:text-sm font-mono font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-md shrink-0"
+            title="Desfazer o início acidental desta unidade"
+          >
+            <RotateCcw className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>Cancelar Início (Estornar)</span>
+          </button>
+        </div>
 
         {/* Botão em Destaque: Registrar Ocorrência / Motivo de Atraso */}
         <button
@@ -963,13 +969,10 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
   const temSaldoParaIniciar = (qtdGaxetaPronta - totalIniciadasMontagem) > 0;
 
   // Regra de Paralelismo: Montagem de Vai-Vem com Router
-  const isEtapaAnteriorRouter = Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
-  const isMontagemVaiVem = Boolean(
-    normSelectedPosto.includes('VAI VEM') &&
-    (normSelectedPosto.includes('MONTAGEM') || normSelectedPosto.includes('FINALIZACAO')) ||
-    (order.descricao || '').toUpperCase().includes('VAI VEM') ||
-    String(order.codigo || order.codigoProduto || '').startsWith('011.')
-  );
+  const isPostoMontagem = normSelectedPosto.includes('MONTAGEM') || normSelectedPosto.includes('FINALIZACAO');
+  const isOrderVaiVem = normSelectedPosto.includes('VAI VEM') || (order.descricao || '').toUpperCase().includes('VAI VEM') || String(order.codigo || order.codigoProduto || '').startsWith('011.');
+  const isMontagemVaiVem = isPostoMontagem && isOrderVaiVem;
+  const isEtapaAnteriorRouter = isPostoMontagem && Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
   const routerCheck = verificarRouterLiberada(order, apontamentos);
 
   let statusRouterApts = '';
@@ -1018,14 +1021,22 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     (normSelectedPosto === 'PREPARACAO' && prevStepName && prevStepName.toUpperCase().includes('DOBRA'));
   const prepCheck = verificarPreparacaoFolhasLiberada(order, apontamentos);
 
-  // REGRA GERAL DE PARALELISMO: Corte e Laser são postos de entrada em paralelo no Terminal 1
+  // REGRA GERAL DE PARALELISMO: Corte, Laser e Router possuem avanço independente
   const isLaser = normSelectedPosto.includes('LASER');
+  const isRouter = normSelectedPosto.includes('ROUTER');
   const isCorte = normSelectedPosto.includes('CORTE') && !normSelectedPosto.includes('ALUMINIO');
   const opEhFolha = isFolhaOrder(order);
 
-  if (isLaser || (opEhFolha && isCorte)) {
-    // Se o posto ativo for 'Laser', ele NUNCA deve ser bloqueado por dependência do setor 'Corte'
-    // O operador tem total liberdade para selecionar e iniciar o lote no Laser imediatamente.
+  if (isLaser || isRouter || (opEhFolha && isCorte)) {
+    // Se o posto ativo for 'Laser' ou 'Router', ele NUNCA deve ser bloqueado por dependência sequencial
+    // O operador tem total liberdade para selecionar e iniciar o lote imediatamente.
+    if (stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    }
+  } else if (ehInjecaoBatenteOuFolha) {
+    // REGRA OPERACIONAL: O posto de Injeção de Folhas (Terminal 2) NUNCA deve depender ou esperar pela etapa Router.
+    // O operador da Injeção deve conseguir iniciar e concluir o lote livremente.
     if (stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
       podeIniciar = true;
       bloqueadoPorSetorAnterior = false;
@@ -1065,16 +1076,12 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       podeIniciar = false;
       bloqueadoPorSetorAnterior = true;
     }
-  } else if (ehInjecaoBatenteOuFolha && etapaAnteriorIniciadaOuConcluida && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0) {
-    // Libera apontamento concorrente/paralelo para Injeção se Preparação já tiver iniciado
-    podeIniciar = true;
-    bloqueadoPorSetorAnterior = false;
   }
 
   const isUnblocked = podeIniciar && routeValidation.valido;
   const blockingMessage = !routeValidation.valido
     ? routeValidation.motivo
-    : isLaser && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0
+    : (isLaser || isRouter || ehInjecaoBatenteOuFolha) && stepEval.finalizadas < totalPhysicalUnits && stepEval.emAndamento === 0
     ? undefined
     : isDobra && !dobraCheck.dobraLiberada
     ? (dobraCheck.motivo || 'Aguardando início do Corte ou Laser')

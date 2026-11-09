@@ -104,16 +104,23 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
 
   // Regra de Paralelismo: Montagem de Vai-Vem com Router
   const prevStepName = stepEval.previousStepName || '';
-  const isEtapaAnteriorRouter = Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
 
-  const isMontagemVaiVem = Boolean(
-    (matchedStep?.toUpperCase() || '').includes('VAI VEM') &&
-    ((matchedStep?.toUpperCase() || '').includes('MONTAGEM') || (matchedStep?.toUpperCase() || '').includes('FINALIZACAO')) ||
-    (selectedSector?.toUpperCase() || '').includes('VAI VEM') &&
-    ((selectedSector?.toUpperCase() || '').includes('MONTAGEM') || (selectedSector?.toUpperCase() || '').includes('FINALIZACAO')) ||
+  const isPostoMontagem = Boolean(
+    (matchedStep?.toUpperCase() || '').includes('MONTAGEM') || 
+    (matchedStep?.toUpperCase() || '').includes('FINALIZACAO') ||
+    (selectedSector?.toUpperCase() || '').includes('MONTAGEM') || 
+    (selectedSector?.toUpperCase() || '').includes('FINALIZACAO')
+  );
+
+  const isOrderVaiVem = Boolean(
+    (matchedStep?.toUpperCase() || '').includes('VAI VEM') ||
+    (selectedSector?.toUpperCase() || '').includes('VAI VEM') ||
     (order.descricao || '').toUpperCase().includes('VAI VEM') ||
     String(order.codigo || order.codigoProduto || '').startsWith('011.')
   );
+
+  const isMontagemVaiVem = isPostoMontagem && isOrderVaiVem;
+  const isEtapaAnteriorRouter = isPostoMontagem && Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
 
   const routerCheck = verificarRouterLiberada(order, apontamentos);
 
@@ -255,6 +262,18 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                 // Sem trava sequencial: qualquer peça liberada pela gaxeta pode ser iniciada em paralelo
                 isAvailableToStart = true;
               }
+            } else if (
+              (matchedStep?.toUpperCase() || '').includes('ROUTER') ||
+              (selectedSector?.toUpperCase() || '').includes('ROUTER')
+            ) {
+              // Posto de Router pode ser iniciado a qualquer momento em paralelo e independente
+              isAvailableToStart = true;
+            } else if (
+              (matchedStep?.toUpperCase() || '').includes('INJECAO') ||
+              (selectedSector?.toUpperCase() || '').includes('INJECAO')
+            ) {
+              // Posto de Injeção NUNCA depende ou espera pela etapa Router
+              isAvailableToStart = true;
             } else if (isEtapaAnteriorRouter || isMontagemVaiVem) {
               // REGRA DE PARALELISMO: Router libera a montagem se estiver 'em_andamento' OU 'concluido'
               if (!isRouterLiberada) {

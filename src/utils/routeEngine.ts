@@ -1360,8 +1360,14 @@ export function getRouteEvaluation(
             blockingReason = `Aguardando etapa anterior (${previousStep})`;
           }
         }
-      } else if (ehInjecaoBatenteOuFolha && prevIsStartedOrConcluded) {
-        // REGRA INDUSTRIAL: Permite apontamento concorrente/paralelo em Batentes e Folhas (Preparação + Injeção).
+      } else if (normStep.includes('ROUTER')) {
+        // REGRA OPERACIONAL: O posto de Router deve poder ser iniciado e apontado a qualquer momento quando solicitado,
+        // mesmo que a Injeção ainda esteja em andamento ou já tenha sido concluída (trabalho paralelo e independente).
+        canStart = true;
+        blockingReason = undefined;
+      } else if (ehInjecaoBatenteOuFolha) {
+        // REGRA OPERACIONAL: O posto de Injeção de Folhas (Terminal 2) NUNCA deve depender ou esperar pela etapa Router.
+        // O operador da Injeção deve conseguir iniciar e concluir o lote livremente (em concorrência com Preparação).
         canStart = true;
         blockingReason = undefined;
       } else if (normStep.includes('DOBRA')) {

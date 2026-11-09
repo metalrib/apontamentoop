@@ -2463,6 +2463,16 @@ export async function cancelarInicioEtapa(
     const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
     const fbStepKey = toFirebaseKey(matchedStepKey);
 
+    const proximaEtapaPendente = steps.find(
+      (s) => (targetOrder?.etapas?.[s]?.status !== 'CONCLUIDO') && ((targetOrder?.etapas?.[s]?.concluidas || 0) === 0)
+    ) || steps[0] || 'Corte';
+
+    if (!otherActiveStep) {
+      targetOrder.status = anyCompletedStep ? 'EM_PRODUCAO' : `Aguardando Início em: ${proximaEtapaPendente}`;
+      targetOrder.statusEtapa = `Aguardando Início em: ${proximaEtapaPendente}`;
+      targetOrder.etapaAtual = proximaEtapaPendente;
+    }
+
     const opUpdates: Record<string, any> = {
       etapas: targetOrder.etapas,
       [`etapas/${fbStepKey}/status`]: 'PENDENTE',
@@ -2476,13 +2486,21 @@ export async function cancelarInicioEtapa(
       [`etapas/${fbStepKey}/colaborador`]: null,
       [`progressoPostos/${fbStepKey}/iniciado`]: false,
       [`progressoPostos/${fbStepKey}/status`]: 'PENDENTE',
+      [`apontamentos/${fbStepKey}/status`]: 'PENDENTE',
+      [`apontamentos/${fbStepKey}/inicio`]: null,
+      [`apontamentos/${fbStepKey}/horaInicio`]: null,
+      [`apontamentos/${fbStepKey}/hora_inicio`]: null,
+      [`apontamentos/${fbStepKey}/operador`]: null,
+      [`apontamentos/${fbStepKey}/operadorId`]: null,
+      [`apontamentos/${fbStepKey}/operadorNome`]: null,
       status: targetOrder.status,
       status_fabrica: targetOrder.status_fabrica,
       data_atualizacao: new Date().toISOString()
     };
 
     if (!otherActiveStep) {
-      opUpdates.etapaAtual = null;
+      opUpdates.etapaAtual = proximaEtapaPendente;
+      opUpdates.statusEtapa = targetOrder.statusEtapa;
       opUpdates.postoSelecionado = null;
       opUpdates.colaboradorIniciou = null;
       opUpdates.operadorAtual = null;

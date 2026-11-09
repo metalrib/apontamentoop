@@ -1334,7 +1334,9 @@ export function validarPostoIndustrial(
       if (normStep.includes('VAI VEM') && normPosto.includes('VAI VEM')) return true;
       if (normStep.includes('ROUTER') && normPosto.includes('ROUTER')) return true;
       return false;
-    }) || (normPosto.includes('LASER') && (Boolean(op?.requer_laser) || terminalId === 1 || isFolhaOrder(op)));
+    }) || 
+    (normPosto.includes('LASER') && (Boolean(op?.requer_laser) || terminalId === 1 || isFolhaOrder(op))) ||
+    (normPosto.includes('ROUTER') && (Boolean(op?.requer_router) || Boolean(op?.encaminhar_router) || terminalId === 5 || isEligibleForRouter(op)));
 
     if (isPostoValido) {
       return { valido: true };
