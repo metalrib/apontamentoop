@@ -12,11 +12,12 @@ import {
   normalizarCodigo,
   OpOcorrencia
 } from '../types/mes';
-import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
+import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, formatOpNumber } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
+export { cleanOpId, formatOpNumber };
 
 export function toFirebaseKey(key: string): string {
   return (key || '').trim().replace(/[.#$\[\]\/]/g, '_');
@@ -2431,9 +2432,44 @@ export async function cancelarInicioEtapa(
   apontamentoId?: string
 ): Promise<{ success: boolean; message: string }> {
   ensureInitialData();
-  const cleanOp = opNumero.trim().toUpperCase();
 
-  // 1. Localiza e remove apontamentos EM_ANDAMENTO deste posto
+  // 1. Higienização do identificador da OP (sem duplicidade de 'OP' e sem caracteres inválidos)
+  const numClean = cleanOpId(opNumero);
+  const keyWithOp = `OP ${numClean}`;
+  const keyNoOp = numClean;
+  const cleanNoSpecial = numClean.replace(/[-_\s]/g, '').toUpperCase();
+
+  // 2. Localiza e remove apontamentos EM_ANDAMENTO deste posto em historico_apontamentos no Firebase
+  try {
+    const histSnap = await get(ref(db, 'historico_apontamentos'));
+    if (histSnap.exists()) {
+      const histData = histSnap.val() || {};
+      for (const [id, a] of Object.entries(histData)) {
+        if (!a || typeof a !== 'object') continue;
+        const aOp = cleanOpId((a as any).op_numero || (a as any).op || '');
+        const aOpNoSpecial = aOp.replace(/[-_\s]/g, '').toUpperCase();
+        if (aOp === numClean || aOpNoSpecial === cleanNoSpecial) {
+          const isEmAndamento = (a as any).status === 'EM_ANDAMENTO';
+          const matchId = apontamentoId ? id === apontamentoId : true;
+          const matchSetor =
+            matchStepName((a as any).etapa_rota || (a as any).etapaRota || '', setorOuEtapa) ||
+            doesSectorMatchStep((a as any).setorFisico || (a as any).setor || '', setorOuEtapa) ||
+            ((a as any).setor && (a as any).setor.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim()) ||
+            ((a as any).etapa_rota && (a as any).etapa_rota.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim());
+
+          if (matchId && matchSetor && isEmAndamento) {
+            await set(ref(db, `historico_apontamentos/${id}`), null);
+            await set(ref(db, `apontamentos/${keyWithOp}/${id}`), null);
+            await set(ref(db, `apontamentos/${keyNoOp}/${id}`), null);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Firebase] Erro ao buscar/remover apontamento em historico_apontamentos:', err);
+  }
+
+  // 3. Localiza e remove apontamentos EM_ANDAMENTO no localStorage (STORAGE_APONTAMENTOS_KEY)
   const rawApts = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
   let tree: Record<string, Record<string, Apontamento>> = {};
   if (rawApts) {
@@ -2444,59 +2480,72 @@ export async function cancelarInicioEtapa(
     }
   }
 
-  const opTree = tree[cleanOp] || {};
-  const aptsParaRemover: string[] = [];
+  for (const treeKey of Object.keys(tree)) {
+    const treeClean = cleanOpId(treeKey);
+    const treeNoSpecial = treeClean.replace(/[-_\s]/g, '').toUpperCase();
+    if (treeClean === numClean || treeNoSpecial === cleanNoSpecial) {
+      const opTree = tree[treeKey] || {};
+      for (const [id, a] of Object.entries(opTree)) {
+        if (a.status === 'EM_ANDAMENTO') {
+          const matchId = apontamentoId ? a.id === apontamentoId : true;
+          const matchSetor =
+            matchStepName(a.etapa_rota || a.etapaRota || '', setorOuEtapa) ||
+            doesSectorMatchStep(a.setorFisico || a.setor || '', setorOuEtapa) ||
+            (a.setor && a.setor.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim()) ||
+            (a.etapa_rota && a.etapa_rota.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim());
 
-  for (const [id, a] of Object.entries(opTree)) {
-    if (a.status === 'EM_ANDAMENTO') {
-      const matchId = apontamentoId ? a.id === apontamentoId : true;
-      const matchSetor =
-        matchStepName(a.etapa_rota || a.etapaRota || '', setorOuEtapa) ||
-        doesSectorMatchStep(a.setorFisico || a.setor || '', setorOuEtapa) ||
-        (a.setor && a.setor.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim()) ||
-        (a.etapa_rota && a.etapa_rota.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim());
-
-      if (matchId && matchSetor) {
-        aptsParaRemover.push(id);
+          if (matchId && matchSetor) {
+            delete opTree[id];
+            try {
+              const aptKey = toFirebaseKey(id);
+              await set(ref(db, `historico_apontamentos/${aptKey}`), null);
+              firebaseDelete(`apontamentos/${treeKey}/${id}`);
+            } catch {}
+          }
+        }
       }
+      tree[treeKey] = opTree;
     }
   }
-
-  // Se nenhum apontamento coincidiu exatamente pelo setor, mas um ID específico foi fornecido
-  if (aptsParaRemover.length === 0 && apontamentoId && opTree[apontamentoId]) {
-    aptsParaRemover.push(apontamentoId);
-  }
-
-  // Se ainda assim não encontrou pelo cleanOp, procura em todas as chaves
-  if (aptsParaRemover.length === 0 && apontamentoId) {
-    for (const k of Object.keys(tree)) {
-      if (tree[k] && tree[k][apontamentoId]) {
-        delete tree[k][apontamentoId];
-        try {
-          const aptKey = toFirebaseKey(apontamentoId);
-          await set(ref(db, `historico_apontamentos/${aptKey}`), null);
-          firebaseDelete(`apontamentos/${k}/${apontamentoId}`);
-        } catch {}
-      }
-    }
-  }
-
-  // Remove os apontamentos identificados
-  for (const id of aptsParaRemover) {
-    delete opTree[id];
-    try {
-      const aptKey = toFirebaseKey(id);
-      await set(ref(db, `historico_apontamentos/${aptKey}`), null);
-      firebaseDelete(`apontamentos/${cleanOp}/${id}`);
-    } catch (err) {
-      console.warn('[Firebase] Erro ao deletar apontamento estornado:', err);
-    }
-  }
-
-  tree[cleanOp] = opTree;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
 
-  // 2. Atualiza a Ordem de Produção no localStorage e Realtime Database
+  // 4. Localiza a Ordem de Produção diretamente no Firebase Realtime Database
+  let targetOrder: ProductionOrder | null = null;
+  let targetFirebaseKey: string = keyWithOp;
+
+  try {
+    const snapWithOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyWithOp)}`));
+    if (snapWithOp.exists()) {
+      targetOrder = snapWithOp.val() as ProductionOrder;
+      targetFirebaseKey = keyWithOp;
+    } else {
+      const snapNoOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyNoOp)}`));
+      if (snapNoOp.exists()) {
+        targetOrder = snapNoOp.val() as ProductionOrder;
+        targetFirebaseKey = keyNoOp;
+      } else {
+        const allSnap = await get(ref(db, 'ordens_producao'));
+        if (allSnap.exists()) {
+          const allData = allSnap.val() || {};
+          for (const [k, val] of Object.entries(allData)) {
+            const kClean = cleanOpId(k);
+            const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
+            const valNum = cleanOpId(String((val as any)?.op_numero || (val as any)?.numero || ''));
+            const valNoSpecial = valNum.replace(/[-_\s]/g, '').toUpperCase();
+            if (kClean === numClean || kNoSpecial === cleanNoSpecial || valNum === numClean || valNoSpecial === cleanNoSpecial) {
+              targetOrder = val as ProductionOrder;
+              targetFirebaseKey = k;
+              break;
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Firebase] Erro ao buscar OP no Firebase para cancelamento:', e);
+  }
+
+  // Fallback para o localStorage se necessário
   const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
   let ordersMap: Record<string, ProductionOrder> = {};
   if (rawOrders) {
@@ -2507,46 +2556,16 @@ export async function cancelarInicioEtapa(
     }
   }
 
-  let matchedOpKey = cleanOp;
-  let targetOrder = ordersMap[cleanOp];
+  let matchedLocalKey = targetFirebaseKey;
   if (!targetOrder) {
-    const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
     const foundKey = Object.keys(ordersMap).find((k) => {
-      const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
-      return kClean === cleanNoPrefix || k.trim().toUpperCase() === cleanOp;
+      const kClean = cleanOpId(k);
+      const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
+      return kClean === numClean || kNoSpecial === cleanNoSpecial;
     });
     if (foundKey) {
-      matchedOpKey = foundKey;
+      matchedLocalKey = foundKey;
       targetOrder = ordersMap[foundKey];
-    }
-  }
-
-  // Se não encontrar no localStorage, busca diretamente no Firebase Realtime Database
-  if (!targetOrder) {
-    try {
-      const fbKey = toFirebaseKey(cleanOp);
-      const snap = await get(ref(db, `ordens_producao/${fbKey}`));
-      if (snap.exists()) {
-        targetOrder = snap.val() as ProductionOrder;
-        matchedOpKey = cleanOp;
-      } else {
-        const allSnap = await get(ref(db, 'ordens_producao'));
-        if (allSnap.exists()) {
-          const allData = allSnap.val() || {};
-          const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
-          for (const [k, val] of Object.entries(allData)) {
-            const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
-            const valNum = String((val as any)?.op_numero || (val as any)?.numero || '').replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
-            if (kClean === cleanNoPrefix || valNum === cleanNoPrefix) {
-              targetOrder = val as ProductionOrder;
-              matchedOpKey = k;
-              break;
-            }
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('Erro ao buscar OP no Firebase para cancelamento:', e);
     }
   }
 
@@ -2561,7 +2580,7 @@ export async function cancelarInicioEtapa(
       targetOrder.etapas = {};
     }
 
-    // Reseta todas as chaves variantes dessa etapa (com ou sem acento)
+    // Reseta todas as chaves variantes dessa etapa (com ou sem acento, ex: Injeção e Injecao)
     const keysToReset = Object.keys(targetOrder.etapas).filter(
       k => matchStepName(k, matchedStepKey) || doesSectorMatchStep(k, matchedStepKey) || k === matchedStepKey || k === setorOuEtapa
     );
@@ -2595,95 +2614,89 @@ export async function cancelarInicioEtapa(
 
     // Verifica se restou alguma outra etapa ativa na OP
     const otherActiveStep = steps.find(
-      (s) => s !== matchedStepKey && (targetOrder?.etapas?.[s]?.status === 'EM_PRODUCAO')
+      (s) => s !== matchedStepKey && (
+        targetOrder?.etapas?.[s]?.status === 'EM_PRODUCAO' ||
+        targetOrder?.etapas?.[s]?.status === 'EM_ANDAMENTO' ||
+        targetOrder?.etapas?.[s]?.status === 'IN_PROGRESS'
+      )
     );
     const anyCompletedStep = steps.some(
       (s) => (targetOrder?.etapas?.[s]?.status === 'CONCLUIDO') || ((targetOrder?.etapas?.[s]?.concluidas || 0) > 0)
     );
 
-    if (otherActiveStep) {
-      targetOrder.status = 'EM_PRODUCAO';
-      targetOrder.etapaAtual = otherActiveStep;
-      targetOrder.postoSelecionado = otherActiveStep;
-    } else if (anyCompletedStep) {
-      targetOrder.status = 'EM_PRODUCAO';
-      targetOrder.status_fabrica = 'Produzindo Hoje';
-      targetOrder.etapaAtual = undefined;
-      targetOrder.postoSelecionado = undefined;
-      targetOrder.colaboradorIniciou = undefined;
-      targetOrder.operadorAtual = undefined;
-    } else {
-      targetOrder.status = 'EM_PRODUCAO';
-      targetOrder.status_fabrica = 'Falta Injetar';
-      targetOrder.etapaAtual = undefined;
-      targetOrder.postoSelecionado = undefined;
-      targetOrder.colaboradorIniciou = undefined;
-      targetOrder.operadorAtual = undefined;
-      targetOrder.dataInicio = undefined;
-    }
-
-    ordersMap[matchedOpKey] = targetOrder;
-    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-
-    // Persistência no Firebase Realtime Database
-    const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
-    const fbStepKey = toFirebaseKey(matchedStepKey);
-
     const proximaEtapaPendente = steps.find(
       (s) => (targetOrder?.etapas?.[s]?.status !== 'CONCLUIDO') && ((targetOrder?.etapas?.[s]?.concluidas || 0) === 0)
     ) || steps[0] || 'Corte';
 
-    if (!otherActiveStep) {
-      targetOrder.status = anyCompletedStep ? 'EM_PRODUCAO' : `Aguardando Início em: ${proximaEtapaPendente}`;
+    if (otherActiveStep) {
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.statusEtapa = `Em Produção: ${otherActiveStep}`;
+      targetOrder.etapaAtual = otherActiveStep;
+      targetOrder.postoAtivo = otherActiveStep;
+      targetOrder.postoSelecionado = otherActiveStep;
+    } else if (anyCompletedStep) {
+      targetOrder.status = 'EM_PRODUCAO';
+      targetOrder.status_fabrica = 'Produzindo Hoje';
       targetOrder.statusEtapa = `Aguardando Início em: ${proximaEtapaPendente}`;
       targetOrder.etapaAtual = proximaEtapaPendente;
+      targetOrder.postoAtivo = null;
+      targetOrder.postoSelecionado = null;
+      targetOrder.colaboradorIniciou = null;
+      targetOrder.operadorAtual = null;
+    } else {
+      targetOrder.status = `Aguardando Início em: ${proximaEtapaPendente}`;
+      targetOrder.status_fabrica = 'Aguardando Início';
+      targetOrder.statusEtapa = `Aguardando Início em: ${proximaEtapaPendente}`;
+      targetOrder.etapaAtual = proximaEtapaPendente;
+      targetOrder.postoAtivo = null;
+      targetOrder.postoSelecionado = null;
+      targetOrder.colaboradorIniciou = null;
+      targetOrder.operadorAtual = null;
+      targetOrder.dataInicio = null;
     }
 
+    // Atualização atômica sem colisões de ancestral no Firebase Realtime Database
     const opUpdates: Record<string, any> = {
       etapas: targetOrder.etapas,
-      [`etapas/${fbStepKey}/status`]: 'PENDENTE',
-      [`etapas/${fbStepKey}/inicio`]: null,
-      [`etapas/${fbStepKey}/operadorId`]: null,
-      [`etapas/${fbStepKey}/operadorNome`]: null,
-      [`etapas/${fbStepKey}/horaInicio`]: null,
-      [`etapas/${fbStepKey}/hora_inicio`]: null,
-      [`etapas/${fbStepKey}/duracao`]: null,
-      [`etapas/${fbStepKey}/operador`]: null,
-      [`etapas/${fbStepKey}/colaborador`]: null,
-      [`progressoPostos/${fbStepKey}/iniciado`]: false,
-      [`progressoPostos/${fbStepKey}/status`]: 'PENDENTE',
-      [`apontamentos/${fbStepKey}/status`]: 'PENDENTE',
-      [`apontamentos/${fbStepKey}/inicio`]: null,
-      [`apontamentos/${fbStepKey}/horaInicio`]: null,
-      [`apontamentos/${fbStepKey}/hora_inicio`]: null,
-      [`apontamentos/${fbStepKey}/operador`]: null,
-      [`apontamentos/${fbStepKey}/operadorId`]: null,
-      [`apontamentos/${fbStepKey}/operadorNome`]: null,
       status: targetOrder.status,
       status_fabrica: targetOrder.status_fabrica,
+      statusEtapa: targetOrder.statusEtapa,
+      etapaAtual: targetOrder.etapaAtual,
+      postoAtivo: targetOrder.postoAtivo ?? null,
+      postoSelecionado: targetOrder.postoSelecionado ?? null,
+      colaboradorIniciou: targetOrder.colaboradorIniciou ?? null,
+      operadorAtual: targetOrder.operadorAtual ?? null,
       data_atualizacao: new Date().toISOString()
     };
 
-    if (!otherActiveStep) {
-      opUpdates.etapaAtual = proximaEtapaPendente;
-      opUpdates.statusEtapa = targetOrder.statusEtapa;
-      opUpdates.postoAtivo = null;
-      opUpdates.postoSelecionado = null;
-      opUpdates.colaboradorIniciou = null;
-      opUpdates.operadorAtual = null;
-      if (!anyCompletedStep) {
-        opUpdates.dataInicio = null;
-      }
+    if ((targetOrder as any).progressoPostos) {
+      opUpdates.progressoPostos = (targetOrder as any).progressoPostos;
+    }
+    if (!otherActiveStep && !anyCompletedStep) {
+      opUpdates.dataInicio = null;
     }
 
     try {
-      await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
+      const fbKey = toFirebaseKey(targetFirebaseKey);
+      await update(ref(db, `ordens_producao/${fbKey}`), opUpdates);
+      console.log(`[Firebase] Sucesso ao estornar etapa ${matchedStepKey} da OP ${targetFirebaseKey}`);
     } catch (err) {
       console.error('[Firebase] Erro ao estornar etapa no Realtime Database:', err);
     }
+
+    // Atualiza também no localStorage
+    ordersMap[matchedLocalKey] = { ...targetOrder, ...opUpdates };
+    if (matchedLocalKey !== targetFirebaseKey) {
+      ordersMap[targetFirebaseKey] = { ...targetOrder, ...opUpdates };
+    }
+    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
   }
 
   broadcastUpdate();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
+    window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
+  }
   return { success: true, message: `Etapa ${setorOuEtapa} estornada com sucesso` };
 }
 

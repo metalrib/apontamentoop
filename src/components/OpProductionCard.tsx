@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, cleanOpId, formatOpNumber } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -165,7 +165,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
     setIsResetting(true);
     playClick();
     try {
-      await cancelarInicioEtapa(order.op_numero, stepToReset);
+      const cleanId = cleanOpId(order.op_numero || order.numero || (order as any).id || '');
+      await cancelarInicioEtapa(cleanId, stepToReset);
     } catch (err) {
       console.error('Erro ao resetar etapa no PCP:', err);
     } finally {
@@ -188,7 +189,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
           {/* Número da OP e Badge 100% Concluída em destaque */}
           <div className="flex items-center gap-2 flex-wrap">
             <div className="px-2.5 py-1 bg-[#1C2F8A]/40 border border-blue-400/50 rounded-lg text-blue-200 font-mono font-black text-sm tracking-wide shadow-sm inline-block">
-              {(order.numero || order.op_numero).replace(/^(\s*OP\s*)+/i, 'OP ').trim()}
+              {formatOpNumber(order.numero || order.op_numero)}
             </div>
 
             {isConcluidaGeral && (
@@ -651,7 +652,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                   Resetar Etapa
                 </h3>
                 <p className="text-xs text-slate-400 font-mono">
-                  OP {order.op_numero} • {stepToReset}
+                  {formatOpNumber(order.numero || order.op_numero)} • {stepToReset}
                 </p>
               </div>
             </div>

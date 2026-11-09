@@ -848,3 +848,25 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     warnings
   };
 }
+
+/**
+ * Extrai o identificador limpo da OP sem repetição do prefixo 'OP' e sem caracteres inválidos.
+ * Ex: 'OP OP 024455-01' -> '024455-01'
+ *     'OP 024455-01'    -> '024455-01'
+ *     '024455-01'       -> '024455-01'
+ */
+export const cleanOpId = (rawId: string): string => {
+  if (!rawId) return '';
+  return String(rawId).replace(/^(\s*OP\s*)+/i, '').trim();
+};
+
+/**
+ * Retorna o número da OP formatado de forma segura e padronizada com o prefixo 'OP '.
+ * Ex: '024455-01'       -> 'OP 024455-01'
+ *     'OP OP 024455-01' -> 'OP 024455-01'
+ */
+export const formatOpNumber = (rawId: string): string => {
+  const clean = cleanOpId(rawId);
+  return clean ? `OP ${clean}` : '';
+};
+
