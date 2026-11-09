@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
-import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, cleanOpId, formatOpNumber } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, resetarOpCompleta, cleanOpId, formatOpNumber } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -26,6 +26,7 @@ interface OpProductionCardProps {
   onOpenChat?: (order: ProductionOrder) => void;
   onSelectForTotem?: (opNumero: string) => void;
   onDelete?: (opNumero: string) => void;
+  onResetOpCompleta?: (opNumero: string) => void;
 }
 
 export const OpProductionCard: React.FC<OpProductionCardProps> = ({
@@ -33,7 +34,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   op: propOp,
   apontamentos = [],
   onSelectForTotem,
-  onDelete
+  onDelete,
+  onResetOpCompleta
 }) => {
   const op = verificarECorrigirRotaOp((propOrder || propOp)!);
   const order = op;
@@ -160,6 +162,10 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   const [stepToReset, setStepToReset] = useState<string | null>(null);
   const [isResetting, setIsResetting] = useState<boolean>(false);
 
+  // Controle de reset da OP Completa (PCP)
+  const [showResetAllModal, setShowResetAllModal] = useState<boolean>(false);
+  const [isResettingAll, setIsResettingAll] = useState<boolean>(false);
+
   const handleConfirmResetStep = async () => {
     if (!stepToReset) return;
     setIsResetting(true);
@@ -172,6 +178,23 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
     } finally {
       setIsResetting(false);
       setStepToReset(null);
+    }
+  };
+
+  const handleConfirmResetOpCompleta = async () => {
+    setIsResettingAll(true);
+    playClick();
+    try {
+      const cleanId = cleanOpId(order.op_numero || order.numero || (order as any).id || '');
+      const res = await resetarOpCompleta(cleanId);
+      if (res.success && onResetOpCompleta) {
+        onResetOpCompleta(order.op_numero || order.numero);
+      }
+    } catch (err) {
+      console.error('Erro ao resetar OP completa no PCP:', err);
+    } finally {
+      setIsResettingAll(false);
+      setShowResetAllModal(false);
     }
   };
 
@@ -243,6 +266,20 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
               </span>
             </div>
           )}
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              playClick();
+              setShowResetAllModal(true);
+            }}
+            title="Resetar Ordem Completa"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg hover:bg-amber-500/30 cursor-pointer active:scale-95 transition shrink-0"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span>Resetar OP Completa</span>
+          </button>
 
           {onDelete && (
             <button
@@ -687,6 +724,72 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                   <>
                     <RotateCcw className="w-4 h-4" />
                     <span>Sim, Resetar</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal de Confirmação para Resetar OP Completa no PCP */}
+      {showResetAllModal && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowResetAllModal(false);
+          }}
+          className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0f172a] border border-amber-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left"
+          >
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-amber-400">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white leading-snug">
+                  Resetar Ordem Completa
+                </h3>
+                <p className="text-xs text-slate-400 font-mono">
+                  {formatOpNumber(order.numero || order.op_numero)}
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-300 leading-relaxed mb-6 bg-slate-950/60 p-3 rounded-xl border border-slate-800">
+              Tem certeza que deseja resetar TODOS os apontamentos da OP <strong className="text-white">{formatOpNumber(order.numero || order.op_numero)}</strong>? Todas as etapas já concluídas ou em andamento voltarão para o status <span className="text-amber-400 font-bold">PENDENTE</span>.
+            </p>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowResetAllModal(false);
+                }}
+                className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleConfirmResetOpCompleta();
+                }}
+                disabled={isResettingAll}
+                className="flex-1 py-2.5 px-4 bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-500 hover:to-rose-500 active:scale-[0.99] text-white font-bold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+              >
+                {isResettingAll ? (
+                  <span className="animate-spin text-sm">↻</span>
+                ) : (
+                  <>
+                    <RotateCcw className="w-4 h-4" />
+                    <span>SIM, RESETAR TUDO</span>
                   </>
                 )}
               </button>

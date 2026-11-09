@@ -8,7 +8,7 @@ import {
   isOpEmProducao,
   checkOp100Percent
 } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
@@ -48,7 +48,8 @@ import {
   LayoutGrid,
   List,
   MessageSquare,
-  Loader2
+  Loader2,
+  RotateCcw
 } from 'lucide-react';
 import { playClick, playSuccessStart } from '../utils/audio';
 
@@ -762,6 +763,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       onSelectOpForTotem(opNum);
                       onSwitchToTotem();
                     }}
+                    onResetOpCompleta={(opNum) => {
+                      showToast(`OP ${opNum} foi completamente resetada para o início!`, 'success');
+                    }}
                     onDelete={async (opNum) => {
                       const confirmed = typeof window !== 'undefined'
                         ? window.confirm(`Deseja realmente excluir a OP ${opNum}?`)
@@ -880,6 +884,25 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                                 title="Abrir esta OP diretamente no terminal de chão de fábrica"
                               >
                                 Abrir no Totem
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  const confirmed = typeof window !== 'undefined'
+                                    ? window.confirm(`Tem certeza que deseja resetar TODOS os apontamentos da OP ${op.op_numero}? Todas as etapas já concluídas ou em andamento voltarão para o status PENDENTE.`)
+                                    : true;
+                                  if (!confirmed) return;
+                                  playClick();
+                                  const res = await resetarOpCompleta(op.op_numero);
+                                  if (res.success) {
+                                    showToast(res.message, 'success');
+                                  } else {
+                                    showToast(res.message, 'error');
+                                  }
+                                }}
+                                className="p-1.5 text-amber-400 hover:text-amber-200 hover:bg-amber-500/20 rounded-lg transition cursor-pointer border border-transparent hover:border-amber-500/30"
+                                title="Resetar Ordem Completa"
+                              >
+                                <RotateCcw className="w-4 h-4" />
                               </button>
                               <button
                                 onClick={async () => {
@@ -1115,6 +1138,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       onSelectForTotem={(opNum) => {
                         onSelectOpForTotem(opNum);
                         onSwitchToTotem();
+                      }}
+                      onResetOpCompleta={(opNum) => {
+                        showToast(`OP ${opNum} foi completamente resetada para o início!`, 'success');
                       }}
                     />
                   ))}

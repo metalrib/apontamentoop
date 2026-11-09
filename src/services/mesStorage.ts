@@ -2701,6 +2701,256 @@ export async function cancelarInicioEtapa(
 }
 
 /**
+ * Reseta a OP Completa no Portal do PCP
+ * Zera todos os apontamentos da ordem (concluídos e em andamento) voltando para a estaca zero (status PENDENTE),
+ * limpa operadores, cronômetros, apontamentos no Firebase e no localStorage sem excluir a OP do sistema.
+ */
+export async function resetarOpCompleta(
+  rawOpId: string
+): Promise<{ success: boolean; message: string }> {
+  ensureInitialData();
+  const numClean = cleanOpId(rawOpId);
+  if (!numClean) {
+    return { success: false, message: 'Número de OP inválido.' };
+  }
+
+  const keyWithOp = `OP ${numClean}`;
+  const keyNoOp = numClean;
+  const cleanNoSpecial = numClean.replace(/[-_\s]/g, '').toUpperCase();
+
+  // 1. Busca da OP diretamente no Firebase Realtime Database
+  let targetOrder: ProductionOrder | null = null;
+  let targetFirebaseKey: string = keyWithOp;
+
+  try {
+    const snapWithOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyWithOp)}`));
+    if (snapWithOp.exists()) {
+      targetOrder = snapWithOp.val() as ProductionOrder;
+      targetFirebaseKey = keyWithOp;
+    } else {
+      const snapNoOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyNoOp)}`));
+      if (snapNoOp.exists()) {
+        targetOrder = snapNoOp.val() as ProductionOrder;
+        targetFirebaseKey = keyNoOp;
+      } else {
+        const allSnap = await get(ref(db, 'ordens_producao'));
+        if (allSnap.exists()) {
+          const allData = allSnap.val() || {};
+          for (const [k, val] of Object.entries(allData)) {
+            const kClean = cleanOpId(k);
+            const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
+            const valNum = cleanOpId(String((val as any)?.op_numero || (val as any)?.numero || ''));
+            const valNoSpecial = valNum.replace(/[-_\s]/g, '').toUpperCase();
+            if (kClean === numClean || kNoSpecial === cleanNoSpecial || valNum === numClean || valNoSpecial === cleanNoSpecial) {
+              targetOrder = val as ProductionOrder;
+              targetFirebaseKey = k;
+              break;
+            }
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Firebase] Erro ao buscar OP no Firebase para reset completo:', e);
+  }
+
+  // Fallback para o localStorage se necessário
+  const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
+  let ordersMap: Record<string, ProductionOrder> = {};
+  if (rawOrders) {
+    try {
+      ordersMap = JSON.parse(rawOrders);
+    } catch {
+      ordersMap = {};
+    }
+  }
+
+  let matchedLocalKey = targetFirebaseKey;
+  if (!targetOrder) {
+    const foundKey = Object.keys(ordersMap).find((k) => {
+      const kClean = cleanOpId(k);
+      const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
+      return kClean === numClean || kNoSpecial === cleanNoSpecial;
+    });
+    if (foundKey) {
+      matchedLocalKey = foundKey;
+      targetOrder = ordersMap[foundKey];
+    }
+  }
+
+  if (!targetOrder) {
+    return { success: false, message: 'OP não encontrada no banco.' };
+  }
+
+  // 2. Remove TODOS os apontamentos da OP no Firebase (historico_apontamentos e apontamentos)
+  try {
+    const histSnap = await get(ref(db, 'historico_apontamentos'));
+    if (histSnap.exists()) {
+      const histData = histSnap.val() || {};
+      for (const [id, a] of Object.entries(histData)) {
+        if (!a || typeof a !== 'object') continue;
+        const aOp = cleanOpId((a as any).op_numero || (a as any).op || '');
+        const aOpNoSpecial = aOp.replace(/[-_\s]/g, '').toUpperCase();
+        if (aOp === numClean || aOpNoSpecial === cleanNoSpecial) {
+          await set(ref(db, `historico_apontamentos/${id}`), null);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Firebase] Erro ao limpar historico_apontamentos:', err);
+  }
+
+  try {
+    await set(ref(db, `apontamentos/${toFirebaseKey(keyWithOp)}`), null);
+    await set(ref(db, `apontamentos/${toFirebaseKey(keyNoOp)}`), null);
+    if (targetFirebaseKey !== keyWithOp && targetFirebaseKey !== keyNoOp) {
+      await set(ref(db, `apontamentos/${toFirebaseKey(targetFirebaseKey)}`), null);
+    }
+  } catch (err) {
+    console.warn('[Firebase] Erro ao limpar apontamentos/', err);
+  }
+
+  // 3. Remove apontamentos no localStorage (STORAGE_APONTAMENTOS_KEY)
+  const rawApts = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  if (rawApts) {
+    try {
+      const tree = JSON.parse(rawApts);
+      for (const k of Object.keys(tree)) {
+        const kClean = cleanOpId(k);
+        const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
+        if (kClean === numClean || kNoSpecial === cleanNoSpecial) {
+          delete tree[k];
+        }
+      }
+      localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+    } catch {}
+  }
+
+  // 4. Determina etapas da rota da OP
+  const steps = Array.isArray(targetOrder.rota) && targetOrder.rota.length > 0
+    ? targetOrder.rota
+    : obterEtapasDaRota(targetOrder);
+  const primeiraEtapaNome = steps[0] || 'Corte';
+  const totalQtd = Math.max(1, Math.round(targetOrder.quantidade_total || targetOrder.quantidade || 1));
+
+  // 5. Zerar todas as etapas mantendo a estrutura da rota intacta
+  let etapasResetadas: any;
+  if (Array.isArray(targetOrder.etapas)) {
+    etapasResetadas = targetOrder.etapas.map((etapa: any) => {
+      if (typeof etapa === 'string') return etapa;
+      return {
+        ...etapa,
+        status: 'PENDENTE',
+        inicio: null,
+        fim: null,
+        operadorId: null,
+        operadorNome: null,
+        operador: null,
+        colaborador: null,
+        emAndamento: 0,
+        concluidas: 0,
+        quantidadeProduzida: 0,
+        ...(etapa.pecas && {
+          pecas: etapa.pecas.map((p: any) => ({
+            ...p,
+            status: 'PENDENTE',
+            inicio: null,
+            fim: null,
+            operadorId: null,
+            operadorNome: null,
+            operador: null,
+            colaborador: null
+          }))
+        })
+      };
+    });
+  } else {
+    etapasResetadas = typeof targetOrder.etapas === 'object' && targetOrder.etapas ? { ...targetOrder.etapas } : {};
+    for (const stepName of steps) {
+      const current = etapasResetadas[stepName];
+      etapasResetadas[stepName] = {
+        status: 'PENDENTE',
+        concluidas: 0,
+        total: (typeof current === 'object' && current?.total) ? current.total : totalQtd,
+        ...(typeof current === 'object' && current?.pecas ? {
+          pecas: current.pecas.map((p: any) => ({
+            ...p,
+            status: 'PENDENTE',
+            inicio: null,
+            fim: null,
+            operadorId: null,
+            operadorNome: null,
+            operador: null,
+            colaborador: null
+          }))
+        } : {})
+      };
+    }
+  }
+
+  // 6. Zerar progressoPostos
+  const progressoPostosResetado: Record<string, any> = {};
+  for (const stepName of steps) {
+    progressoPostosResetado[stepName] = {
+      concluidas: 0,
+      concluido: false,
+      iniciado: false,
+      status: 'PENDENTE'
+    };
+  }
+
+  // 7. Atualização atômica da OP no nó raiz
+  const opUpdates: Record<string, any> = {
+    etapas: etapasResetadas,
+    progressoPostos: progressoPostosResetado,
+    status: `Aguardando Início em: ${primeiraEtapaNome}`,
+    statusEtapa: `Aguardando Início em: ${primeiraEtapaNome}`,
+    status_fabrica: 'Aguardando Início',
+    etapaAtual: primeiraEtapaNome,
+    aguardandoEm: primeiraEtapaNome,
+    postoAtivo: null,
+    postoSelecionado: null,
+    colaboradorIniciou: null,
+    operadorAtual: null,
+    dataInicio: null,
+    dataFim: null,
+    emProducao: false,
+    quantidadeProduzidaTotal: 0,
+    data_atualizacao: new Date().toISOString(),
+    ultimaAtualizacao: Date.now()
+  };
+
+  // 8. Gravação no Firebase Realtime Database
+  try {
+    const fbKey = toFirebaseKey(targetFirebaseKey);
+    await update(ref(db, `ordens_producao/${fbKey}`), opUpdates);
+    try {
+      await update(ref(db, `ordens/${toFirebaseKey(numClean)}`), opUpdates);
+    } catch {}
+    console.log(`[Firebase] Sucesso ao resetar OP completa ${targetFirebaseKey}`);
+  } catch (err) {
+    console.error('[Firebase] Erro ao resetar OP completa no Realtime Database:', err);
+    return { success: false, message: 'Erro ao resetar ordem no banco de dados.' };
+  }
+
+  // 9. Atualização no localStorage
+  ordersMap[matchedLocalKey] = { ...targetOrder, ...opUpdates };
+  if (matchedLocalKey !== targetFirebaseKey) {
+    ordersMap[targetFirebaseKey] = { ...targetOrder, ...opUpdates };
+  }
+  localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+
+  // 10. Broadcast e disparos de eventos para atualizar Totem e PCP
+  broadcastUpdate();
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
+    window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
+  }
+
+  return { success: true, message: `OP ${numClean} foi completamente resetada para o início!` };
+}
+
+/**
  * Limpa todo o histórico de apontamentos
  */
 export async function clearAllApontamentos(): Promise<void> {
