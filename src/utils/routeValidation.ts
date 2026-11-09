@@ -299,6 +299,196 @@ export function isEligibleForRouter(op: any): boolean {
 }
 
 /**
+ * Identifica se a OP pertence à família Porta Vai-Vem ou Office Door:
+ * 1. Vai-Vem: código iniciando por "011." ou contendo "VAI VEM" / "VAI-VEM"
+ * 2. Office Door: descrição contendo "OFFICE DOOR" / "OFFICE-DOOR" ou códigos "009." / "010."
+ */
+export function isVaiVemOuOfficeDoor(op: any): boolean {
+  if (!op) return false;
+  const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+  return (
+    cod.startsWith('011.') ||
+    cod.startsWith('009.') ||
+    cod.startsWith('010.') ||
+    desc.includes('VAI VEM') ||
+    desc.includes('VAI-VEM') ||
+    desc.includes('OFFICE DOOR') ||
+    desc.includes('OFFICE-DOOR')
+  );
+}
+
+/**
+ * Verifica se a etapa de Injeção de Folhas (Terminal 2) já foi iniciada ou concluída para a OP.
+ * Avalia apontamentos ativos (status 'EM_ANDAMENTO', 'EM_PRODUCAO', etc.) ou concluídos,
+ * bem como op.apontamentos, op.etapas e op.progressoPostos.
+ */
+export function verificarInjecaoLiberada(
+  op: any,
+  apontamentos: any[] = []
+): { injecaoLiberada: boolean; motivo?: string } {
+  if (!op) return { injecaoLiberada: false, motivo: '🔒 Aguardando Início da Injeção de Folhas' };
+
+  // 1. Apontamentos na lista em memória / realtime
+  if (Array.isArray(apontamentos) && apontamentos.length > 0) {
+    const cleanOp = (op.op_numero || op.numero || op.id || '').trim().toUpperCase();
+    const cleanNorm = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+
+    const hasInjApt = apontamentos.some((a) => {
+      const aOp = (a.op_numero || a.op || '').trim().toUpperCase();
+      const aNorm = aOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+      const matchOp = aOp === cleanOp || aNorm === cleanNorm;
+      if (!matchOp) return false;
+
+      const sec = String(a.setorFisico || a.setor || '').toLowerCase();
+      const stp = String(a.etapa_rota || a.etapaRota || '').toLowerCase();
+      const isInj = sec.includes('injec') || stp.includes('injec') || sec.includes('injet') || stp.includes('injet');
+      if (!isInj) return false;
+
+      const s = String(a.status || '').toUpperCase().trim();
+      return (
+        s === 'EM_ANDAMENTO' ||
+        s === 'EM_PRODUCAO' ||
+        s === 'FINALIZADO' ||
+        s === 'CONCLUIDO' ||
+        Boolean((a.hora_inicio || a.horaInicio) && !a.hora_fim && !a.horaFim) ||
+        ((a.quantidade_produzida || a.qtdProduzida || 0) > 0)
+      );
+    });
+
+    if (hasInjApt) {
+      return { injecaoLiberada: true };
+    }
+  }
+
+  // 2. Checagem em op.apontamentos
+  const opApts = op.apontamentos;
+  if (opApts && typeof opApts === 'object') {
+    const injKey = Object.keys(opApts).find((k) => k.toLowerCase().includes('injec') || k.toLowerCase().includes('injet'));
+    if (injKey) {
+      const aptInj = opApts[injKey];
+      const statusRaw = String(aptInj?.status || '').toLowerCase().trim();
+      if (
+        statusRaw === 'em_andamento' ||
+        statusRaw === 'em andamento' ||
+        statusRaw === 'em_producao' ||
+        statusRaw === 'em producao' ||
+        statusRaw === 'concluido' ||
+        statusRaw === 'concluida' ||
+        statusRaw === 'finalizado' ||
+        statusRaw === 'finalizada' ||
+        Boolean(aptInj?.hora_inicio || aptInj?.horaInicio || aptInj?.inicio) ||
+        (typeof aptInj?.qtdProduzida === 'number' && aptInj.qtdProduzida > 0) ||
+        (typeof aptInj?.concluidas === 'number' && aptInj.concluidas > 0) ||
+        Boolean(aptInj?.iniciado)
+      ) {
+        return { injecaoLiberada: true };
+      }
+    }
+  }
+
+  // 3. Checagem em op.etapas
+  if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+    const injEtapaKey = Object.keys(op.etapas).find((k) => k.toLowerCase().includes('injec') || k.toLowerCase().includes('injet'));
+    if (injEtapaKey) {
+      const etapaInfo = op.etapas[injEtapaKey];
+      const statusRaw = String(etapaInfo?.status || '').toLowerCase().trim();
+      if (
+        statusRaw === 'em_andamento' ||
+        statusRaw === 'em andamento' ||
+        statusRaw === 'em_producao' ||
+        statusRaw === 'em producao' ||
+        statusRaw === 'concluido' ||
+        statusRaw === 'concluida' ||
+        statusRaw === 'finalizado' ||
+        statusRaw === 'finalizada' ||
+        (typeof etapaInfo?.concluidas === 'number' && etapaInfo.concluidas > 0) ||
+        Boolean(etapaInfo?.inicio || etapaInfo?.horaInicio || etapaInfo?.hora_inicio)
+      ) {
+        return { injecaoLiberada: true };
+      }
+    }
+  }
+
+  // 4. Checagem em op.progressoPostos
+  if (op.progressoPostos && typeof op.progressoPostos === 'object') {
+    const progKey = Object.keys(op.progressoPostos).find((k) => k.toLowerCase().includes('injec') || k.toLowerCase().includes('injet'));
+    if (progKey) {
+      const progInfo = op.progressoPostos[progKey];
+      const statusRaw = String(progInfo?.status || '').toLowerCase().trim();
+      if (
+        progInfo?.iniciado ||
+        statusRaw === 'em_andamento' ||
+        statusRaw === 'em andamento' ||
+        statusRaw === 'em_producao' ||
+        statusRaw === 'em producao' ||
+        statusRaw === 'concluido' ||
+        statusRaw === 'concluida' ||
+        statusRaw === 'finalizado' ||
+        statusRaw === 'finalizada' ||
+        (typeof progInfo?.concluidas === 'number' && progInfo.concluidas > 0)
+      ) {
+        return { injecaoLiberada: true };
+      }
+    }
+  }
+
+  // 5. Se a etapa atual já passou da injeção (ex: Router ou Montagem já em andamento)
+  const etapaAtualNorm = String(op.etapaAtual || op.statusEtapa || '').toUpperCase();
+  if (
+    etapaAtualNorm.includes('ROUTER') ||
+    (etapaAtualNorm.includes('MONTAGEM') && !etapaAtualNorm.includes('AGUARDANDO'))
+  ) {
+    return { injecaoLiberada: true };
+  }
+
+  return {
+    injecaoLiberada: false,
+    motivo: '🔒 Aguardando Início da Injeção de Folhas'
+  };
+}
+
+/**
+ * Regra de Liberação Condicional da Montagem de Porta Vai-Vem e Office Door (Terminal 5):
+ * 1. Se a OP NÃO possuir a etapa Router:
+ *    Permanece bloqueada com "🔒 Aguardando Início da Injeção de Folhas" até a Injeção de Folhas receber início ou conclusão.
+ * 2. Se a OP possuir a etapa Router:
+ *    Permanece bloqueada com "🔒 Aguardando Início na Router" até a Router receber início ou conclusão.
+ */
+export function verificarLiberacaoMontagemVaiVemOuOfficeDoor(
+  op: any,
+  apontamentos: any[] = []
+): { liberada: boolean; motivo?: string } {
+  if (!op || !isVaiVemOuOfficeDoor(op)) {
+    return { liberada: true };
+  }
+
+  const { requerRouter, routerLiberada } = verificarRouterLiberada(op, apontamentos);
+
+  // 1. SE A OP POSSUIR A ETAPA ROUTER (marcada na rota):
+  if (requerRouter) {
+    if (!routerLiberada) {
+      return {
+        liberada: false,
+        motivo: '🔒 Aguardando Início na Router'
+      };
+    }
+    return { liberada: true };
+  }
+
+  // 2. SE A OP NÃO POSSUIR A ETAPA ROUTER:
+  const injCheck = verificarInjecaoLiberada(op, apontamentos);
+  if (!injCheck.injecaoLiberada) {
+    return {
+      liberada: false,
+      motivo: '🔒 Aguardando Início da Injeção de Folhas'
+    };
+  }
+
+  return { liberada: true };
+}
+
+/**
  * Verifica se a etapa Router é requerida para a OP e se já está liberada
  * (iniciada com status em_andamento ou já concluída) para permitir o paralelismo da Montagem de Vai-Vem.
  */
@@ -1296,15 +1486,15 @@ export function validarPostoIndustrial(
   if (ehSuperCongOuEspecial) {
     const etapasPermitidas = obterEtapasDaRota(op);
 
-    // REGRA DE PARALELISMO: Liberação de Montagem de Vai-Vem com Router em andamento ou concluído
+    // REGRA DE BLOQUEIO CONDICIONAL: Montagem de Vai-Vem e Office Door (Terminal 5)
     const normPostoUpper = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]/g, ' ');
-    const isMontagemVaiVem = normPostoUpper.includes('VAI VEM') && (normPostoUpper.includes('MONTAGEM') || normPostoUpper.includes('FINALIZACAO'));
-    if (isMontagemVaiVem) {
-      const { requerRouter, routerLiberada } = verificarRouterLiberada(op, apontamentos);
-      if (requerRouter && !routerLiberada) {
+    const isPostoMontagem = normPostoUpper.includes('MONTAGEM') || normPostoUpper.includes('FINALIZACAO');
+    if (isPostoMontagem && isVaiVemOuOfficeDoor(op)) {
+      const montagemCheck = verificarLiberacaoMontagemVaiVemOuOfficeDoor(op, apontamentos);
+      if (!montagemCheck.liberada) {
         return {
           valido: false,
-          motivo: 'Aguardando início da etapa Router'
+          motivo: montagemCheck.motivo
         };
       }
       return { valido: true };

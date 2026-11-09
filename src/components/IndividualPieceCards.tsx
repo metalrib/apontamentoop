@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
-import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada } from '../utils/routeEngine';
+import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
 import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 
@@ -102,7 +102,7 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     };
   });
 
-  // Regra de Paralelismo: Montagem de Vai-Vem com Router
+  // Regra de Bloqueio Condicional: Montagem de Vai-Vem e Office Door (Terminal 5)
   const prevStepName = stepEval.previousStepName || '';
 
   const isPostoMontagem = Boolean(
@@ -112,67 +112,10 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     (selectedSector?.toUpperCase() || '').includes('FINALIZACAO')
   );
 
-  const isOrderVaiVem = Boolean(
-    (matchedStep?.toUpperCase() || '').includes('VAI VEM') ||
-    (selectedSector?.toUpperCase() || '').includes('VAI VEM') ||
-    (order.descricao || '').toUpperCase().includes('VAI VEM') ||
-    String(order.codigo || order.codigoProduto || '').startsWith('011.')
-  );
-
-  const isMontagemVaiVem = isPostoMontagem && isOrderVaiVem;
-  const isEtapaAnteriorRouter = isPostoMontagem && Boolean(prevStepName && prevStepName.toLowerCase().includes('router'));
-
-  const routerCheck = verificarRouterLiberada(order, apontamentos);
-
-  // Status da etapa anterior (Router ou equivalente)
-  const opApts = (order as any)?.apontamentos;
-  let statusRouterApts = '';
-  if (opApts && typeof opApts === 'object') {
-    const routerKey = Object.keys(opApts).find((k) => k.toLowerCase().includes('router'));
-    if (routerKey) {
-      statusRouterApts = String(opApts[routerKey]?.status || '').toLowerCase().trim();
-    }
-  }
-
-  const hasActiveOrFinishedRouterApt = Array.isArray(apontamentos) && apontamentos.some((a) => {
-    const matchOp = a.op_numero === order.op_numero || a.op === order.op_numero;
-    if (!matchOp) return false;
-    const sec = (a.setorFisico || a.setor || '').toLowerCase();
-    const stp = (a.etapa_rota || a.etapaRota || '').toLowerCase();
-    const isR = sec.includes('router') || stp.includes('router');
-    if (!isR) return false;
-    const s = String(a.status || '').toUpperCase().trim();
-    return (
-      s === 'EM_ANDAMENTO' ||
-      s === 'EM_PRODUCAO' ||
-      s === 'FINALIZADO' ||
-      s === 'CONCLUIDO' ||
-      Boolean((a.hora_inicio || a.horaInicio) && !a.hora_fim && !a.horaFim)
-    );
-  });
-
-  const etapaRouterStatus = String(
-    (order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas) && (order.etapas as any)['Router']?.status) || ''
-  ).toLowerCase().trim();
-
-  // A Router libera se estiver 'em_andamento' OU 'concluido'
-  const isRouterLiberada = Boolean(
-    statusRouterApts === 'em_andamento' ||
-    statusRouterApts === 'em andamento' ||
-    statusRouterApts === 'em_producao' ||
-    statusRouterApts === 'em producao' ||
-    statusRouterApts === 'concluido' ||
-    statusRouterApts === 'concluida' ||
-    statusRouterApts === 'finalizado' ||
-    statusRouterApts === 'finalizada' ||
-    etapaRouterStatus === 'em_andamento' ||
-    etapaRouterStatus === 'em_producao' ||
-    etapaRouterStatus === 'concluido' ||
-    etapaRouterStatus === 'finalizado' ||
-    hasActiveOrFinishedRouterApt ||
-    routerCheck.routerLiberada ||
-    (stepEval?.previousStepFinalizadas ?? 0) > 0
-  );
+  const isMontagemVaiVemOuOfficeDoor = isPostoMontagem && isVaiVemOuOfficeDoor(order);
+  const montagemVVCheck = isMontagemVaiVemOuOfficeDoor
+    ? verificarLiberacaoMontagemVaiVemOuOfficeDoor(order, apontamentos)
+    : { liberada: true };
 
   // Regra de Fluxo Paralelo: Dobra e Preparação de Folhas
   const isDobra = (matchedStep?.toUpperCase() || '').includes('DOBRA') || (selectedSector?.toUpperCase() || '').includes('DOBRA');
@@ -274,13 +217,13 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
             ) {
               // Posto de Injeção NUNCA depende ou espera pela etapa Router
               isAvailableToStart = true;
-            } else if (isEtapaAnteriorRouter || isMontagemVaiVem) {
-              // REGRA DE PARALELISMO: Router libera a montagem se estiver 'em_andamento' OU 'concluido'
-              if (!isRouterLiberada) {
+            } else if (isMontagemVaiVemOuOfficeDoor) {
+              // REGRA DE BLOQUEIO CONDICIONAL: Montagem de Vai-Vem e Office Door (Terminal 5)
+              if (!montagemVVCheck.liberada) {
                 isAvailableToStart = false;
-                lockReason = 'Aguardando início da etapa Router';
+                lockReason = montagemVVCheck.motivo || '🔒 Aguardando Liberação';
               } else {
-                // Sem trava sequencial: todas as peças ficam disponíveis para operadores diferentes trabalharem em paralelo
+                // Montagem liberada (após início de Injeção ou Router)
                 isAvailableToStart = true;
               }
             } else if (isDobra) {

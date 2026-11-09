@@ -46,11 +46,17 @@ import {
   verificarRouterLiberada,
   verificarDobraLiberada,
   verificarPreparacaoFolhasLiberada,
-  isFolhaOrder
+  isFolhaOrder,
+  isVaiVemOuOfficeDoor,
+  verificarInjecaoLiberada,
+  verificarLiberacaoMontagemVaiVemOuOfficeDoor
 } from './routeValidation';
 
 export {
   isFolhaOrder,
+  isVaiVemOuOfficeDoor,
+  verificarInjecaoLiberada,
+  verificarLiberacaoMontagemVaiVemOuOfficeDoor,
   verificarSeExigeEmenda,
   getRotaTrilhoCorrer,
   getRotaEstanteCompleta,
@@ -1337,28 +1343,17 @@ export function getRouteEvaluation(
           }
         }
       } else if (
-        normStep.includes('VAI VEM') &&
-        (normStep.includes('MONTAGEM') || normStep.includes('FINALIZACAO'))
+        (normStep.includes('MONTAGEM') || normStep.includes('FINALIZACAO')) &&
+        (normStep.includes('VAI VEM') || normStep.includes('OFFICE DOOR') || isVaiVemOuOfficeDoor(op))
       ) {
-        // REGRA DE PARALELISMO: Libera montagem de Vai-Vem assim que Router estiver em andamento ou concluída
-        const { requerRouter, routerLiberada } = verificarRouterLiberada(op, apontamentos);
-        if (requerRouter) {
-          if (routerLiberada) {
-            canStart = true;
-            blockingReason = undefined;
-          } else {
-            canStart = false;
-            blockingReason = 'Aguardando início da etapa Router';
-          }
+        // REGRA DE BLOQUEIO CONDICIONAL: Montagem de Vai-Vem e Office Door (Terminal 5)
+        const montagemCheck = verificarLiberacaoMontagemVaiVemOuOfficeDoor(op, apontamentos);
+        if (montagemCheck.liberada) {
+          canStart = true;
+          blockingReason = undefined;
         } else {
-          // Sem Router na rota: depende da etapa anterior (Injeção)
-          if (prevIsStartedOrConcluded || prevFinishedCount > 0) {
-            canStart = true;
-            blockingReason = undefined;
-          } else {
-            canStart = false;
-            blockingReason = `Aguardando etapa anterior (${previousStep})`;
-          }
+          canStart = false;
+          blockingReason = montagemCheck.motivo;
         }
       } else if (normStep.includes('ROUTER')) {
         // REGRA OPERACIONAL: O posto de Router deve poder ser iniciado e apontado a qualquer momento quando solicitado,
