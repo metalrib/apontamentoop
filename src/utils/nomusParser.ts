@@ -710,6 +710,22 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       quantidadeTotal = Math.round(parsedQtd);
     }
 
+    // Identificação de Família 011 (Vai-Vem) e Portas Duplas
+    const cleanCod = (codigo || '').trim();
+    const isFamilia011 =
+      cleanCod.startsWith('011.') ||
+      cleanCod.startsWith('011') ||
+      cleanCod.includes('011.0012') ||
+      cleanCod.includes('011.0013') ||
+      cleanCod.includes('011.0117');
+    const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO');
+    const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || isFamilia011;
+
+    // Se for porta dupla cadastrada como 1 conjunto no Nomus (ex: OP 024537-01),
+    // fisicamente são 2 folhas a produzir (1 conjunto = 2 folhas).
+    const quantidadeFolhas = isDupla ? (quantidadeTotal > 1 ? quantidadeTotal * 2 : 2) : quantidadeTotal;
+    const quantidadeFisicaInicial = isDupla && quantidadeTotal === 1 ? 2 : quantidadeTotal;
+
     // Quantidade Produzida
     let qtdeProduzida = 0;
     if (idxQtdeProduzida >= 0 && cells[idxQtdeProduzida]) {
@@ -751,8 +767,11 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       observacao: observacao || '',
       observacoes: observacao || '',
       observacoesNomus: observacao || '',
-      quantidade_total: quantidadeTotal,
-      quantidade: quantidadeTotal,
+      quantidade_total: quantidadeFisicaInicial,
+      quantidade: quantidadeFisicaInicial,
+      quantidadeFisica: quantidadeFisicaInicial,
+      quantidadeFolhas: quantidadeFolhas,
+      isDupla: isDupla,
       ...(quantidadeM2 !== undefined ? { quantidade_m2: quantidadeM2 } : {}),
       qtde_produzida: qtdeProduzida,
       ...(dataEntrega ? { data_entrega: dataEntrega, prazoEntrega: dataEntrega } : {}),

@@ -42,23 +42,41 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
   const deadline = calculateDeadlineInfo(order.data_entrega);
   const isAncora = isAncoraOrder(order);
 
-  // Verifica se é estritamente Porta Vai e Vem faturada em M² com metragem fracionada
+  // Regra Oficial do Seletor de Quantidade Física a Produzir:
+  // Renderizado sempre que:
+  // a) O código pertencer à família de Vai-Vem (011.0012, 011.0013, 011.0117, ou qualquer código iniciado por 011.); OU
+  // b) A descrição contiver o termo DUPLA ou VAI VEM; OU
+  // c) O usuário desejar ajustar a quantidade física manualmente via botões [+] e [-].
   const descUpper = (order.descricao || '').toUpperCase();
-  const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || rule.keyword === 'PT VAI VEM';
+  const codeClean = String(order.codigo || order.codigoProduto || '').trim();
+  const isFamilia011 =
+    codeClean.startsWith('011.') ||
+    codeClean.startsWith('011') ||
+    codeClean.includes('011.0012') ||
+    codeClean.includes('011.0013') ||
+    codeClean.includes('011.0117');
+  const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(order.isDupla);
+  const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || isFamilia011 || rule.keyword === 'PT VAI VEM';
+  const isM2 = Boolean(order.unidade_medida === 'M²' || order.quantidade_m2);
   const m2Num = Number(order.quantidade_m2 ?? (order.unidade_medida === 'M²' ? qtdTotal : 0));
-  const isM2Fracionado = Boolean((order.unidade_medida === 'M²' || order.quantidade_m2) && m2Num > 0 && !Number.isInteger(m2Num));
-  const showPhysicalQuantitySelector = isVaiVem && isM2Fracionado;
+  const isM2Fracionado = isM2 && m2Num > 0 && !Number.isInteger(m2Num);
+  const showPhysicalQuantitySelector = isFamilia011 || isDupla || isVaiVem || isM2 || isM2Fracionado;
 
-  // Ajuste rápido de quantidade física a produzir (especialmente útil para M²)
+  // Ajuste rápido de quantidade física a produzir
   const handleAdjustPhysicalQuantity = async (delta: number) => {
     playClick();
-    const current = qtdTotal;
+    const current = Math.round(
+      order.quantidadeFisica ??
+      (isDupla && isVaiVem && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : qtdTotal)
+    );
     const nextVal = Math.max(1, current + delta);
     if (nextVal === current) return;
 
     await updateProductionOrder(order.op_numero, {
       quantidade_total: nextVal,
-      quantidade: nextVal
+      quantidade: nextVal,
+      quantidadeFisica: nextVal,
+      ...(isDupla ? { quantidadeFolhas: nextVal } : {})
     });
   };
 
@@ -160,9 +178,15 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
       <div className="flex items-center gap-2 shrink-0">
         {showPhysicalQuantitySelector ? (
           <div className="h-8 px-2.5 bg-slate-950 border border-amber-500/60 rounded-lg flex items-center gap-1.5">
-            <span className="text-[10px] font-bold text-amber-400">
-              {Number(order.quantidade_m2 || qtdTotal).toFixed(1)} M²
-            </span>
+            {order.quantidade_m2 ? (
+              <span className="text-[10px] font-bold text-amber-400">
+                {Number(order.quantidade_m2).toFixed(1)} M²
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold text-amber-400 uppercase">
+                {isDupla ? 'DUPLA' : 'VAI-VEM'}
+              </span>
+            )}
             <span className="text-white font-black text-sm">
               {qtdTotal} {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
             </span>
@@ -171,14 +195,16 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
                 type="button"
                 onClick={() => handleAdjustPhysicalQuantity(-1)}
                 disabled={qtdTotal <= 1}
-                className="w-4 h-4 rounded bg-slate-800 text-white font-bold text-[10px] flex items-center justify-center cursor-pointer"
+                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95"
+                title="Diminuir peças físicas"
               >
                 -
               </button>
               <button
                 type="button"
                 onClick={() => handleAdjustPhysicalQuantity(1)}
-                className="w-4 h-4 rounded bg-slate-800 text-white font-bold text-[10px] flex items-center justify-center cursor-pointer"
+                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95"
+                title="Aumentar peças físicas"
               >
                 +
               </button>

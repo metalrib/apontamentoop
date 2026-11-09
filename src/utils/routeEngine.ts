@@ -91,12 +91,84 @@ export {
  */
 export const obterQuantidadeTotal = (op: any): number => {
   if (!op) return 1;
+  // Prioridade 1: quantidade física explícita salva pelo operador/PCP
+  if (op.quantidadeFisica !== undefined && op.quantidadeFisica !== null && !isNaN(Number(op.quantidadeFisica)) && Number(op.quantidadeFisica) > 0) {
+    return Number(op.quantidadeFisica);
+  }
+
   const valor = op.quantidade ?? op.qtd ?? op.qtde ?? op.quantidadePlanejada ?? op.qtdTotal ?? op.quantidade_total ?? 1;
   const num = Number(String(valor).replace(',', '.').replace(/[^0-9.]/g, ''));
-  if (!isNaN(num) && num > 0) return num;
+  const base = !isNaN(num) && num > 0 ? num : 1;
+
+  // Se for porta dupla cadastrada no Nomus como 1 conjunto (ex: OP 024537-01), fisicamente são 2 folhas
+  if (base === 1) {
+    const desc = (op.descricao || op.produto || '').toUpperCase();
+    const cod = String(op.codigo || op.codigoProduto || '').trim();
+    const ehDupla = desc.includes('DUPLA') || desc.includes('DUPLO') || Boolean(op.isDupla);
+    const ehVaiVem = desc.includes('VAI VEM') || desc.includes('VV') || cod.startsWith('011');
+    if (ehDupla && ehVaiVem) {
+      return 2;
+    }
+  }
+
   const fallbackNum = Number(String(op.quantidade_total).replace(',', '.').replace(/[^0-9.]/g, ''));
-  return isNaN(fallbackNum) || fallbackNum <= 0 ? 1 : fallbackNum;
+  return isNaN(fallbackNum) || fallbackNum <= 0 ? base : fallbackNum;
 };
+
+/**
+ * Identifica se uma ordem de produção é de porta dupla
+ */
+export function isDuplaOrder(op: any): boolean {
+  if (!op) return false;
+  if (op.isDupla === true) return true;
+  const desc = (op.descricao || op.produto || '').toUpperCase();
+  return desc.includes('DUPLA') || desc.includes('DUPLO');
+}
+
+/**
+ * Identifica se uma ordem de produção pertence à família de Portas Vai-Vem
+ */
+export function isVaiVemOrder(op: any): boolean {
+  if (!op) return false;
+  const desc = (op.descricao || op.produto || '').toUpperCase();
+  const cod = String(op.codigo || op.codigoProduto || '').trim();
+  return (
+    desc.includes('VAI VEM') ||
+    desc.includes('VV') ||
+    cod.startsWith('011.') ||
+    cod.startsWith('011') ||
+    cod.includes('011.0012') ||
+    cod.includes('011.0013') ||
+    cod.includes('011.0117')
+  );
+}
+
+/**
+ * Regra geral para exibição do seletor de quantidade física a produzir: [-] [ QTD ] [+]
+ * Renderizado sempre que:
+ * a) O código pertencer à família de Vai-Vem (011.0012, 011.0013, 011.0117 ou qualquer código iniciado por 011.); OU
+ * b) A descrição contiver o termo DUPLA ou VAI VEM; OU
+ * c) For produto faturado em M² (fracionado ou inteiro); OU
+ * d) O usuário desejar ajustar a quantidade física manualmente
+ */
+export function shouldShowPhysicalQuantitySelector(op: any): boolean {
+  if (!op) return false;
+  const descUpper = (op.descricao || op.produto || '').toUpperCase();
+  const codeClean = String(op.codigo || op.codigoProduto || '').trim();
+  const isFamilia011 =
+    codeClean.startsWith('011.') ||
+    codeClean.startsWith('011') ||
+    codeClean.includes('011.0012') ||
+    codeClean.includes('011.0013') ||
+    codeClean.includes('011.0117');
+  const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(op.isDupla);
+  const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || isFamilia011;
+  const isM2 = Boolean(op.unidade_medida === 'M²' || op.quantidade_m2);
+  const m2Num = Number(op.quantidade_m2 ?? (op.unidade_medida === 'M²' ? (op.quantidade ?? op.quantidade_total) : 0));
+  const isM2Fracionado = isM2 && m2Num > 0 && !Number.isInteger(m2Num);
+
+  return isFamilia011 || isDupla || isVaiVem || isM2 || isM2Fracionado;
+}
 
 /**
  * Normaliza strings para comparação insensível a maiúsculas e acentos
@@ -922,7 +994,7 @@ export const POSTOS_UNITARIOS = [
  * Verifica se o posto e quantidade ativam o modo de interface unitária (cartões de peças individuais)
  */
 export const isModoUnitario = (posto: string, qtde: number): boolean => 
-  POSTOS_UNITARIOS.some(p => p.toLowerCase().trim() === (posto || '').toLowerCase().trim()) && qtde > 1;
+  (POSTOS_UNITARIOS.some(p => p.toLowerCase().trim() === (posto || '').toLowerCase().trim()) || isPostoUnitario(posto)) && qtde >= 1;
 
 /**
  * Verifica se um posto pertence à lista de postos unitários com comparação tolerante

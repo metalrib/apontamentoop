@@ -75,23 +75,41 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
       }) || etapasCalculadas[0]
     : null;
 
-  // Verifica se é estritamente Porta Vai e Vem faturada em M² com metragem fracionada
+  // Regra Oficial do Seletor de Quantidade Física a Produzir:
+  // Renderizado sempre que:
+  // a) O código pertencer à família de Vai-Vem (011.0012, 011.0013, 011.0117, ou qualquer código iniciado por 011.); OU
+  // b) A descrição contiver o termo DUPLA ou VAI VEM; OU
+  // c) O usuário desejar ajustar a quantidade física manualmente via botões [+] e [-].
   const descUpper = (order.descricao || '').toUpperCase();
-  const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || rule.keyword === 'PT VAI VEM';
+  const codeClean = String(order.codigo || order.codigoProduto || '').trim();
+  const isFamilia011 =
+    codeClean.startsWith('011.') ||
+    codeClean.startsWith('011') ||
+    codeClean.includes('011.0012') ||
+    codeClean.includes('011.0013') ||
+    codeClean.includes('011.0117');
+  const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(order.isDupla);
+  const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || isFamilia011 || rule.keyword === 'PT VAI VEM';
+  const isM2 = Boolean(order.unidade_medida === 'M²' || order.quantidade_m2);
   const m2Num = Number(order.quantidade_m2 ?? (order.unidade_medida === 'M²' ? (order.quantidade ?? order.quantidade_total) : 0));
-  const isM2Fracionado = Boolean((order.unidade_medida === 'M²' || order.quantidade_m2) && m2Num > 0 && !Number.isInteger(m2Num));
-  const showPhysicalQuantitySelector = isVaiVem && isM2Fracionado;
+  const isM2Fracionado = isM2 && m2Num > 0 && !Number.isInteger(m2Num);
+  const showPhysicalQuantitySelector = isFamilia011 || isDupla || isVaiVem || isM2 || isM2Fracionado;
 
-  // Ajuste rápido de quantidade física a produzir (estritamente para Vai e Vem em M² fracionada)
+  // Ajuste rápido de quantidade física a produzir
   const handleAdjustPhysicalQuantity = async (delta: number) => {
     playClick();
-    const current = Math.round(order.quantidade_total || 1);
+    const current = Math.round(
+      order.quantidadeFisica ??
+      (isDupla && isVaiVem && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : totalPhysicalUnits)
+    );
     const nextVal = Math.max(1, current + delta);
     if (nextVal === current) return;
 
     await updateProductionOrder(order.op_numero, {
       quantidade_total: nextVal,
-      quantidade: nextVal
+      quantidade: nextVal,
+      quantidadeFisica: nextVal,
+      ...(isDupla ? { quantidadeFolhas: nextVal } : {})
     });
   };
 
@@ -140,11 +158,17 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           {showPhysicalQuantitySelector ? (
             <div className="bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[72px] shadow-inner shrink-0">
-              <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">
-                {Number(order.quantidade_m2 || totalPhysicalUnits).toFixed(2)} M²
-              </span>
+              {order.quantidade_m2 ? (
+                <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">
+                  {Number(order.quantidade_m2).toFixed(2)} M²
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono font-bold text-amber-400 uppercase leading-none">
+                  {isDupla ? 'DUPLA' : 'VAI-VEM'}
+                </span>
+              )}
               <span className="text-xs font-black text-white font-mono leading-tight mt-1 whitespace-nowrap">
-                {totalPhysicalUnits} UN
+                {totalPhysicalUnits} {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
               </span>
             </div>
           ) : (
@@ -210,7 +234,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
           </div>
         )}
 
-        {/* Seletor rápido de quantidade física a produzir - Apenas para Porta Vai e Vem faturada em M² fracionada */}
+        {/* Seletor rápido de quantidade física a produzir */}
         {showPhysicalQuantitySelector && (
           <div className="mt-2.5 p-2 bg-slate-950/80 border border-amber-500/30 rounded-xl flex items-center justify-between gap-2 flex-wrap">
             <span className="text-[11px] font-mono text-slate-300 font-semibold">
@@ -223,14 +247,14 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                   e.stopPropagation();
                   handleAdjustPhysicalQuantity(-1);
                 }}
-                disabled={order.quantidade_total <= 1}
+                disabled={totalPhysicalUnits <= 1}
                 className="w-6 h-6 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold font-mono text-sm flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
                 title="Diminuir peças físicas"
               >
                 -
               </button>
               <span className="px-2 py-0.5 bg-slate-900 border border-slate-700 rounded-md font-mono font-black text-white text-xs min-w-[28px] text-center">
-                {order.quantidade_total}
+                {totalPhysicalUnits}
               </span>
               <button
                 type="button"

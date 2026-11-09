@@ -319,6 +319,10 @@ export interface ProductionOrder {
   codigoProduto?: string;         // alias compatível com Nomus
   quantidade_total: number;       // ex: 4
   quantidade?: number;            // alias de quantidade
+  quantidadeFisica?: number;      // ex: 2 (quantidade física a produzir ajustada ou deduzida)
+  quantidadeFolhas?: number;      // ex: 2 (quantidade de folhas para portas duplas)
+  quantidade_folhas?: number;     // alias de quantidadeFolhas
+  isDupla?: boolean;              // flag para portas duplas
   quantidade_m2?: number;         // ex: 6.60 (quando em m²)
   qtde_produzida?: number;        // ex: 0
   lote: string;                   // ex: Lote / Ordem
