@@ -11,7 +11,8 @@ import {
   CODIGOS_FOLHAS_PADRAO,
   CODIGOS_BATENTES_PADRAO,
   CODIGOS_ANCORAS_PADRAO,
-  normalizarCodigo
+  normalizarCodigo,
+  OpEtapaState
 } from '../types/mes';
 import {
   verificarSeExigeEmenda,
@@ -1155,10 +1156,14 @@ export function getRouteEvaluation(
   const synchronizedOp = initOrSyncOrderEtapas(op, apontamentos);
   const etapas = synchronizedOp.etapas || {};
 
+  const cleanOpNum = String(op.op_numero || op.numero || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+
   routeSteps.forEach((step, index) => {
     // Apontamentos desta etapa (validação estrita por etapa_rota/etapaRota ou fallback de setor seguro)
     const stepApontamentos = apontamentos.filter(a => {
-      if (a.op_numero !== op.op_numero && a.op !== op.op_numero) return false;
+      if (!a) return false;
+      const cleanAptOp = String(a.op_numero || a.op || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+      if (cleanAptOp !== cleanOpNum && a.op_numero !== op.op_numero && a.op !== op.op_numero) return false;
       const aptEtapa = a.etapa_rota || a.etapaRota;
       if (aptEtapa) {
         return matchStepName(aptEtapa, step);
@@ -1184,11 +1189,14 @@ export function getRouteEvaluation(
 
     // Consulta estado individualizado da etapa no objeto da OP
     const etapaStateKey = Object.keys(etapas).find((k) => matchStepName(k, step));
-    const etapaState = etapaStateKey ? etapas[etapaStateKey] : undefined;
+    const etapaState = etapaStateKey ? (etapas as Record<string, any>)[etapaStateKey] : undefined;
     if (etapaState) {
-      if (etapaState.status === 'CONCLUIDO') {
+      const st = String(etapaState.status || '').toUpperCase().trim();
+      if (st === 'CONCLUIDO' || st === 'FINALIZADO') {
         finalizadasCount = Math.max(finalizadasCount, etapaState.concluidas || total);
-      } else if (etapaState.status === 'PENDENTE' && !finishedBatch && finished.length === 0) {
+      } else if (st === 'EM_PRODUCAO' || st === 'EM_ANDAMENTO' || st === 'IN_PROGRESS') {
+        emAndamentoCount = Math.max(emAndamentoCount, etapaState.emAndamento || 1);
+      } else if (st === 'PENDENTE' && !finishedBatch && finished.length === 0) {
         finalizadasCount = 0;
       }
     }
@@ -1435,4 +1443,121 @@ export function getRouteEvaluation(
   });
 
   return result;
+}
+
+/**
+ * Verifica se a OP está 100% concluída dinamicamente com base em todas as etapas de sua rota oficial.
+ */
+export function checkOp100Percent(op: any, apontamentos: any[] = []): boolean {
+  if (!op) return false;
+  const statusUpper = String(op.status || '').toUpperCase().trim();
+  if (statusUpper === 'FINALIZADA' || statusUpper === 'CONCLUIDA') return true;
+
+  const steps = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : obterEtapasDaRota(op);
+  if (!steps || steps.length === 0) return false;
+
+  const total = Math.max(1, Math.round(obterQuantidadeTotal(op) || op.quantidade_total || 1));
+  const evaluation = getRouteEvaluation(op, apontamentos, steps);
+
+  return steps.every((s: string) => {
+    const st = (!Array.isArray(op.etapas) && typeof op.etapas === 'object') ? (op.etapas as any)?.[s] : undefined;
+    const ev = evaluation[s];
+    return (
+      (st && (st.status === 'CONCLUIDO' || st.status === 'FINALIZADO')) ||
+      (ev && ev.finalizadas >= total)
+    );
+  });
+}
+
+/**
+ * Helper oficial para identificar se uma OP está com produção ativa no chão de fábrica.
+ * Retorna true se:
+ * - op.emProducao === true
+ * - op.status === 'EM_PRODUCAO' | 'em_producao' | 'EM_ANDAMENTO' | 'em_andamento'
+ * - Existir qualquer apontamento ativo (status EM_ANDAMENTO ou sem hora_fim)
+ * - Alguma etapa em op.etapas estiver com status 'em_andamento' | 'EM_PRODUCAO' | 'in_progress'
+ * - Possuir postoAtivo definido ou dataInicio em execução
+ * E desde que a OP NÃO esteja 100% concluída nem cancelada.
+ */
+export function isOpEmProducao(op: any, apontamentos: any[] = []): boolean {
+  if (!op) return false;
+
+  const statusUpper = String(op.status || '').toUpperCase().trim();
+  if (statusUpper === 'FINALIZADA' || statusUpper === 'CONCLUIDA' || statusUpper === 'CANCELADA') {
+    return false;
+  }
+
+  // Se já concluiu 100% de todas as etapas da rota, não está mais em produção ativa
+  if (checkOp100Percent(op, apontamentos)) {
+    return false;
+  }
+
+  // 1. Flag explícita no nó raiz da OP
+  if (op.emProducao === true || String(op.emProducao).toLowerCase() === 'true') {
+    return true;
+  }
+
+  // 2. Status raiz compatível com produção ativa
+  if (
+    statusUpper === 'EM_PRODUCAO' ||
+    statusUpper === 'EM_ANDAMENTO' ||
+    statusUpper === 'IN_PROGRESS' ||
+    statusUpper === 'PRODUZINDO' ||
+    statusUpper === 'PRODUZINDO HOJE'
+  ) {
+    return true;
+  }
+
+  // 3. Existência de qualquer apontamento ativo para a OP (status EM_ANDAMENTO ou sem hora_fim)
+  const cleanOrderOp = String(op.op_numero || op.numero || '')
+    .replace(/^(\s*OP\s*)+/i, '')
+    .replace(/[-_\s]/g, '')
+    .toUpperCase();
+
+  if (Array.isArray(apontamentos) && apontamentos.length > 0 && cleanOrderOp) {
+    const hasActiveApontamento = apontamentos.some((a) => {
+      if (!a) return false;
+      const cleanAptOp = String(a.op_numero || a.op || '')
+        .replace(/^(\s*OP\s*)+/i, '')
+        .replace(/[-_\s]/g, '')
+        .toUpperCase();
+      if (cleanAptOp !== cleanOrderOp) return false;
+
+      const aptStatus = String(a.status || '').toUpperCase().trim();
+      const isActive =
+        aptStatus === 'EM_ANDAMENTO' ||
+        aptStatus === 'IN_PROGRESS' ||
+        (!a.hora_fim && !a.horaFim && Boolean(a.hora_inicio || a.horaInicio));
+      return isActive;
+    });
+
+    if (hasActiveApontamento) {
+      return true;
+    }
+  }
+
+  // 4. Alguma etapa no objeto op.etapas estiver com status em andamento/produção
+  if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+    const hasEtapaAtiva = Object.values(op.etapas).some((val: any) => {
+      if (!val) return false;
+      const st = String(val.status || val || '').toUpperCase().trim();
+      return (
+        st === 'EM_ANDAMENTO' ||
+        st === 'EM_PRODUCAO' ||
+        st === 'IN_PROGRESS' ||
+        (Boolean(val.hora_inicio || val.horaInicio) && !val.hora_fim && !val.horaFim && st !== 'CONCLUIDO')
+      );
+    });
+
+    if (hasEtapaAtiva) {
+      return true;
+    }
+  }
+
+  // 5. Se possui postoAtivo definido ou dataInicio e não está concluída
+  if (op.postoAtivo || (op.dataInicio && (statusUpper.includes('AGUARDANDO INÍCIO') || statusUpper.includes('EM_PRODUCAO')))) {
+    return true;
+  }
+
+  return false;
 }

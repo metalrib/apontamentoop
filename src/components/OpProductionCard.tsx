@@ -64,15 +64,35 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
   const isConcluidaGeral = order.status === 'FINALIZADA' || isAllStepsFinished;
 
   // Processo Atual (Em Andamento) vs Aguardando Próximo Setor
-  const activeApt = apontamentos.find(
-    (a) => (a.op_numero === order.op_numero || a.op === order.op_numero) && a.status === 'EM_ANDAMENTO'
-  );
+  const cleanOrderOp = (order.op_numero || order.numero || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+  const activeApt = apontamentos.find((a) => {
+    if (a.status !== 'EM_ANDAMENTO') return false;
+    const aOp = (a.op_numero || a.op || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+    return aOp === cleanOrderOp;
+  });
 
-  const nextWaitingStep = !isConcluidaGeral && !activeApt
+  const activeEtapaEntry = (!activeApt && order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas))
+    ? Object.entries(order.etapas).find(([_, val]: [string, any]) => {
+        const st = String(val?.status || val || '').toUpperCase().trim();
+        return st === 'EM_PRODUCAO' || st === 'EM_ANDAMENTO' || st === 'IN_PROGRESS';
+      })
+    : null;
+
+  const activeStationName = activeApt
+    ? (activeApt.setorFisico || activeApt.setor)
+    : (order.postoAtivo || (activeEtapaEntry ? activeEtapaEntry[0] : null));
+
+  const activeOperatorName = activeApt
+    ? (activeApt.colaborador || activeApt.operador || 'Operador')
+    : (order.operadorAtual || order.colaboradorIniciou || null);
+
+  const hasActiveProcess = Boolean(activeApt || activeStationName);
+
+  const nextWaitingStep = !isConcluidaGeral && !hasActiveProcess
     ? etapasCalculadas.find((s) => {
         const etapaState = (!Array.isArray(order.etapas) && typeof order.etapas === 'object') ? order.etapas?.[s] : undefined;
         const evalResult = evaluation[s];
-        return !((etapaState && etapaState.status === 'CONCLUIDO') || (evalResult && evalResult.finalizadas >= totalPhysicalUnits));
+        return !((etapaState && (etapaState.status === 'CONCLUIDO' || etapaState.status === 'FINALIZADO')) || (evalResult && evalResult.finalizadas >= totalPhysicalUnits));
       }) || etapasCalculadas[0]
     : null;
 
@@ -232,13 +252,15 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
         {/* Indicação do Processo Atual no Card Principal */}
         {!isConcluidaGeral && (
           <div className="mt-2.5">
-            {activeApt ? (
+            {activeStationName ? (
               <div className="flex items-center gap-2 px-3 py-2 bg-blue-950/60 border border-blue-500/50 rounded-xl text-xs font-mono text-blue-200 shadow-sm">
                 <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
                 <span className="truncate">
                   <span className="font-extrabold text-blue-300">🔵 PROCESSO ATUAL:</span>{' '}
-                  <strong className="text-white">{activeApt.setorFisico || activeApt.setor}</strong>{' '}
-                  <span className="text-slate-400 text-[11px]">(Operador: <strong className="text-blue-100">{activeApt.colaborador || activeApt.operador || 'Operador'}</strong>)</span>
+                  <strong className="text-white">{activeStationName}</strong>{' '}
+                  {activeOperatorName && (
+                    <span className="text-slate-400 text-[11px]">(Operador: <strong className="text-blue-100">{activeOperatorName}</strong>)</span>
+                  )}
                 </span>
               </div>
             ) : nextWaitingStep ? (
@@ -440,19 +462,24 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
             {/* Linha de Destaque antes da listagem das etapas */}
             {!isConcluidaGeral && (
               <div className="mb-2">
-                {activeApt ? (
+                {activeStationName ? (
                   <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-blue-950/80 border border-blue-500/40 rounded-lg text-xs font-mono text-blue-200">
                     <div className="flex items-center gap-2 truncate">
                       <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
                       <span className="truncate">
-                        <strong>🔵 PROCESSO ATUAL:</strong> {activeApt.setorFisico || activeApt.setor} <span className="text-slate-400 text-[11px]">(Operador: {activeApt.colaborador || activeApt.operador || 'Operador'})</span>
+                        <strong>🔵 PROCESSO ATUAL:</strong> {activeStationName}{' '}
+                        {activeOperatorName && (
+                          <span className="text-slate-400 text-[11px]">(Operador: {activeOperatorName})</span>
+                        )}
                       </span>
                     </div>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setStepToReset(activeApt.etapa_rota || activeApt.setorFisico || activeApt.setor);
+                        setStepToReset(
+                          activeApt?.etapa_rota || activeApt?.setorFisico || activeApt?.setor || activeStationName
+                        );
                       }}
                       className="px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
                       title="Resetar etapa em andamento (cancelar início acidental)"

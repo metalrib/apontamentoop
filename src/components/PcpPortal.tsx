@@ -1,6 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
+import {
+  getRouteForOp,
+  getRouteEvaluation,
+  obterQuantidadeTotal,
+  obterEtapasDaRota,
+  isOpEmProducao,
+  checkOp100Percent
+} from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
@@ -140,7 +147,13 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       (op.codigo && op.codigo.toLowerCase().includes(searchTerm.toLowerCase()));
 
     const matchesStatus =
-      statusFilter === 'ALL' ? true : op.status === statusFilter;
+      statusFilter === 'ALL'
+        ? true
+        : statusFilter === 'EM_PRODUCAO'
+        ? isOpEmProducao(op, apontamentos)
+        : statusFilter === 'FINALIZADA'
+        ? (op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos))
+        : op.status === statusFilter;
 
     return matchesSearch && matchesStatus;
   });
@@ -630,7 +643,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
                 >
-                  Em Produção
+                  Em Produção ({orderList.filter((o) => isOpEmProducao(o, apontamentos)).length})
                 </button>
                 <button
                   onClick={() => setStatusFilter('FINALIZADA')}
@@ -640,7 +653,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
                 >
-                  Concluídas
+                  Concluídas ({orderList.filter((o) => o.status === 'FINALIZADA' || checkOp100Percent(o, apontamentos)).length})
                 </button>
 
                 <div className="h-6 w-px bg-blue-950 mx-1 hidden sm:block" />
@@ -936,22 +949,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
         {/* ABA 5: STATUS DE PRODUÇÃO / TV ANDON */}
         {activeTab === 'tv_status' && (() => {
-          const checkOp100Percent = (op: ProductionOrder): boolean => {
-            if (op.status === 'FINALIZADA') return true;
-            const steps = obterEtapasDaRota(op);
-            if (!steps || steps.length === 0) return false;
-            const evaluation = getRouteEvaluation(op, apontamentos, steps);
-            const total = Math.max(1, Math.round(op.quantidade_total || 1));
-            return steps.every((s) => {
-              const st = op.etapas?.[s];
-              const ev = evaluation[s];
-              return (st && st.status === 'CONCLUIDO') || (ev && ev.finalizadas >= total);
-            });
-          };
-
-          const totalEmAndamento = orderList.filter((op) => op.status === 'EM_PRODUCAO' && !checkOp100Percent(op)).length;
-          const totalConcluidas = orderList.filter((op) => checkOp100Percent(op)).length;
-          const totalAtrasadas = orderList.filter((op) => calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op)).length;
+          const totalEmAndamento = orderList.filter((op) => isOpEmProducao(op, apontamentos) && !checkOp100Percent(op, apontamentos)).length;
+          const totalConcluidas = orderList.filter((op) => checkOp100Percent(op, apontamentos) || op.status === 'FINALIZADA').length;
+          const totalAtrasadas = orderList.filter((op) => calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op, apontamentos) && op.status !== 'FINALIZADA').length;
 
           const filteredAndonOrders = orderList.filter((op) => {
             if (andonSearchTerm.trim()) {
@@ -966,13 +966,13 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
             }
 
             if (andonFilterPill === 'em_andamento') {
-              return op.status === 'EM_PRODUCAO' && !checkOp100Percent(op);
+              return isOpEmProducao(op, apontamentos) && !checkOp100Percent(op, apontamentos);
             }
             if (andonFilterPill === 'concluidas') {
-              return checkOp100Percent(op);
+              return checkOp100Percent(op, apontamentos) || op.status === 'FINALIZADA';
             }
             if (andonFilterPill === 'atrasadas') {
-              return calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op);
+              return calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op, apontamentos) && op.status !== 'FINALIZADA';
             }
             return true;
           });

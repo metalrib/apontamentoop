@@ -1595,12 +1595,15 @@ export async function startUnit(params: {
     const opUpdates: Record<string, any> = {
       status: 'EM_PRODUCAO',
       status_fabrica: 'Produzindo Hoje',
+      emProducao: true,
+      postoAtivo: params.setor,
       etapaAtual: params.setor,
       postoSelecionado: params.setor,
       colaboradorIniciou: params.operador,
       operadorAtual: params.operador,
       dataInicio: nowIso,
-      data_atualizacao: nowIso
+      data_atualizacao: nowIso,
+      ultimaAtualizacao: nowIso
     };
 
     if (targetOrder) {
@@ -1617,16 +1620,28 @@ export async function startUnit(params: {
       targetOrder.etapas[matchedStepKey] = {
         ...targetOrder.etapas[matchedStepKey],
         status: 'EM_PRODUCAO',
-        concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
+        concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0,
+        inicio: nowIso,
+        horaInicio: nowIso,
+        operador: params.operador,
+        operadorNome: params.operador
       };
       targetOrder.status = 'EM_PRODUCAO';
       targetOrder.status_fabrica = 'Produzindo Hoje';
+      targetOrder.emProducao = true;
+      targetOrder.postoAtivo = params.setor;
       targetOrder.etapaAtual = params.setor;
       targetOrder.postoSelecionado = params.setor;
       targetOrder.colaboradorIniciou = params.operador;
-      targetOrder.dataInicio = nowIso;
+      targetOrder.operadorAtual = params.operador;
+      targetOrder.dataInicio = targetOrder.dataInicio || nowIso;
+      targetOrder.data_atualizacao = nowIso;
+      targetOrder.ultimaAtualizacao = nowIso;
 
       opUpdates.etapas = targetOrder.etapas;
+      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/status`] = 'EM_PRODUCAO';
+      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/inicio`] = nowIso;
+      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/operadorNome`] = params.operador;
 
       ordersMap[matchedOpKey] = targetOrder;
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
@@ -1963,12 +1978,15 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
     const opUpdates: Record<string, any> = {
       status: 'EM_PRODUCAO',
       status_fabrica: 'Produzindo Hoje',
+      emProducao: true,
+      postoAtivo: params.setor,
       etapaAtual: params.setor,
       postoSelecionado: params.setor,
       colaboradorIniciou: params.operador,
       operadorAtual: params.operador,
       dataInicio: nowIso,
-      data_atualizacao: nowIso
+      data_atualizacao: nowIso,
+      ultimaAtualizacao: nowIso
     };
 
     if (targetOrder) {
@@ -1985,16 +2003,28 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       targetOrder.etapas[matchedStepKey] = {
         ...targetOrder.etapas[matchedStepKey],
         status: 'EM_PRODUCAO',
-        concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0
+        concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0,
+        inicio: nowIso,
+        horaInicio: nowIso,
+        operador: params.operador,
+        operadorNome: params.operador
       };
       targetOrder.status = 'EM_PRODUCAO';
       targetOrder.status_fabrica = 'Produzindo Hoje';
+      targetOrder.emProducao = true;
+      targetOrder.postoAtivo = params.setor;
       targetOrder.etapaAtual = params.setor;
       targetOrder.postoSelecionado = params.setor;
       targetOrder.colaboradorIniciou = params.operador;
-      targetOrder.dataInicio = nowIso;
+      targetOrder.operadorAtual = params.operador;
+      targetOrder.dataInicio = targetOrder.dataInicio || nowIso;
+      targetOrder.data_atualizacao = nowIso;
+      targetOrder.ultimaAtualizacao = nowIso;
 
       opUpdates.etapas = targetOrder.etapas;
+      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/status`] = 'EM_PRODUCAO';
+      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/inicio`] = nowIso;
+      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/operadorNome`] = params.operador;
 
       ordersMap[matchedOpKey] = targetOrder;
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));

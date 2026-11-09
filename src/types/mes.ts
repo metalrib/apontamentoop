@@ -342,6 +342,10 @@ export interface ProductionOrder {
   cliente?: string;
   status: "PLANEJADA" | "EM_PRODUCAO" | "FINALIZADA" | string;
   statusExecucao?: 'pendente' | 'em_andamento' | 'concluido' | string;
+  emProducao?: boolean;
+  postoAtivo?: string;
+  ultimaAtualizacao?: string;
+  data_atualizacao?: string;
   favorita?: boolean;
   pausada?: boolean;
   requer_solda?: boolean; // Inclusão sob demanda de Solda e Montagem (Terminal 5) para Âncoras
