@@ -274,11 +274,10 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
               playClick();
               setShowResetAllModal(true);
             }}
-            title="Resetar Ordem Completa"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg hover:bg-amber-500/30 cursor-pointer active:scale-95 transition shrink-0"
+            title="Resetar Ordem Completa (Voltar para Etapa 1)"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 transition-colors flex items-center justify-center w-8 h-8 cursor-pointer active:scale-95 shrink-0"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-            <span>Resetar OP Completa</span>
+            <RotateCcw className="w-4 h-4" />
           </button>
 
           {onDelete && (
@@ -288,7 +287,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
                 e.stopPropagation();
                 onDelete(order.op_numero || order.numero);
               }}
-              className="p-1.5 text-slate-500 hover:text-rose-400 hover:bg-rose-500/20 border border-transparent hover:border-rose-500/30 rounded-lg transition cursor-pointer"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/30 transition-colors flex items-center justify-center w-8 h-8 cursor-pointer active:scale-95 shrink-0"
               title="Excluir esta OP"
             >
               <Trash2 className="w-4 h-4" />
