@@ -128,6 +128,71 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     ((matchedStep?.toUpperCase() || '') === 'PREPARACAO' && prevStepName.toUpperCase().includes('DOBRA'));
   const prepCheck = verificarPreparacaoFolhasLiberada(order, apontamentos);
 
+  // REGRA DE LIBERAÇÃO DIRETA E SEM AMARRAÇÃO DE ÍNDICE:
+  // Se a etapa anterior da OP já estiver com status concluído (ou quantidadeConcluida >= totalPhysicalUnits):
+  // TODAS as peças da etapa atual estão 100% LIBERADAS para apontamento!
+  const isEtapaAnteriorConcluida = () => {
+    if (stepEval.stepIndex === 0) return true;
+    if (!prevStepName) return true;
+
+    // 1. Verificação via stepEval
+    if ((stepEval.previousStepFinalizadas ?? 0) >= totalPhysicalUnits) return true;
+
+    // 2. Verificação via progressoPostos
+    const progressoPrev = (order as any)?.progressoPostos
+      ? (order as any).progressoPostos[prevStepName] ||
+        (order as any).progressoPostos['Instalação de Gaxeta'] ||
+        (order as any).progressoPostos['Instalacao de Gaxeta'] ||
+        Object.entries((order as any).progressoPostos).find(([k]) => matchStepName(k, prevStepName))?.[1]
+      : undefined;
+    if (progressoPrev && (progressoPrev.concluido || (progressoPrev.concluidas ?? 0) >= totalPhysicalUnits || progressoPrev.status === 'CONCLUIDO')) {
+      return true;
+    }
+
+    // 3. Verificação via order.etapas
+    const etapasObj = order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas) ? order.etapas : undefined;
+    if (etapasObj) {
+      const prevEntry = Object.entries(etapasObj).find(([k]) => matchStepName(k, prevStepName));
+      if (prevEntry) {
+        const val: any = prevEntry[1];
+        const st = String(val?.status || val || '').toUpperCase().trim();
+        if (st === 'CONCLUIDO' || st === 'FINALIZADO' || (val?.concluidas ?? 0) >= totalPhysicalUnits) {
+          return true;
+        }
+      }
+    }
+
+    // 4. Verificação via apontamentos da etapa anterior
+    const prevApts = apontamentos.filter(
+      (a) =>
+        (a.op_numero === order.op_numero || a.op === order.op_numero) &&
+        (matchStepName(a.etapa_rota || a.etapaRota, prevStepName) ||
+          doesSectorMatchStep(a.setorFisico || a.setor || '', prevStepName))
+    );
+    const hasBatchFinished = prevApts.some(a => (a.is_lote || a.unidade_numero === 0) && (a.status === 'FINALIZADO' || a.status === 'CONCLUIDO'));
+    if (hasBatchFinished) return true;
+
+    const finishedUnitsCount = prevApts.filter(a => (a.status === 'FINALIZADO' || a.status === 'CONCLUIDO') && !a.is_lote && a.unidade_numero > 0).length;
+    if (finishedUnitsCount >= totalPhysicalUnits) return true;
+
+    // 5. Verificação via fluxo de Gaxeta
+    if (ehGaxetaParaMontagem && qtdGaxetaPronta >= totalPhysicalUnits) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const etapaAnteriorTotalmenteConcluida = isEtapaAnteriorConcluida();
+
+  // Quantidade consolidada de peças prontas da etapa anterior para liberação unitária
+  const totalPecasProntasEtapaAnterior = Math.max(
+    stepEval.previousStepFinalizadas ?? 0,
+    qtdGaxetaPronta,
+    etapaAnteriorTotalmenteConcluida ? totalPhysicalUnits : 0,
+    (order as any)?.progressoPostos?.[prevStepName]?.concluidas ?? 0
+  );
+
   // Métricas agregadas
   const totalConcluidas = pieceCards.filter((p) => p.isFinished).length;
   const totalEmAndamento = pieceCards.filter((p) => p.isActive).length;
@@ -272,19 +337,24 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
           let lockReason = '';
 
           if (!isFinished && !isActive) {
-            if (!routeValidation.valido) {
+            // REGRA OBRIGATÓRIA: Se a etapa anterior inteira já estiver concluída (ou for a primeira etapa da rota):
+            // TODAS AS PEÇAS ESTÃO 100% LIBERADAS PARA APONTAMENTO!
+            if (etapaAnteriorTotalmenteConcluida) {
+              isAvailableToStart = true;
+              lockReason = '';
+            } else if (!routeValidation.valido) {
               isAvailableToStart = false;
               lockReason = routeValidation.motivo || 'Rota Bloqueada';
             } else if (ehGaxetaParaMontagem) {
-              if (unitNum > qtdGaxetaPronta) {
+              // Fluxo contínuo parcial da Gaxeta para a Montagem:
+              if (unitNum <= totalPecasProntasEtapaAnterior) {
+                isAvailableToStart = true;
+              } else {
                 isAvailableToStart = false;
                 lockReason =
-                  qtdGaxetaPronta === 0
+                  totalPecasProntasEtapaAnterior === 0
                     ? 'Aguardando Peça #1 na Gaxeta'
-                    : `Aguardando Peça #${unitNum} na Gaxeta (${qtdMontagemPronta}/${qtdGaxetaPronta} liberadas)`;
-              } else {
-                // Sem trava sequencial: qualquer peça liberada pela gaxeta pode ser iniciada em paralelo
-                isAvailableToStart = true;
+                    : `Aguardando Peça #${unitNum} na Gaxeta (${qtdMontagemPronta}/${totalPecasProntasEtapaAnterior} liberadas)`;
               }
             } else if (
               (matchedStep?.toUpperCase() || '').includes('ROUTER') ||
@@ -304,7 +374,6 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                 isAvailableToStart = false;
                 lockReason = montagemVVCheck.motivo || '🔒 Aguardando Liberação';
               } else {
-                // Montagem liberada (após início de Injeção ou Router)
                 isAvailableToStart = true;
               }
             } else if (isDobra) {
@@ -324,18 +393,12 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                 lockReason = prepCheck.motivo || 'Aguardando início da etapa Dobra';
               }
             } else {
-              // Postos convencionais unitários (como Preparação Vai Vem, Montagem Vai Vem, etc.)
-              if (stepEval.stepIndex === 0) {
-                // Primeira etapa da rota: todas as peças estão liberadas
-                isAvailableToStart = true;
-              } else if (
-                (stepEval.previousStepFinalizadas ?? 0) >= (stepEval.isBatch ? totalPhysicalUnits : unitNum)
-              ) {
-                // Etapa anterior concluída para a unidade ou lote
+              // Postos convencionais unitários:
+              if (unitNum <= totalPecasProntasEtapaAnterior) {
                 isAvailableToStart = true;
               } else {
                 isAvailableToStart = false;
-                lockReason = `Aguardando etapa anterior (${stepEval.previousStepName || 'Anterior'})`;
+                lockReason = `Aguardando etapa anterior (${prevStepName || 'Anterior'})`;
               }
             }
           }

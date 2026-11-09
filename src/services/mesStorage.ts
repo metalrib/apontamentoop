@@ -1682,6 +1682,23 @@ export async function startUnit(params: {
       }
     }
 
+    if (!targetOrder) {
+      try {
+        const numClean = cleanOpId(cleanOp);
+        const fbSnap = await get(ref(db, `ordens_producao/OP ${numClean}`));
+        if (fbSnap.exists()) {
+          targetOrder = fbSnap.val() as ProductionOrder;
+          matchedOpKey = `OP ${numClean}`;
+        } else {
+          const fbSnap2 = await get(ref(db, `ordens_producao/${numClean}`));
+          if (fbSnap2.exists()) {
+            targetOrder = fbSnap2.val() as ProductionOrder;
+            matchedOpKey = numClean;
+          }
+        }
+      } catch {}
+    }
+
     const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
 
     const opUpdates: Record<string, any> = {
@@ -1731,9 +1748,17 @@ export async function startUnit(params: {
       targetOrder.ultimaAtualizacao = nowIso;
 
       opUpdates.etapas = targetOrder.etapas;
-      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/status`] = 'EM_PRODUCAO';
-      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/inicio`] = nowIso;
-      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/operadorNome`] = params.operador;
+
+      if ((targetOrder as any).progressoPostos) {
+        const progKey = Object.keys((targetOrder as any).progressoPostos).find(k => matchStepName(k, matchedStepKey) || doesSectorMatchStep(params.setor, k)) || matchedStepKey;
+        if (!(targetOrder as any).progressoPostos[progKey]) {
+          (targetOrder as any).progressoPostos[progKey] = { concluidas: 0 };
+        }
+        (targetOrder as any).progressoPostos[progKey].iniciado = true;
+        (targetOrder as any).progressoPostos[progKey].status = 'EM_PRODUCAO';
+        (targetOrder as any).progressoPostos[progKey].dataInicio = (targetOrder as any).progressoPostos[progKey].dataInicio || nowIso;
+        opUpdates.progressoPostos = (targetOrder as any).progressoPostos;
+      }
 
       ordersMap[matchedOpKey] = targetOrder;
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
@@ -1741,6 +1766,10 @@ export async function startUnit(params: {
 
     if (opKey) {
       await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
+      try {
+        const cleanNoPrefix = cleanOpId(cleanOp);
+        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), opUpdates);
+      } catch {}
     }
   } catch (err) {
     console.error('Erro ao atualizar status da OP ao iniciar unidade:', err);
@@ -2065,6 +2094,23 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       }
     }
 
+    if (!targetOrder) {
+      try {
+        const numClean = cleanOpId(cleanOp);
+        const fbSnap = await get(ref(db, `ordens_producao/OP ${numClean}`));
+        if (fbSnap.exists()) {
+          targetOrder = fbSnap.val() as ProductionOrder;
+          matchedOpKey = `OP ${numClean}`;
+        } else {
+          const fbSnap2 = await get(ref(db, `ordens_producao/${numClean}`));
+          if (fbSnap2.exists()) {
+            targetOrder = fbSnap2.val() as ProductionOrder;
+            matchedOpKey = numClean;
+          }
+        }
+      } catch {}
+    }
+
     const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
 
     const opUpdates: Record<string, any> = {
@@ -2114,9 +2160,17 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       targetOrder.ultimaAtualizacao = nowIso;
 
       opUpdates.etapas = targetOrder.etapas;
-      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/status`] = 'EM_PRODUCAO';
-      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/inicio`] = nowIso;
-      opUpdates[`etapas/${toFirebaseKey(matchedStepKey)}/operadorNome`] = params.operador;
+
+      if ((targetOrder as any).progressoPostos) {
+        const progKey = Object.keys((targetOrder as any).progressoPostos).find(k => matchStepName(k, matchedStepKey) || doesSectorMatchStep(params.setor, k)) || matchedStepKey;
+        if (!(targetOrder as any).progressoPostos[progKey]) {
+          (targetOrder as any).progressoPostos[progKey] = { concluidas: 0 };
+        }
+        (targetOrder as any).progressoPostos[progKey].iniciado = true;
+        (targetOrder as any).progressoPostos[progKey].status = 'EM_PRODUCAO';
+        (targetOrder as any).progressoPostos[progKey].dataInicio = (targetOrder as any).progressoPostos[progKey].dataInicio || nowIso;
+        opUpdates.progressoPostos = (targetOrder as any).progressoPostos;
+      }
 
       ordersMap[matchedOpKey] = targetOrder;
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
@@ -2124,6 +2178,10 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
     if (opKey) {
       await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
+      try {
+        const cleanNoPrefix = cleanOpId(cleanOp);
+        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), opUpdates);
+      } catch {}
     }
   } catch (err) {
     console.error('Erro ao atualizar status da OP ao iniciar lote:', err);

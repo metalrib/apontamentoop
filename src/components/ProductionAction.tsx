@@ -260,6 +260,48 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     }
   }
 
+  // Verifica também em progressoPostos
+  const progressoPrevAction = (order as any)?.progressoPostos
+    ? (prevStepName && (order as any).progressoPostos[prevStepName]) ||
+      (order as any).progressoPostos['Instalação de Gaxeta'] ||
+      (order as any).progressoPostos['Instalacao de Gaxeta']
+    : undefined;
+  if (progressoPrevAction) {
+    if (progressoPrevAction.concluido || progressoPrevAction.status === 'CONCLUIDO') {
+      qtdGaxetaPronta = Math.max(qtdGaxetaPronta, progressoPrevAction.concluidas || totalPhysicalUnits);
+    } else if (typeof progressoPrevAction.concluidas === 'number') {
+      qtdGaxetaPronta = Math.max(qtdGaxetaPronta, progressoPrevAction.concluidas);
+    }
+  }
+
+  // Verifica também em order.etapas
+  const etapasObjAction = order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas) ? order.etapas : undefined;
+  if (etapasObjAction) {
+    const prevEtapaAction = (prevStepName && etapasObjAction[prevStepName]) ||
+      etapasObjAction['Instalação de Gaxeta'] ||
+      etapasObjAction['Instalacao de Gaxeta'];
+    if (prevEtapaAction) {
+      const st = String((prevEtapaAction as any)?.status || prevEtapaAction || '').toUpperCase().trim();
+      if (st === 'CONCLUIDO' || st === 'FINALIZADO') {
+        qtdGaxetaPronta = Math.max(qtdGaxetaPronta, (prevEtapaAction as any)?.concluidas || totalPhysicalUnits);
+      } else if (typeof (prevEtapaAction as any)?.concluidas === 'number') {
+        qtdGaxetaPronta = Math.max(qtdGaxetaPronta, (prevEtapaAction as any).concluidas);
+      }
+    }
+  }
+
+  // Conta apontamentos finalizados para a etapa anterior / Gaxeta
+  const aptsPrevFinishedCount = apontamentos.filter(
+    (a) =>
+      (a.op_numero === order.op_numero || a.op === order.op_numero) &&
+      (matchStepName(a.etapa_rota || a.etapaRota, prevStepName || 'Instalação de Gaxeta') ||
+        doesSectorMatchStep(a.setorFisico || a.setor || '', prevStepName || 'Instalação de Gaxeta')) &&
+      (a.status === 'FINALIZADO' || a.status === 'CONCLUIDO')
+  ).length;
+  if (aptsPrevFinishedCount > 0) {
+    qtdGaxetaPronta = Math.max(qtdGaxetaPronta, aptsPrevFinishedCount);
+  }
+
   let qtdMontagemPronta = stepEval.finalizadas;
   if (opApts && typeof opApts === 'object') {
     const montApt = (selectedSector && opApts[selectedSector]) || (matchedStep && opApts[matchedStep]);
@@ -1054,7 +1096,10 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       bloqueadoPorSetorAnterior = false;
     }
   } else if (ehGaxetaParaMontagem) {
-    if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
+    if (qtdGaxetaPronta >= totalPhysicalUnits && stepEval.finalizadas < totalPhysicalUnits) {
+      podeIniciar = true;
+      bloqueadoPorSetorAnterior = false;
+    } else if (podeMontarPeca && temSaldoParaIniciar && stepEval.finalizadas < totalPhysicalUnits) {
       podeIniciar = true;
       bloqueadoPorSetorAnterior = false;
     } else {
@@ -1088,6 +1133,19 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       podeIniciar = false;
       bloqueadoPorSetorAnterior = true;
     }
+  }
+
+  // Regra Geral: se a etapa anterior inteira já estiver concluída, nunca bloqueia por setor anterior
+  const etapaAnteriorTotalmenteConcluidaGeral =
+    stepEval.stepIndex === 0 ||
+    !prevStepName ||
+    (stepEval.previousStepFinalizadas ?? 0) >= totalPhysicalUnits ||
+    qtdGaxetaPronta >= totalPhysicalUnits ||
+    Boolean(progressoPrevAction?.concluido || ((progressoPrevAction?.concluidas ?? 0) >= totalPhysicalUnits));
+
+  if (etapaAnteriorTotalmenteConcluidaGeral && stepEval.finalizadas < totalPhysicalUnits) {
+    bloqueadoPorSetorAnterior = false;
+    podeIniciar = true;
   }
 
   const isUnblocked = podeIniciar && routeValidation.valido;

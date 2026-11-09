@@ -1285,6 +1285,21 @@ export function getRouteEvaluation(
           if (typeof val === 'number') prevFinishedCount = Math.max(prevFinishedCount, val);
         }
       }
+
+      // Consulta progressoPostos na OP
+      const progressoPrev = (op as any)?.progressoPostos
+        ? (op as any).progressoPostos[previousStep] ||
+          Object.entries((op as any).progressoPostos).find(([k]) => matchStepName(k, previousStep))?.[1]
+        : undefined;
+
+      if (progressoPrev) {
+        if (progressoPrev.concluido || progressoPrev.status === 'CONCLUIDO') {
+          prevFinishedCount = Math.max(prevFinishedCount, progressoPrev.concluidas || total);
+        } else if (typeof progressoPrev.concluidas === 'number') {
+          prevFinishedCount = Math.max(prevFinishedCount, progressoPrev.concluidas);
+        }
+      }
+
       prevFinalizadas = prevFinishedCount;
 
       // Verificação de início/andamento da etapa anterior
@@ -1307,7 +1322,6 @@ export function getRouteEvaluation(
         )
       );
 
-      const progressoPrev = (op as any)?.progressoPostos ? (op as any).progressoPostos[previousStep] : undefined;
       const prevProgressoIniciado = Boolean(
         progressoPrev && (
           progressoPrev.iniciado ||
@@ -1444,11 +1458,12 @@ export function getRouteEvaluation(
           canStart = true;
         }
       } else {
-        if (prevFinishedCount < nextUnit) {
+        if (prevFinishedCount >= total || prevFinishedCount >= nextUnit) {
+          canStart = true;
+          blockingReason = undefined;
+        } else {
           canStart = false;
           blockingReason = `Aguardando etapa anterior`;
-        } else {
-          canStart = true;
         }
       }
     }
