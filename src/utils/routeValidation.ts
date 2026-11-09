@@ -81,6 +81,8 @@ export function verificarSeExigeEmenda(descricao: string): boolean {
 
 import {
   CODIGOS_TRILHOS_LGT_PADRAO,
+  CODIGOS_PORTAS_GIRO_PADRAO,
+  CODIGOS_PORTAS_CORRER_PADRAO,
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_CORRER,
   CODIGOS_FOLHAS_PADRAO,
@@ -925,16 +927,19 @@ export function obterEtapasDaRota(op: any): string[] {
     desc.includes('GIRO')
   ) {
     const codLimpo = normalizarCodigo(cod);
-    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(cod)));
+    const ehCodigoPadrao = Boolean(
+      (cod && (CODIGOS_PORTAS_GIRO_PADRAO.has(cod) || CODIGOS_GIRATORIA_PADRAO.has(cod))) ||
+      (codLimpo && (CODIGOS_PORTAS_GIRO_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codLimpo)))
+    );
 
     if (ehCodigoPadrao) {
-      // Porta Giratória Padrão (Whitelist): 2 etapas (Terminal 4)
+      // Porta Giratória Padrão (Whitelist): 2 etapas
       steps = [
         'Instalação de Gaxeta',
-        'Montagem de Portas Giratória Padrão e Especial'
+        'Montagem de Portas Giratórias'
       ];
     } else {
-      // Porta Giratória Especial (Fora da Whitelist, ex: 003.0140): ROTA COMPLETA de fabricação
+      // Porta Giratória Especial (Fora da Whitelist): ROTA COMPLETA de fabricação
       steps = [
         'Corte',
         'Dobra',
@@ -972,18 +977,16 @@ export function obterEtapasDaRota(op: any): string[] {
 
     // WHITELIST ESTRITA POR CÓDIGO DO PRODUTO:
     // Uma porta de correr SÓ recebe rota curta de 1 etapa se constar explicitamente na Whitelist
-    // E não contiver indicadores especiais (Inox, Super Cong, Emendada, etc.)
+    // E não contiver indicadores especiais (Inox, Emendada, etc.)
     const ehCodigoPadrao = Boolean(
-      codLimpo &&
-      (CODIGOS_PADRAO_CORRER.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(cod))
+      (cod && (CODIGOS_PORTAS_CORRER_PADRAO.has(cod) || CODIGOS_PADRAO_CORRER.has(cod))) ||
+      (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
     ) &&
       !ehInox &&
-      !ehSuperCong &&
       !ehEmendada &&
       !desc.includes('ESP') &&
       !desc.includes('ESPECIAL') &&
       !cod.startsWith('006.') &&
-      !cod.startsWith('007.') &&
       !cod.startsWith('008.') &&
       !cod.startsWith('029.') &&
       !cod.startsWith('025.');
@@ -1109,14 +1112,18 @@ export function definirRotaProduto(op: {
     codLimpo.startsWith('004');
 
   if (ehFamiliaGiratoria) {
-    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codRaw) || CODIGOS_GIRATORIA_PADRAO.has(cod)));
+    const ehCodigoPadrao = Boolean(
+      (cod && (CODIGOS_PORTAS_GIRO_PADRAO.has(cod) || CODIGOS_GIRATORIA_PADRAO.has(cod))) ||
+      (codRaw && (CODIGOS_PORTAS_GIRO_PADRAO.has(codRaw) || CODIGOS_GIRATORIA_PADRAO.has(codRaw))) ||
+      (codLimpo && (CODIGOS_PORTAS_GIRO_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codLimpo)))
+    );
 
     if (ehCodigoPadrao) {
       return {
         familia: 'Porta Giratória Padrão',
         rota: [
           'Instalação de Gaxeta',
-          'Montagem de Portas Giratória Padrão e Especial'
+          'Montagem de Portas Giratórias'
         ]
       };
     }
@@ -1159,16 +1166,15 @@ export function definirRotaProduto(op: {
     const ehEmendada = desc.includes('EMENDAD') || cod.startsWith('029.') || cod.startsWith('025.');
 
     const ehCodigoPadrao = Boolean(
-      codLimpo &&
-      (CODIGOS_PADRAO_CORRER.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codRaw) || CODIGOS_PADRAO_CORRER.has(cod))
+      (cod && (CODIGOS_PORTAS_CORRER_PADRAO.has(cod) || CODIGOS_PADRAO_CORRER.has(cod))) ||
+      (codRaw && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRaw) || CODIGOS_PADRAO_CORRER.has(codRaw))) ||
+      (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
     ) &&
       !ehInox &&
-      !ehSuperCong &&
       !ehEmendada &&
       !desc.includes('ESP') &&
       !desc.includes('ESPECIAL') &&
       !cod.startsWith('006.') &&
-      !cod.startsWith('007.') &&
       !cod.startsWith('008.') &&
       !cod.startsWith('029.') &&
       !cod.startsWith('025.');

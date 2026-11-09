@@ -1,4 +1,11 @@
-import { ProductionOrder, FactoryStatus, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER } from '../types/mes';
+import {
+  ProductionOrder,
+  FactoryStatus,
+  CODIGOS_PORTAS_GIRO_PADRAO,
+  CODIGOS_PORTAS_CORRER_PADRAO,
+  CODIGOS_GIRATORIA_PADRAO,
+  CODIGOS_PADRAO_CORRER
+} from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
 export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string }): {
@@ -74,8 +81,11 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
 
   if (ehGiratoria) {
     // REGRA RESTRITIVA (WHITELIST POR CÓDIGO NORMALIZADO):
-    // Uma porta giratória SÓ é padrão se o código normalizado constar no Set oficial
-    const ehPadrao = Boolean(codNormalizado && CODIGOS_GIRATORIA_PADRAO.has(codNormalizado));
+    // Uma porta giratória SÓ é padrão se o código constar na Whitelist Oficial Metalrib
+    const ehPadrao = Boolean(
+      (codNormalizado && (CODIGOS_PORTAS_GIRO_PADRAO.has(codNormalizado) || CODIGOS_GIRATORIA_PADRAO.has(codNormalizado))) ||
+      (codigoProduto && (CODIGOS_PORTAS_GIRO_PADRAO.has(codigoProduto) || CODIGOS_GIRATORIA_PADRAO.has(codigoProduto)))
+    );
 
     if (ehPadrao) {
       return {
@@ -83,7 +93,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
         tipoMontagem: 'Porta Giratória Padrão',
         rota: [
           'Instalação de Gaxeta',
-          'Montagem de Portas Giratória Padrão e Especial'
+          'Montagem de Portas Giratórias'
         ],
         statusAtual: 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta'
       };
@@ -122,16 +132,17 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
   if (ehCorrer) {
     // Uma porta de correr SÓ é padrão se constar explicitamente na Whitelist e não for sob medida/especial
     const ehPadrao =
-      Boolean(codNormalizado && CODIGOS_PADRAO_CORRER.has(codNormalizado)) &&
+      Boolean(
+        (codNormalizado && (CODIGOS_PORTAS_CORRER_PADRAO.has(codNormalizado) || CODIGOS_PADRAO_CORRER.has(codNormalizado))) ||
+        (codigoProduto && (CODIGOS_PORTAS_CORRER_PADRAO.has(codigoProduto) || CODIGOS_PADRAO_CORRER.has(codigoProduto)))
+      ) &&
       !desc.includes('EMENDAD') &&
       !desc.includes('INOX') &&
       !desc.includes('I304') &&
       !desc.includes('I430') &&
-      !desc.includes('SUPER CONG') &&
       !desc.includes('ESPECIAL') &&
       !desc.includes('ESP') &&
       !codNormalizado.startsWith('006') &&
-      !codNormalizado.startsWith('007') &&
       !codNormalizado.startsWith('008') &&
       !codNormalizado.startsWith('029') &&
       !codNormalizado.startsWith('025');

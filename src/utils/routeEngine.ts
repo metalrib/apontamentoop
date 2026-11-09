@@ -4,6 +4,8 @@ import {
   ROUTE_RULES,
   DEFAULT_ROUTE,
   RouteRule,
+  CODIGOS_PORTAS_GIRO_PADRAO,
+  CODIGOS_PORTAS_CORRER_PADRAO,
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_GIRO,
   CODIGOS_PADRAO_CORRER,
@@ -54,6 +56,11 @@ import {
 } from './routeValidation';
 
 export {
+  CODIGOS_PORTAS_GIRO_PADRAO,
+  CODIGOS_PORTAS_CORRER_PADRAO,
+  CODIGOS_GIRATORIA_PADRAO,
+  CODIGOS_PADRAO_GIRO,
+  CODIGOS_PADRAO_CORRER,
   isFolhaOrder,
   isVaiVemOuOfficeDoor,
   verificarInjecaoLiberada,
@@ -427,14 +434,17 @@ function resolveBaseRoute(
 
   if (isGiro) {
     const codLimpo = normalizarCodigo(code || '');
-    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_GIRATORIA_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(code || '')));
+    const ehCodigoPadrao = Boolean(
+      (code && (CODIGOS_PORTAS_GIRO_PADRAO.has(code) || CODIGOS_GIRATORIA_PADRAO.has(code))) ||
+      (codLimpo && (CODIGOS_PORTAS_GIRO_PADRAO.has(codLimpo) || CODIGOS_GIRATORIA_PADRAO.has(codLimpo)))
+    );
 
     if (ehCodigoPadrao) {
       const rule: RouteRule = {
         keyword: 'PT GIR',
         label: 'Porta Giratória Padrão',
-        steps: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'],
-        badge: 'Linha Padrão (Montagem Direta)',
+        steps: ['Instalação de Gaxeta', 'Montagem de Portas Giratórias'],
+        badge: 'Porta Giratória Padrão (Montagem Final)',
         isStandardLine: true
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
@@ -460,11 +470,18 @@ function resolveBaseRoute(
   }
 
   // 6. Linha Super Cong de Correr / Especiais Sob Medida
+  const codLimpoCorrer = normalizarCodigo(code || '');
+  const ehCodigoCorrerPadrao = Boolean(
+    (code && (CODIGOS_PORTAS_CORRER_PADRAO.has(code) || CODIGOS_PADRAO_CORRER.has(code))) ||
+    (codLimpoCorrer && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpoCorrer) || CODIGOS_PADRAO_CORRER.has(codLimpoCorrer)))
+  );
+
   const ehSuperCong =
-    (code && code.startsWith('007.')) ||
+    !ehCodigoCorrerPadrao &&
+    ((code && code.startsWith('007.') && !ehCodigoCorrerPadrao) ||
     norm.includes('SUPER CONG') ||
     norm.includes('SUPER CONGELADO') ||
-    norm.includes('PORTA ESPECIAL');
+    norm.includes('PORTA ESPECIAL'));
 
   if (ehSuperCong) {
     const steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', 'Montagem Portas de Correr Padrão e Especial'];
@@ -479,11 +496,14 @@ function resolveBaseRoute(
   }
 
   // 7. Portas de Correr (Padrão vs Especial e Emendadas)
-  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('EMENDADA')) {
+  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('EMENDADA') || (code && code.startsWith('007.'))) {
     const exigeEmenda = verificarSeExigeEmenda(desc || '');
     const codLimpo = normalizarCodigo(code || '');
-    const ehCodigoPadrao = Boolean(codLimpo && (CODIGOS_PADRAO_CORRER.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(code || '')));
-    const isEspecial = !ehCodigoPadrao || norm.includes('ESPECIAL') || norm.includes('ESP') || norm.includes('INOX') || norm.includes('SUPER CONG') || exigeEmenda;
+    const ehCodigoPadrao = Boolean(
+      (code && (CODIGOS_PORTAS_CORRER_PADRAO.has(code) || CODIGOS_PADRAO_CORRER.has(code))) ||
+      (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
+    );
+    const isEspecial = !ehCodigoPadrao || norm.includes('ESPECIAL') || norm.includes('ESP') || norm.includes('INOX') || (!ehCodigoPadrao && norm.includes('SUPER CONG')) || exigeEmenda;
     const montagemStep = 'Montagem Portas de Correr Padrão e Especial';
 
     if (!isEspecial) {
@@ -491,7 +511,7 @@ function resolveBaseRoute(
         keyword: 'PT COR',
         label: 'Rota 16 - Porta Padrão Correr',
         steps: [montagemStep],
-        badge: 'Linha Padrão (Montagem Direta)',
+        badge: 'Porta de Correr Padrão (Montagem Final)',
         isStandardLine: true
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
@@ -991,6 +1011,7 @@ export function initOrSyncOrderEtapas(
  */
 export const POSTOS_UNITARIOS = [
   'Instalação de Gaxeta',
+  'Montagem de Portas Giratórias',
   'Montagem de Portas Giratória Padrão e Especial',
   'Preparação Vai Vem',
   'Montagem Porta Vai-Vem',

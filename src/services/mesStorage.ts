@@ -1,4 +1,17 @@
-import { ProductionOrder, Apontamento, Operator, OPERATORS, TerminalConfig, TERMINALS, CODIGOS_GIRATORIA_PADRAO, CODIGOS_PADRAO_CORRER, normalizarCodigo, OpOcorrencia } from '../types/mes';
+import {
+  ProductionOrder,
+  Apontamento,
+  Operator,
+  OPERATORS,
+  TerminalConfig,
+  TERMINALS,
+  CODIGOS_PORTAS_GIRO_PADRAO,
+  CODIGOS_PORTAS_CORRER_PADRAO,
+  CODIGOS_GIRATORIA_PADRAO,
+  CODIGOS_PADRAO_CORRER,
+  normalizarCodigo,
+  OpOcorrencia
+} from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
@@ -179,11 +192,47 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
 
   const docId = (op.op_numero || (op as any).numeroOP || op.numero || (op as any).id || '').trim();
 
-  // 1. Giratória Especial: Não está na whitelist oficial de padrão
-  const ehGiroPadrao = Boolean(codNormalizado && CODIGOS_GIRATORIA_PADRAO.has(codNormalizado));
+  // 1. Giratória: Padrão vs Especial
+  const ehGiroPadrao = Boolean(
+    (codRaw && (CODIGOS_PORTAS_GIRO_PADRAO.has(codRaw) || CODIGOS_GIRATORIA_PADRAO.has(codRaw))) ||
+    (codNormalizado && (CODIGOS_PORTAS_GIRO_PADRAO.has(codNormalizado) || CODIGOS_GIRATORIA_PADRAO.has(codNormalizado)))
+  );
   const ehGiroEspecial = ehGiratoria && (!ehGiroPadrao || desc.includes('ESP') || desc.includes('ESPECIAL') || op.familia?.includes('Especial'));
 
-  if (ehGiroEspecial) {
+  if (ehGiratoria && ehGiroPadrao && !ehGiroEspecial) {
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+    const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+
+    // Se estava indevidamente com rota completa de fabricação (6 etapas / iniciando em Corte) e sem apontamentos
+    if (semApts && (rotaAtual.length > 2 || rotaAtual.includes('Corte') || op.familia === 'Porta Giratória Especial')) {
+      const novaRota = [
+        'Instalação de Gaxeta',
+        'Montagem de Portas Giratórias'
+      ];
+
+      op.rota = novaRota;
+      op.etapas = novaRota;
+      op.familia = 'Porta Giratória Padrão';
+      op.tipoMontagem = 'Porta Giratória Padrão';
+      op.etapaAtual = 'Instalação de Gaxeta';
+      op.statusEtapa = 'Aguardando Início em: Instalação de Gaxeta';
+      op.status = 'Aguardando Início em: Instalação de Gaxeta';
+      op.statusAtual = 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta';
+
+      if (docId) {
+        persistirCorrecaoOp(docId, {
+          rota: novaRota,
+          etapas: novaRota,
+          familia: 'Porta Giratória Padrão',
+          tipoMontagem: 'Porta Giratória Padrão',
+          etapaAtual: op.etapaAtual,
+          statusEtapa: op.statusEtapa,
+          status: op.status,
+          statusAtual: op.statusAtual
+        });
+      }
+    }
+  } else if (ehGiroEspecial) {
     const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
     if (!rotaAtual || rotaAtual.length < 5 || !rotaAtual.includes('Corte')) {
       const novaRota = [
@@ -227,18 +276,19 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
     }
   }
 
-  // 2. Correr Especial / Sob Medida: Não está na whitelist padrão ou possui marcadores especiais
+  // 2. Correr: Padrão vs Especial / Sob Medida
   const ehCorrerPadrao =
-    Boolean(codNormalizado && CODIGOS_PADRAO_CORRER.has(codNormalizado)) &&
+    Boolean(
+      (codRaw && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRaw) || CODIGOS_PADRAO_CORRER.has(codRaw))) ||
+      (codNormalizado && (CODIGOS_PORTAS_CORRER_PADRAO.has(codNormalizado) || CODIGOS_PADRAO_CORRER.has(codNormalizado)))
+    ) &&
     !desc.includes('EMENDAD') &&
     !desc.includes('INOX') &&
     !desc.includes('I304') &&
     !desc.includes('I430') &&
-    !desc.includes('SUPER CONG') &&
     !desc.includes('ESPECIAL') &&
     !desc.includes('ESP') &&
     !codNormalizado.startsWith('006') &&
-    !codNormalizado.startsWith('007') &&
     !codNormalizado.startsWith('008') &&
     !codNormalizado.startsWith('029') &&
     !codNormalizado.startsWith('025');
@@ -251,7 +301,35 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       desc.includes('ESPECIAL') ||
       Boolean((op as any).medidaEspecial));
 
-  if (ehCorrerEspecial) {
+  if (ehCorrer && ehCorrerPadrao && !ehCorrerEspecial) {
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+    const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+
+    if (semApts && (rotaAtual.length > 1 || rotaAtual.includes('Corte') || op.familia === 'Porta de Correr Especial')) {
+      const novaRota = ['Montagem Portas de Correr Padrão e Especial'];
+      op.rota = novaRota;
+      op.etapas = novaRota;
+      op.familia = 'Porta de Correr Padrão';
+      op.tipoMontagem = 'Porta de Correr Padrão';
+      op.etapaAtual = 'Montagem Portas de Correr Padrão e Especial';
+      op.statusEtapa = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
+      op.status = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
+      op.statusAtual = 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial';
+
+      if (docId) {
+        persistirCorrecaoOp(docId, {
+          rota: novaRota,
+          etapas: novaRota,
+          familia: 'Porta de Correr Padrão',
+          tipoMontagem: 'Porta de Correr Padrão',
+          etapaAtual: op.etapaAtual,
+          statusEtapa: op.statusEtapa,
+          status: op.status,
+          statusAtual: op.statusAtual
+        });
+      }
+    }
+  } else if (ehCorrerEspecial) {
     const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
     if (!rotaAtual || rotaAtual.length < 4 || !rotaAtual.includes('Corte')) {
       const novaRota = [
@@ -2965,12 +3043,31 @@ export async function saveMultipleOrders(
       let etapaAtualFinal = dadosAtuais.etapaAtual || etapaInicial;
       let statusEtapaFinal = dadosAtuais.statusEtapa || `Aguardando Início em: ${etapaAtualFinal}`;
 
-      const codChecagem = String(opImportada.codigo || dadosAtuais.codigo || (opImportada as any).codigoProduto || (dadosAtuais as any).codigoProduto || '').replace(/[^0-9]/g, '');
+      const codRawChecagem = String(opImportada.codigo || dadosAtuais.codigo || (opImportada as any).codigoProduto || (dadosAtuais as any).codigoProduto || '').trim();
+      const codChecagem = codRawChecagem.replace(/[^0-9]/g, '');
       const descChecagem = String(opImportada.descricao || dadosAtuais.descricao || '').toUpperCase();
       const ehGiro = descChecagem.includes('PT GIR') || descChecagem.includes('GIRAT') || descChecagem.includes('GIRO') || codChecagem.startsWith('001') || codChecagem.startsWith('002') || codChecagem.startsWith('003') || codChecagem.startsWith('004');
-      const ehGiroPadrao = Boolean(codChecagem && CODIGOS_GIRATORIA_PADRAO.has(codChecagem));
+      const ehGiroPadrao = Boolean(
+        (codRawChecagem && (CODIGOS_PORTAS_GIRO_PADRAO.has(codRawChecagem) || CODIGOS_GIRATORIA_PADRAO.has(codRawChecagem))) ||
+        (codChecagem && (CODIGOS_PORTAS_GIRO_PADRAO.has(codChecagem) || CODIGOS_GIRATORIA_PADRAO.has(codChecagem)))
+      );
 
-      if (ehGiro && !ehGiroPadrao && semApontamentos) {
+      if (ehGiro && ehGiroPadrao && semApontamentos) {
+        etapasFinais = [
+          'Instalação de Gaxeta',
+          'Montagem de Portas Giratórias'
+        ];
+        etapaAtualFinal = 'Instalação de Gaxeta';
+        statusEtapaFinal = 'Aguardando Início em: Instalação de Gaxeta';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Porta Giratória Padrão';
+        metadadosParaAtualizar.tipoMontagem = 'Porta Giratória Padrão';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta';
+      } else if (ehGiro && !ehGiroPadrao && semApontamentos) {
         etapasFinais = [
           'Corte',
           'Dobra',
@@ -3005,21 +3102,34 @@ export async function saveMultipleOrders(
         codChecagem.startsWith('025');
 
       const ehCorrerPadrao =
-        Boolean(codChecagem && CODIGOS_PADRAO_CORRER.has(codChecagem)) &&
+        Boolean(
+          (codRawChecagem && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRawChecagem) || CODIGOS_PADRAO_CORRER.has(codRawChecagem))) ||
+          (codChecagem && (CODIGOS_PORTAS_CORRER_PADRAO.has(codChecagem) || CODIGOS_PADRAO_CORRER.has(codChecagem)))
+        ) &&
         !descChecagem.includes('EMENDAD') &&
         !descChecagem.includes('INOX') &&
         !descChecagem.includes('I304') &&
         !descChecagem.includes('I430') &&
-        !descChecagem.includes('SUPER CONG') &&
         !descChecagem.includes('ESPECIAL') &&
         !descChecagem.includes('ESP') &&
         !codChecagem.startsWith('006') &&
-        !codChecagem.startsWith('007') &&
         !codChecagem.startsWith('008') &&
         !codChecagem.startsWith('029') &&
         !codChecagem.startsWith('025');
 
-      if (ehCorrer && !ehCorrerPadrao && semApontamentos) {
+      if (ehCorrer && ehCorrerPadrao && semApontamentos) {
+        etapasFinais = ['Montagem Portas de Correr Padrão e Especial'];
+        etapaAtualFinal = 'Montagem Portas de Correr Padrão e Especial';
+        statusEtapaFinal = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Porta de Correr Padrão';
+        metadadosParaAtualizar.tipoMontagem = 'Porta de Correr Padrão';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial';
+      } else if (ehCorrer && !ehCorrerPadrao && semApontamentos) {
         etapasFinais = [
           'Corte',
           'Dobra',
