@@ -363,13 +363,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                   type="checkbox"
                   id="send-to-router-toggle-batch"
                   checked={encaminharRouter}
-                  onChange={() => {}}
-                  className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                  readOnly
+                  className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer pointer-events-none shrink-0"
                 />
-                <label htmlFor="send-to-router-toggle-batch" className="text-xs font-mono font-medium cursor-pointer">
+                <span className="text-xs font-mono font-medium">
                   <span>Requer Router / Com Visor</span>{' '}
                   <span className="text-[11px] text-slate-500">(Terminal 5)</span>
-                </label>
+                </span>
               </div>
               {encaminharRouter && (
                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
@@ -550,18 +550,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                     type="checkbox"
                     id="modal-encaminhar-router-batch"
                     checked={encaminharRouter}
-                    onChange={(e) => {
-                      setEncaminharRouter(e.target.checked);
-                    }}
-                    className="w-5 h-5 mt-0.5 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                    readOnly
+                    className="w-5 h-5 mt-0.5 rounded text-amber-500 accent-amber-500 cursor-pointer pointer-events-none shrink-0"
                   />
                   <div className="flex-1">
-                    <label
-                      htmlFor="modal-encaminhar-router-batch"
-                      className="font-bold text-base text-white cursor-pointer block"
-                    >
+                    <span className="font-bold text-base text-white block">
                       Requer Router / Com Visor
-                    </label>
+                    </span>
                     <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                       {encaminharRouter ? (
                         <span className="text-amber-300 font-medium">
@@ -649,13 +644,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                 type="checkbox"
                 id="send-to-router-toggle-unit"
                 checked={encaminharRouter}
-                onChange={() => {}}
-                className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                readOnly
+                className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer pointer-events-none shrink-0"
               />
-              <label htmlFor="send-to-router-toggle-unit" className="text-xs font-mono font-medium cursor-pointer">
+              <span className="text-xs font-mono font-medium">
                 <span>Requer Router / Com Visor</span>{' '}
                 <span className="text-[11px] text-slate-500">(Terminal 5)</span>
-              </label>
+              </span>
             </div>
             {encaminharRouter && (
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
@@ -834,18 +829,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                   type="checkbox"
                   id="modal-encaminhar-router-unit"
                   checked={encaminharRouter}
-                  onChange={(e) => {
-                    setEncaminharRouter(e.target.checked);
-                  }}
-                  className="w-5 h-5 mt-0.5 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                  readOnly
+                  className="w-5 h-5 mt-0.5 rounded text-amber-500 accent-amber-500 cursor-pointer pointer-events-none shrink-0"
                 />
                 <div className="flex-1">
-                  <label
-                    htmlFor="modal-encaminhar-router-unit"
-                    className="font-bold text-base text-white cursor-pointer block"
-                  >
+                  <span className="font-bold text-base text-white block">
                     Requer Router / Com Visor
-                  </label>
+                  </span>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                     {encaminharRouter ? (
                       <span className="text-amber-300 font-medium">
@@ -1132,27 +1122,27 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
         {isCorteSector && isUnblocked && (
           <div
             onClick={handleToggleLaser}
-            className={`mb-2.5 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+            className={`w-full mb-3 p-3.5 rounded-lg border flex items-center justify-between gap-3 cursor-pointer select-none transition-all duration-150 ${
               sendToLaser
-                ? 'bg-orange-950/40 border-orange-500/70 text-orange-200 shadow-sm'
-                : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
+                ? 'bg-orange-950/40 border-orange-500/70 text-orange-200 shadow-md shadow-orange-950/20 ring-1 ring-orange-500/40'
+                : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-700/50 hover:border-slate-500'
             }`}
           >
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-3">
               <input
                 type="checkbox"
                 id="send-to-laser-toggle-batch"
                 checked={sendToLaser}
-                onChange={() => {}}
-                className="w-4 h-4 rounded text-orange-500 accent-orange-500 cursor-pointer"
+                readOnly
+                className="w-5 h-5 rounded border-slate-600 text-orange-500 accent-orange-500 cursor-pointer pointer-events-none shrink-0"
               />
-              <label htmlFor="send-to-laser-toggle-batch" className="text-xs font-mono font-medium cursor-pointer">
-                <span>Enviar peça para o Laser antes da Dobra?</span>{' '}
-                <span className="text-[11px] text-slate-500">(Furação / Recorte / Detalhe)</span>
-              </label>
+              <span className="text-sm font-medium">
+                Enviar peça para o Laser antes da Dobra{' '}
+                <span className="opacity-75 text-xs">(Furação / recorte / Detalhe)</span>
+              </span>
             </div>
             {sendToLaser && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 font-mono shrink-0">
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 font-mono shrink-0">
                 🔥 Requer Laser
               </span>
             )}
@@ -1171,7 +1161,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                 encaminhar_router: nextVal
               });
             }}
-            className={`mb-2.5 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+            className={`w-full mb-2.5 p-3 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
               encaminharRouter
                 ? 'bg-amber-950/40 border-amber-500/70 text-amber-200 shadow-sm'
                 : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
@@ -1182,13 +1172,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
                 type="checkbox"
                 id="send-to-router-toggle-batch-pending"
                 checked={encaminharRouter}
-                onChange={() => {}}
-                className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer"
+                readOnly
+                className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer pointer-events-none shrink-0"
               />
-              <label htmlFor="send-to-router-toggle-batch-pending" className="text-xs font-mono font-medium cursor-pointer">
+              <span className="text-xs font-mono font-medium">
                 <span>Requer Router / Com Visor</span>{' '}
                 <span className="text-[11px] text-slate-500">(Terminal 5)</span>
-              </label>
+              </span>
             </div>
             {encaminharRouter && (
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
@@ -1296,27 +1286,27 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       {isCorteSector && isUnblocked && (
         <div
           onClick={handleToggleLaser}
-          className={`mb-2.5 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+          className={`w-full mb-3 p-3.5 rounded-lg border flex items-center justify-between gap-3 cursor-pointer select-none transition-all duration-150 ${
             sendToLaser
-              ? 'bg-orange-950/40 border-orange-500/70 text-orange-200 shadow-sm'
-              : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
+              ? 'bg-orange-950/40 border-orange-500/70 text-orange-200 shadow-md shadow-orange-950/20 ring-1 ring-orange-500/40'
+              : 'bg-slate-800/60 border-slate-700 text-slate-300 hover:bg-slate-700/50 hover:border-slate-500'
           }`}
         >
-          <div className="flex items-center gap-2.5">
+          <div className="flex items-center gap-3">
             <input
               type="checkbox"
               id="send-to-laser-toggle-unit"
               checked={sendToLaser}
-              onChange={() => {}}
-              className="w-4 h-4 rounded text-orange-500 accent-orange-500 cursor-pointer"
+              readOnly
+              className="w-5 h-5 rounded border-slate-600 text-orange-500 accent-orange-500 cursor-pointer pointer-events-none shrink-0"
             />
-            <label htmlFor="send-to-laser-toggle-unit" className="text-xs font-mono font-medium cursor-pointer">
-              <span>Enviar peça para o Laser antes da Dobra?</span>{' '}
-              <span className="text-[11px] text-slate-500">(Furação / Recorte / Detalhe)</span>
-            </label>
+            <span className="text-sm font-medium">
+              Enviar peça para o Laser antes da Dobra{' '}
+              <span className="opacity-75 text-xs">(Furação / recorte / Detalhe)</span>
+            </span>
           </div>
           {sendToLaser && (
-            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 font-mono shrink-0">
+            <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-orange-500/20 text-orange-300 border border-orange-500/30 font-mono shrink-0">
               🔥 Requer Laser
             </span>
           )}
