@@ -2521,6 +2521,35 @@ export async function cancelarInicioEtapa(
     }
   }
 
+  // Se não encontrar no localStorage, busca diretamente no Firebase Realtime Database
+  if (!targetOrder) {
+    try {
+      const fbKey = toFirebaseKey(cleanOp);
+      const snap = await get(ref(db, `ordens_producao/${fbKey}`));
+      if (snap.exists()) {
+        targetOrder = snap.val() as ProductionOrder;
+        matchedOpKey = cleanOp;
+      } else {
+        const allSnap = await get(ref(db, 'ordens_producao'));
+        if (allSnap.exists()) {
+          const allData = allSnap.val() || {};
+          const cleanNoPrefix = cleanOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+          for (const [k, val] of Object.entries(allData)) {
+            const kClean = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+            const valNum = String((val as any)?.op_numero || (val as any)?.numero || '').replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
+            if (kClean === cleanNoPrefix || valNum === cleanNoPrefix) {
+              targetOrder = val as ProductionOrder;
+              matchedOpKey = k;
+              break;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao buscar OP no Firebase para cancelamento:', e);
+    }
+  }
+
   if (targetOrder) {
     const { steps } = getRouteForOp(targetOrder);
     const matchedStepKey =
@@ -2532,21 +2561,37 @@ export async function cancelarInicioEtapa(
       targetOrder.etapas = {};
     }
 
-    const etapaAnterior = targetOrder.etapas[matchedStepKey] || { status: 'PENDENTE', concluidas: 0 };
-    targetOrder.etapas[matchedStepKey] = {
-      status: 'PENDENTE',
-      concluidas: etapaAnterior.concluidas || 0,
-      total: etapaAnterior.total
-    };
+    // Reseta todas as chaves variantes dessa etapa (com ou sem acento)
+    const keysToReset = Object.keys(targetOrder.etapas).filter(
+      k => matchStepName(k, matchedStepKey) || doesSectorMatchStep(k, matchedStepKey) || k === matchedStepKey || k === setorOuEtapa
+    );
+    if (keysToReset.length === 0) keysToReset.push(matchedStepKey);
 
-    // Remove campos de operador e início
-    delete (targetOrder.etapas[matchedStepKey] as any).inicio;
-    delete (targetOrder.etapas[matchedStepKey] as any).horaInicio;
-    delete (targetOrder.etapas[matchedStepKey] as any).hora_inicio;
-    delete (targetOrder.etapas[matchedStepKey] as any).operadorId;
-    delete (targetOrder.etapas[matchedStepKey] as any).operadorNome;
-    delete (targetOrder.etapas[matchedStepKey] as any).operador;
-    delete (targetOrder.etapas[matchedStepKey] as any).colaborador;
+    for (const k of keysToReset) {
+      const etapaAnterior = targetOrder.etapas[k] || { status: 'PENDENTE', concluidas: 0 };
+      targetOrder.etapas[k] = {
+        status: 'PENDENTE',
+        concluidas: etapaAnterior.concluidas || 0,
+        total: etapaAnterior.total
+      };
+      delete (targetOrder.etapas[k] as any).inicio;
+      delete (targetOrder.etapas[k] as any).horaInicio;
+      delete (targetOrder.etapas[k] as any).hora_inicio;
+      delete (targetOrder.etapas[k] as any).operadorId;
+      delete (targetOrder.etapas[k] as any).operadorNome;
+      delete (targetOrder.etapas[k] as any).operador;
+      delete (targetOrder.etapas[k] as any).colaborador;
+    }
+
+    if ((targetOrder as any).progressoPostos) {
+      for (const k of Object.keys((targetOrder as any).progressoPostos)) {
+        if (matchStepName(k, matchedStepKey) || doesSectorMatchStep(k, matchedStepKey)) {
+          (targetOrder as any).progressoPostos[k].iniciado = false;
+          (targetOrder as any).progressoPostos[k].status = 'PENDENTE';
+          delete (targetOrder as any).progressoPostos[k].dataInicio;
+        }
+      }
+    }
 
     // Verifica se restou alguma outra etapa ativa na OP
     const otherActiveStep = steps.find(
@@ -2622,6 +2667,7 @@ export async function cancelarInicioEtapa(
     if (!otherActiveStep) {
       opUpdates.etapaAtual = proximaEtapaPendente;
       opUpdates.statusEtapa = targetOrder.statusEtapa;
+      opUpdates.postoAtivo = null;
       opUpdates.postoSelecionado = null;
       opUpdates.colaboradorIniciou = null;
       opUpdates.operadorAtual = null;
