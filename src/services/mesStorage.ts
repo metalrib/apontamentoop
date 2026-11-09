@@ -19,6 +19,33 @@ import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, 
 export { db, ref, set, get, onValue, update, push };
 export { cleanOpId, formatOpNumber };
 
+/**
+ * Sanitiza recursivamente qualquer objeto ou payload antes de enviar para o Firebase Realtime Database.
+ * Remove quaisquer chaves cujo valor seja `undefined`, prevenindo a exceção fatal:
+ * "Error: update failed: values argument contains undefined in property ..."
+ */
+export function sanitizePayload<T = any>(data: T): T {
+  if (data === null || data === undefined) {
+    return null as any;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .filter((item) => item !== undefined)
+      .map((item) => sanitizePayload(item)) as any;
+  }
+  if (typeof data === 'object') {
+    if (data instanceof Date) return data as any;
+    const clean: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data)) {
+      if (val !== undefined) {
+        clean[key] = sanitizePayload(val);
+      }
+    }
+    return clean as any;
+  }
+  return data;
+}
+
 export function toFirebaseKey(key: string): string {
   return (key || '').trim().replace(/[.#$\[\]\/]/g, '_');
 }
@@ -125,7 +152,7 @@ function persistirCorrecaoOp(docId: string, dadosParaAtualizar: Record<string, a
   // 2. Atualiza no Realtime Database (em segundo plano sem travar render)
   try {
     const key = toFirebaseKey(docId);
-    update(ref(db, `ordens_producao/${key}`), dadosParaAtualizar).catch(() => {});
+    update(ref(db, `ordens_producao/${key}`), sanitizePayload(dadosParaAtualizar)).catch(() => {});
   } catch {}
 }
 
@@ -1717,12 +1744,15 @@ export async function startUnit(params: {
 
     if (targetOrder) {
       const { steps } = getRouteForOp(targetOrder);
+      const totalPadrao = Number(targetOrder.quantidade_total ?? targetOrder.quantidade ?? 1) || 1;
       if (!targetOrder.etapas) {
         targetOrder.etapas = {};
       }
       steps.forEach((s) => {
         if (!targetOrder.etapas![s]) {
-          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0, total: totalPadrao };
+        } else if (targetOrder.etapas![s].total === undefined) {
+          targetOrder.etapas![s].total = totalPadrao;
         }
       });
       const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
@@ -1730,6 +1760,7 @@ export async function startUnit(params: {
         ...targetOrder.etapas[matchedStepKey],
         status: 'EM_PRODUCAO',
         concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0,
+        total: targetOrder.etapas[matchedStepKey]?.total ?? totalPadrao,
         inicio: nowIso,
         horaInicio: nowIso,
         operador: params.operador,
@@ -1765,10 +1796,11 @@ export async function startUnit(params: {
     }
 
     if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
+      const cleanOpUpdates = sanitizePayload(opUpdates);
+      await update(ref(db, `ordens_producao/${opKey}`), cleanOpUpdates);
       try {
         const cleanNoPrefix = cleanOpId(cleanOp);
-        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), opUpdates);
+        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), cleanOpUpdates);
       } catch {}
     }
   } catch (err) {
@@ -1981,7 +2013,7 @@ export async function finishUnit(
 
         const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
         if (opKey) {
-          await update(ref(db, `ordens_producao/${opKey}`), {
+          await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload({
             status: targetOrder.status,
             status_fabrica: targetOrder.status_fabrica,
             etapas: targetOrder.etapas,
@@ -1992,7 +2024,7 @@ export async function finishUnit(
             requer_router: targetOrder.requer_router ?? false,
             qtde_produzida: targetOrder.qtde_produzida || 0,
             data_atualizacao: new Date().toISOString()
-          });
+          }));
         }
       }
     }
@@ -2129,12 +2161,15 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
     if (targetOrder) {
       const { steps } = getRouteForOp(targetOrder);
+      const totalPadrao = Number(targetOrder.quantidade_total ?? targetOrder.quantidade ?? 1) || 1;
       if (!targetOrder.etapas) {
         targetOrder.etapas = {};
       }
       steps.forEach((s) => {
         if (!targetOrder.etapas![s]) {
-          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0, total: totalPadrao };
+        } else if (targetOrder.etapas![s].total === undefined) {
+          targetOrder.etapas![s].total = totalPadrao;
         }
       });
       const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
@@ -2142,6 +2177,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
         ...targetOrder.etapas[matchedStepKey],
         status: 'EM_PRODUCAO',
         concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0,
+        total: targetOrder.etapas[matchedStepKey]?.total ?? totalPadrao,
         inicio: nowIso,
         horaInicio: nowIso,
         operador: params.operador,
@@ -2177,10 +2213,11 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
     }
 
     if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), opUpdates);
+      const cleanOpUpdates = sanitizePayload(opUpdates);
+      await update(ref(db, `ordens_producao/${opKey}`), cleanOpUpdates);
       try {
         const cleanNoPrefix = cleanOpId(cleanOp);
-        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), opUpdates);
+        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), cleanOpUpdates);
       } catch {}
     }
   } catch (err) {
@@ -2399,7 +2436,7 @@ export async function finishBatch(
 
         const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
         if (opKey) {
-          await update(ref(db, `ordens_producao/${opKey}`), {
+          await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload({
             status: targetOrder.status,
             status_fabrica: targetOrder.status_fabrica,
             etapas: targetOrder.etapas,
@@ -2410,7 +2447,7 @@ export async function finishBatch(
             requer_router: targetOrder.requer_router ?? false,
             qtde_produzida: targetOrder.qtde_produzida || 0,
             data_atualizacao: new Date().toISOString()
-          });
+          }));
         }
       }
     }
@@ -2644,28 +2681,60 @@ export async function cancelarInicioEtapa(
     );
     if (keysToReset.length === 0) keysToReset.push(matchedStepKey);
 
+    const totalPadrao = Number(
+      targetOrder.quantidade_total ?? targetOrder.quantidade ?? 1
+    ) || 1;
+
     for (const k of keysToReset) {
       const etapaAnterior = targetOrder.etapas[k] || { status: 'PENDENTE', concluidas: 0 };
+      const totalEtapa = (typeof etapaAnterior.total === 'number' && !isNaN(etapaAnterior.total) && etapaAnterior.total > 0)
+        ? etapaAnterior.total
+        : totalPadrao;
+
       targetOrder.etapas[k] = {
         status: 'PENDENTE',
+        inicio: null,
+        fim: null,
+        operadorId: null,
+        operadorNome: null,
+        emAndamento: 0,
         concluidas: etapaAnterior.concluidas || 0,
-        total: etapaAnterior.total
+        quantidadeProduzida: etapaAnterior.concluidas || 0,
+        total: totalEtapa // NUNCA permitir undefined aqui
       };
-      delete (targetOrder.etapas[k] as any).inicio;
+      if (Array.isArray((etapaAnterior as any).pecas)) {
+        (targetOrder.etapas[k] as any).pecas = (etapaAnterior as any).pecas.map((p: any) => ({
+          ...p,
+          status: 'PENDENTE',
+          inicio: null,
+          fim: null,
+          operadorId: null,
+          operadorNome: null
+        }));
+      }
       delete (targetOrder.etapas[k] as any).horaInicio;
       delete (targetOrder.etapas[k] as any).hora_inicio;
-      delete (targetOrder.etapas[k] as any).operadorId;
-      delete (targetOrder.etapas[k] as any).operadorNome;
       delete (targetOrder.etapas[k] as any).operador;
       delete (targetOrder.etapas[k] as any).colaborador;
     }
 
+    // Varre todas as etapas para garantir que nenhuma etapa da OP tenha total ou qualquer campo com valor undefined
+    for (const [stepKey, stepVal] of Object.entries(targetOrder.etapas)) {
+      if (stepVal && typeof stepVal === 'object') {
+        if ((stepVal as any).total === undefined || (stepVal as any).total === null) {
+          (stepVal as any).total = totalPadrao;
+        }
+      }
+    }
+
     if ((targetOrder as any).progressoPostos) {
       for (const k of Object.keys((targetOrder as any).progressoPostos)) {
-        if (matchStepName(k, matchedStepKey) || doesSectorMatchStep(k, matchedStepKey)) {
+        if (matchStepName(k, matchedStepKey) || doesSectorMatchStep(k, matchedStepKey) || k === matchedStepKey || k === setorOuEtapa) {
           (targetOrder as any).progressoPostos[k].iniciado = false;
           (targetOrder as any).progressoPostos[k].status = 'PENDENTE';
-          delete (targetOrder as any).progressoPostos[k].dataInicio;
+          (targetOrder as any).progressoPostos[k].dataInicio = null;
+          (targetOrder as any).progressoPostos[k].operadorId = null;
+          (targetOrder as any).progressoPostos[k].operadorNome = null;
         }
       }
     }
@@ -2734,18 +2803,28 @@ export async function cancelarInicioEtapa(
       opUpdates.dataInicio = null;
     }
 
+    const cleanUpdates = sanitizePayload(opUpdates);
+
     try {
       const fbKey = toFirebaseKey(targetFirebaseKey);
-      await update(ref(db, `ordens_producao/${fbKey}`), opUpdates);
+      await update(ref(db, `ordens_producao/${fbKey}`), cleanUpdates);
+      if (fbKey !== toFirebaseKey(keyNoOp)) {
+        try {
+          await update(ref(db, `ordens_producao/${toFirebaseKey(keyNoOp)}`), cleanUpdates);
+        } catch {}
+      }
+      try {
+        await update(ref(db, `ordens/${toFirebaseKey(numClean)}`), cleanUpdates);
+      } catch {}
       console.log(`[Firebase] Sucesso ao estornar etapa ${matchedStepKey} da OP ${targetFirebaseKey}`);
     } catch (err) {
       console.error('[Firebase] Erro ao estornar etapa no Realtime Database:', err);
     }
 
     // Atualiza também no localStorage
-    ordersMap[matchedLocalKey] = { ...targetOrder, ...opUpdates };
+    ordersMap[matchedLocalKey] = { ...targetOrder, ...cleanUpdates };
     if (matchedLocalKey !== targetFirebaseKey) {
-      ordersMap[targetFirebaseKey] = { ...targetOrder, ...opUpdates };
+      ordersMap[targetFirebaseKey] = { ...targetOrder, ...cleanUpdates };
     }
     localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
   }
@@ -2979,11 +3058,12 @@ export async function resetarOpCompleta(
   };
 
   // 8. Gravação no Firebase Realtime Database
+  const cleanUpdates = sanitizePayload(opUpdates);
   try {
     const fbKey = toFirebaseKey(targetFirebaseKey);
-    await update(ref(db, `ordens_producao/${fbKey}`), opUpdates);
+    await update(ref(db, `ordens_producao/${fbKey}`), cleanUpdates);
     try {
-      await update(ref(db, `ordens/${toFirebaseKey(numClean)}`), opUpdates);
+      await update(ref(db, `ordens/${toFirebaseKey(numClean)}`), cleanUpdates);
     } catch {}
     console.log(`[Firebase] Sucesso ao resetar OP completa ${targetFirebaseKey}`);
   } catch (err) {
@@ -2992,9 +3072,9 @@ export async function resetarOpCompleta(
   }
 
   // 9. Atualização no localStorage
-  ordersMap[matchedLocalKey] = { ...targetOrder, ...opUpdates };
+  ordersMap[matchedLocalKey] = { ...targetOrder, ...cleanUpdates };
   if (matchedLocalKey !== targetFirebaseKey) {
-    ordersMap[targetFirebaseKey] = { ...targetOrder, ...opUpdates };
+    ordersMap[targetFirebaseKey] = { ...targetOrder, ...cleanUpdates };
   }
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
 
@@ -3053,7 +3133,7 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
   try {
     const opKey = toFirebaseKey(order.op_numero);
     if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), cleanOrder);
+      await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload(cleanOrder));
     }
   } catch (err) {
     console.error('[Firebase] Erro ao adicionar ordem:', err);
@@ -3148,7 +3228,7 @@ export async function updateProductionOrder(
   try {
     const opKey = toFirebaseKey(targetKey);
     if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), updates);
+      await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload(updates));
     }
   } catch (err) {
     console.error('[Firebase] Erro ao atualizar ordem:', err);
@@ -3199,10 +3279,10 @@ export async function addOpMessage(
   try {
     const opKey = toFirebaseKey(targetKey);
     if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), {
+      await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload({
         mensagens: currentOp.mensagens,
         ultimo_aviso: currentOp.ultimo_aviso
-      });
+      }));
     }
   } catch (err) {
     console.error('[Firebase] Erro ao adicionar mensagem na OP:', err);
@@ -3256,7 +3336,7 @@ export async function addOpOccurrence(
     const updates: Record<string, any> = {};
     updates[`ordens/${toFirebaseKey(opId)}/ocorrencias/${timestamp}`] = novaOcorrencia;
     updates[`ordens_producao/${opKey}/ocorrencias/${timestamp}`] = novaOcorrencia;
-    await update(ref(db), updates);
+    await update(ref(db), sanitizePayload(updates));
   } catch (err) {
     console.warn('[RTDB] Erro ao gravar ocorrência no Realtime Database:', err);
   }
@@ -3580,7 +3660,7 @@ export async function saveMultipleOrders(
       for (const k of chunkKeys) {
         chunkUpdates[k] = updates[k];
       }
-      await update(ref(db), chunkUpdates);
+      await update(ref(db), sanitizePayload(chunkUpdates));
     }
   } catch (err) {
     console.error('[Firebase RTDB] Erro ao sincronizar ordens via update:', err);

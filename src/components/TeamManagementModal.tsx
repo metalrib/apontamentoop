@@ -17,7 +17,8 @@ import {
   resetTerminalsConfigToDefault,
   exportFactoryConfiguration,
   importFactoryConfiguration,
-  subscribeToMesUpdates
+  subscribeToMesUpdates,
+  sanitizePayload
 } from '../services/mesStorage';
 import { playClick, playSuccessStart } from '../utils/audio';
 import {
@@ -558,7 +559,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       };
 
       // 1. Grava diretamente no Firebase Realtime Database (/config_colaboradores/<id>)
-      await update(ref(db, `config_colaboradores/${targetId}`), payload);
+      await update(ref(db, `config_colaboradores/${targetId}`), sanitizePayload(payload));
 
       // 2. Atualiza estado e emite broadcast para totens
       await updateColaboradorFirebase(targetId, payload);

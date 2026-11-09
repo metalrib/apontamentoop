@@ -8,7 +8,7 @@ import {
   isOpEmProducao,
   checkOp100Percent
 } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload } from '../services/mesStorage';
 import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
@@ -295,7 +295,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           for (const k of chunkKeys) {
             chunkUpdates[k] = allRtdbUpdates[k];
           }
-          await update(ref(db), chunkUpdates);
+          await update(ref(db), sanitizePayload(chunkUpdates));
         }
       }
 
