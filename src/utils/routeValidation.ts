@@ -174,6 +174,19 @@ export function etapaPertenceARota(etapaSelecionada: string, rota: string[]): bo
     ) {
       return true;
     }
+    // Casamento de Preparação e Montagem de Office Door
+    if (
+      selecionadaNorm.includes('office door') &&
+      etapaNorm.includes('office door')
+    ) {
+      if (selecionadaNorm.includes('preparacao') || etapaNorm.includes('preparacao')) {
+        return selecionadaNorm.includes('preparacao') && etapaNorm.includes('preparacao');
+      }
+      if (selecionadaNorm.includes('montagem') || etapaNorm.includes('montagem')) {
+        return selecionadaNorm.includes('montagem') && etapaNorm.includes('montagem');
+      }
+      return true;
+    }
     return false;
   });
 }
@@ -293,11 +306,34 @@ export function isEligibleForRouter(op: any): boolean {
   }
 
   // 3. OFFICE DOOR CORRER
-  if (cod.startsWith('010.') || desc.includes('OFFICE DOOR COR')) {
+  if (
+    cod.startsWith('010.') ||
+    cod === '010.0008' ||
+    desc.includes('OFFICE DOOR COR') ||
+    desc.includes('OFFICE-DOOR COR') ||
+    (desc.includes('OFFICE DOOR') && (desc.includes('CORRER') || desc.includes('COR ')))
+  ) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Identifica se a OP é de Porta Office Door de Correr (código 010.xxxx ou descrição correspondente)
+ */
+export function isOfficeDoorCorrer(op: any): boolean {
+  if (!op) return false;
+  const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+  return (
+    cod.startsWith('010.') ||
+    cod.startsWith('010') ||
+    cod === '010.0008' ||
+    desc.includes('OFFICE DOOR COR') ||
+    desc.includes('OFFICE-DOOR COR') ||
+    (desc.includes('OFFICE DOOR') && (desc.includes('CORRER') || desc.includes('COR ')))
+  );
 }
 
 /**
@@ -465,9 +501,25 @@ export function verificarLiberacaoMontagemVaiVemOuOfficeDoor(
     return { liberada: true };
   }
 
+  // 1. SE FOR OFFICE DOOR DE CORRER (010.*):
+  // Regra Oficial: A etapa Router é Opcional/Condicional (usinagem de visores quando aplicável).
+  // A Montagem Office Door Correr pode ser iniciada se a Injeção estiver concluída ou iniciada,
+  // ou se a etapa de Router já tiver recebido início/conclusão.
+  if (isOfficeDoorCorrer(op)) {
+    const injCheck = verificarInjecaoLiberada(op, apontamentos);
+    const { routerLiberada } = verificarRouterLiberada(op, apontamentos);
+    if (injCheck.injecaoLiberada || routerLiberada) {
+      return { liberada: true };
+    }
+    return {
+      liberada: false,
+      motivo: '🔒 Aguardando Início da Injeção (Router Opcional)'
+    };
+  }
+
   const { requerRouter, routerLiberada } = verificarRouterLiberada(op, apontamentos);
 
-  // 1. SE A OP POSSUIR A ETAPA ROUTER (marcada na rota):
+  // 2. SE A OP POSSUIR A ETAPA ROUTER (marcada na rota):
   if (requerRouter) {
     if (!routerLiberada) {
       return {
@@ -478,7 +530,7 @@ export function verificarLiberacaoMontagemVaiVemOuOfficeDoor(
     return { liberada: true };
   }
 
-  // 2. SE A OP NÃO POSSUIR A ETAPA ROUTER:
+  // 3. SE A OP NÃO POSSUIR A ETAPA ROUTER:
   const injCheck = verificarInjecaoLiberada(op, apontamentos);
   if (!injCheck.injecaoLiberada) {
     return {
@@ -904,12 +956,19 @@ export function obterEtapasDaRota(op: any): string[] {
       'Montagem Office Door Giratória'
     ];
   }
-  else if (cod.startsWith('010.') || desc.includes('OFFICE DOOR COR')) {
+  else if (
+    cod.startsWith('010.') ||
+    cod === '010.0008' ||
+    desc.includes('OFFICE DOOR COR') ||
+    desc.includes('OFFICE-DOOR COR') ||
+    (desc.includes('OFFICE DOOR') && (desc.includes('CORRER') || desc.includes('COR ')))
+  ) {
     steps = [
       'Corte',
-      'Dobra',
-      'Preparação de Folhas',
-      'Injeção de Folhas',
+      'Corte Alumínio',
+      'Preparação Office Door',
+      'Injeção',
+      'Router',
       'Montagem Office Door Correr'
     ];
   }

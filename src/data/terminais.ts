@@ -8,6 +8,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
   T2: [
     'Preparação de Folha',
     'Preparação de Folhas',
+    'Preparação Office Door',
     'Injeção',
     'Injeção de Folhas'
   ],
@@ -16,6 +17,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Injeção e Finalização de Batentes',
     'Montagem Portas Emendadas',
     'Montagem Portas Office Door',
+    'Montagem Office Door Correr',
     'Montagem Portas de Correr Padrão e Especial',
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem de Portas Giratórias',
@@ -26,6 +28,8 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
   ],
   T4: [
     'Montagem Porta Vai-Vem',
+    'Montagem Portas Office Door',
+    'Montagem Office Door Correr',
     'Instalação de Gaxeta',
     'Montagem de Portas Giratória Padrão e Especial',
     'Montagem de Portas Giratórias',
@@ -37,6 +41,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
   T5: [
     'Corte Alumínio',
     'Preparação Vai Vem',
+    'Preparação Office Door',
     'Router',
     'Corte',
     'Solda',
@@ -49,6 +54,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Montagem de Portas Giratórias',
     'Montagem Portas de Correr Padrão e Especial',
     'Montagem Portas Office Door',
+    'Montagem Office Door Correr',
     'Montagem Porta Vai-Vem',
     'Corte de Trilho p/ Porta Correr',
     'Montagem de Trilho p/ Porta Correr'

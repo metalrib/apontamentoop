@@ -51,6 +51,7 @@ import {
   verificarPreparacaoFolhasLiberada,
   isFolhaOrder,
   isVaiVemOuOfficeDoor,
+  isOfficeDoorCorrer,
   verificarInjecaoLiberada,
   verificarLiberacaoMontagemVaiVemOuOfficeDoor
 } from './routeValidation';
@@ -63,6 +64,7 @@ export {
   CODIGOS_PADRAO_CORRER,
   isFolhaOrder,
   isVaiVemOuOfficeDoor,
+  isOfficeDoorCorrer,
   verificarInjecaoLiberada,
   verificarLiberacaoMontagemVaiVemOuOfficeDoor,
   verificarSeExigeEmenda,
@@ -182,13 +184,21 @@ export function shouldShowPhysicalQuantitySelector(op: any): boolean {
     codeClean.includes('011.0012') ||
     codeClean.includes('011.0013') ||
     codeClean.includes('011.0117');
+  const isFamilia010 =
+    codeClean.startsWith('010.') ||
+    codeClean.startsWith('010') ||
+    codeClean === '010.0008';
+  const isOfficeDoor =
+    isFamilia010 ||
+    descUpper.includes('OFFICE DOOR') ||
+    descUpper.includes('OFFICE-DOOR');
   const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(op.isDupla);
   const isVaiVem = descUpper.includes('VAI VEM') || descUpper.includes('VV') || isFamilia011;
   const isM2 = Boolean(op.unidade_medida === 'M²' || op.quantidade_m2);
   const m2Num = Number(op.quantidade_m2 ?? (op.unidade_medida === 'M²' ? (op.quantidade ?? op.quantidade_total) : 0));
   const isM2Fracionado = isM2 && m2Num > 0 && !Number.isInteger(m2Num);
 
-  return isFamilia011 || isDupla || isVaiVem || isM2 || isM2Fracionado;
+  return isFamilia011 || isFamilia010 || isOfficeDoor || isDupla || isVaiVem || isM2 || isM2Fracionado;
 }
 
 /**
@@ -264,6 +274,31 @@ function resolveBaseRoute(
   const opObj = typeof input === 'object' && input !== null ? input : { descricao: desc, codigo: code };
 
   // MATRIZ OFICIAL DE ROTEAMENTO INDUSTRIAL ESPECIAL:
+
+  // 0. Office Door de Correr (código 010.xxxx, 010.0008 ou descrição com OFFICE DOOR COR)
+  const isOfficeDoorCor =
+    (code && (code.startsWith('010.') || code.startsWith('010') || code === '010.0008')) ||
+    norm.includes('OFFICE DOOR COR') ||
+    norm.includes('OFFICE-DOOR COR') ||
+    (norm.includes('OFFICE DOOR') && (norm.includes('CORRER') || norm.includes('COR ')));
+
+  if (isOfficeDoorCor) {
+    const rule: RouteRule = {
+      keyword: 'OFFICE DOOR COR',
+      label: 'Porta Office Door de Correr',
+      steps: [
+        'Corte',
+        'Corte Alumínio',
+        'Preparação Office Door',
+        'Injeção',
+        'Router',
+        'Montagem Office Door Correr'
+      ],
+      badge: 'Office Door Correr',
+      isStandardLine: false
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
+  }
 
   // 1. Estantes Walk-in: Estante Completa (família 015.xxxx ou ESTANTE WALK-IN sem QUADRO)
   if (isEstanteCompleta(opObj)) {
@@ -711,6 +746,13 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return normSector.includes('BATENTE');
   }
 
+  // Preparação Office Door
+  if (normStep.includes('PREPARACAO') && normStep.includes('OFFICE DOOR')) {
+    if (normSector.includes('PREPARACAO') && normSector.includes('OFFICE DOOR')) return true;
+    if (normSector.includes('PREPARACAO') && !normSector.includes('DOBRA') && !normSector.includes('BATENTE') && !normSector.includes('VAI VEM')) return true;
+    return false;
+  }
+
   // Preparação de Folhas / Geral (Terminal 2) - NUNCA deve casar com setor de Dobra (Terminal 1)
   if (normStep === 'PREPARACAO' && normSector.includes('PREPARACAO') && !normSector.includes('DOBRA') && !normSector.includes('VAI VEM') && !normSector.includes('BATENTE')) {
     return true;
@@ -733,8 +775,10 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return normSector.includes('MONTAGEM') && !normSector.includes('ESTANTE') && !normSector.includes('TRILHO') && !normSector.includes('ABRIGO');
   }
 
-  if (normStep.includes('MONTAGEM OFFICE DOOR') && normSector.includes('OFFICE DOOR')) {
-    return true;
+  if (normStep.includes('MONTAGEM') && normStep.includes('OFFICE DOOR')) {
+    if (normSector.includes('MONTAGEM') && normSector.includes('OFFICE DOOR')) return true;
+    if (normSector.includes('OFFICE DOOR')) return true;
+    return false;
   }
 
   if (normStep.includes('GIRATORIA') && !normStep.includes('GAXETA')) {
@@ -869,7 +913,12 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
 
   // Office Door
   if (normA.includes('OFFICE DOOR') && normB.includes('OFFICE DOOR')) {
-    if (normA.includes('MONTAGEM') && normB.includes('MONTAGEM')) return true;
+    if (normA.includes('PREPARACAO') || normB.includes('PREPARACAO')) {
+      return normA.includes('PREPARACAO') && normB.includes('PREPARACAO');
+    }
+    if (normA.includes('MONTAGEM') || normB.includes('MONTAGEM')) {
+      return normA.includes('MONTAGEM') && normB.includes('MONTAGEM');
+    }
     return true;
   }
 

@@ -212,6 +212,14 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     codeClean.includes('0110013') ||
     codeClean.includes('0110117') ||
     descUpper.includes('011.');
+  const isFamilia010 =
+    codeClean.startsWith('010.') ||
+    codeClean.startsWith('010') ||
+    codeClean === '010.0008';
+  const isOfficeDoor =
+    isFamilia010 ||
+    descUpper.includes('OFFICE DOOR') ||
+    descUpper.includes('OFFICE-DOOR');
   const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO') || Boolean(order.isDupla);
   const isVaiVem =
     descUpper.includes('VAI VEM') ||
@@ -223,6 +231,8 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
 
   const showPhysicalQuantitySelector =
     isFamilia011 ||
+    isFamilia010 ||
+    isOfficeDoor ||
     isDupla ||
     isVaiVem ||
     isQtdUm ||

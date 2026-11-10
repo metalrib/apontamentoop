@@ -224,6 +224,11 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: ["Corte", "Laser", "Dobra", "Solda e Montagem"]
   },
   {
+    keyword: "OFFICE DOOR COR",
+    label: "Porta Office Door de Correr",
+    steps: ["Corte", "Corte Alumínio", "Preparação Office Door", "Injeção", "Router", "Montagem Office Door Correr"]
+  },
+  {
     keyword: "OFFICE DOOR",
     label: "Office Door",
     steps: ["Corte", "Laser", "Dobra", "Preparação", "Injeção", "Montagem Office Door"]
