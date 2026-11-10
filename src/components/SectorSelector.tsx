@@ -8,7 +8,8 @@ import {
   isAncoraOrder,
   obterQuantidadeTotal,
   validarPostoIndustrial,
-  etapaPertenceARota
+  etapaPertenceARota,
+  matchStepName
 } from '../utils/routeEngine';
 import { updateProductionOrder, verificarECorrigirRotaOp } from '../services/mesStorage';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -154,208 +155,156 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     return v.valido;
   });
 
-  // Isolamento estrito de contagem por posto de trabalho
-  const postMatchStrict = (a: Apontamento, nomePosto: string): boolean => {
-    const postNorm = normalizar(nomePosto);
-    const aptSetorNorm = normalizar(a.setorFisico || a.setor || '');
-    const aptEtapaNorm = normalizar(a.etapa_rota || a.etapaRota || '');
-
-    // 1. Casamento direto por igualdade exata
-    if (aptSetorNorm === postNorm || aptEtapaNorm === postNorm) return true;
-
-    // 2. Regra Vai-Vem: SEPARA RIGOROSAMENTE Preparação de Montagem
-    if (postNorm.includes('vai vem')) {
-      const isPostPreparacao = postNorm.includes('prepar');
-      const isPostMontagem = postNorm.includes('montag') || postNorm.includes('finaliz');
-
-      const isAptPreparacao = aptSetorNorm.includes('prepar') || aptEtapaNorm.includes('prepar');
-      const isAptMontagem =
-        aptSetorNorm.includes('montag') ||
-        aptSetorNorm.includes('finaliz') ||
-        aptEtapaNorm.includes('montag') ||
-        aptEtapaNorm.includes('finaliz');
-
-      if (isPostPreparacao) {
-        return isAptPreparacao && !isAptMontagem;
-      }
-      if (isPostMontagem) {
-        return isAptMontagem && !isAptPreparacao;
-      }
-      return false;
+  // =========================================================================
+  // CÁLCULO E SINCRONIZAÇÃO DE PROGRESSO DO POSTO (IDÊNTICO AO PORTAL DO PCP)
+  // =========================================================================
+  const calcularProgressoPosto = (etapa: any, op: any): string => {
+    const total = Number(op.quantidadeFisica || op.quantidade || op.quantidade_total || etapa?.total || qtdTotal || 1);
+    if (!etapa) return `0/${total}`;
+    
+    const statusNorm = String(etapa.status || '').toLowerCase().trim();
+    if (statusNorm === 'concluido' || statusNorm === 'finalizado') {
+      return `${total}/${total}`;
     }
 
-    // 3. Batentes: SEPARA Preparação de Injeção/Finalização
-    if (postNorm.includes('batente')) {
-      const isPostPrep = postNorm.includes('prepar');
-      const isAptPrep = aptSetorNorm.includes('prepar') || aptEtapaNorm.includes('prepar');
-      if (isPostPrep) return isAptPrep;
-      const isPostInj = postNorm.includes('injec') || postNorm.includes('finaliz');
-      const isAptInj =
-        aptSetorNorm.includes('injec') ||
-        aptSetorNorm.includes('finaliz') ||
-        aptEtapaNorm.includes('injec') ||
-        aptEtapaNorm.includes('finaliz');
-      if (isPostInj) return isAptInj;
-      return false;
+    if (Array.isArray(etapa.pecas) && etapa.pecas.length > 0) {
+      const prontas = etapa.pecas.filter(
+        (p: any) =>
+          p &&
+          (String(p.status || '').toLowerCase() === 'concluido' ||
+            String(p.status || '').toLowerCase() === 'concluida' ||
+            String(p.status || '').toLowerCase() === 'finalizado' ||
+            p.concluida === true)
+      ).length;
+      return `${prontas}/${total}`;
     }
 
-    // 4. Corte Alumínio vs Corte
-    if (postNorm.includes('aluminio')) {
-      return aptSetorNorm.includes('aluminio') || aptEtapaNorm.includes('aluminio');
-    }
-    if (postNorm === 'corte') {
-      return (
-        (aptSetorNorm === 'corte' || aptEtapaNorm === 'corte') &&
-        !aptSetorNorm.includes('aluminio') &&
-        !aptEtapaNorm.includes('aluminio') &&
-        !aptSetorNorm.includes('trilho') &&
-        !aptEtapaNorm.includes('trilho')
-      );
-    }
-
-    // 5. Trilhos: SEPARA Corte de Montagem
-    if (postNorm.includes('trilho')) {
-      if (postNorm.includes('corte')) {
-        return (
-          (aptSetorNorm.includes('trilho') && aptSetorNorm.includes('corte')) ||
-          (aptEtapaNorm.includes('trilho') && aptEtapaNorm.includes('corte'))
-        );
-      }
-      if (postNorm.includes('montag')) {
-        return (
-          (aptSetorNorm.includes('trilho') && aptSetorNorm.includes('montag')) ||
-          (aptEtapaNorm.includes('trilho') && aptEtapaNorm.includes('montag'))
-        );
-      }
-      return false;
-    }
-
-    // 6. Demais
-    if (aptEtapaNorm && aptEtapaNorm === postNorm) return true;
-    if (aptSetorNorm && aptSetorNorm === postNorm) return true;
-
-    return false;
+    const produzidas = Number(
+      etapa.quantidadeProduzida ?? etapa.concluidas ?? etapa.qtdProduzida ?? 0
+    );
+    return `${produzidas}/${total}`;
   };
 
-  // ISOLAMENTO DO CÁLCULO DA BADGE: calcula APENAS as peças concluídas no seu próprio posto
-  const obterQtdConcluidaPorPosto = (nomePosto: string): number => {
+  // Localiza os dados da etapa no objeto da OP, progressoPostos, apontamentos ou evaluation
+  const obterEtapaDoPosto = (nomePosto: string, matchedStep?: string | null): any => {
     const postNorm = normalizar(nomePosto);
+    const matchedNorm = matchedStep ? normalizar(matchedStep) : '';
 
-    // 1. Se os apontamentos estiverem separados por chaves de postos no objeto da OP:
-    const opApts = (order as any)?.apontamentos;
-    if (opApts && typeof opApts === 'object') {
-      const chaveEncontrada = Object.keys(opApts).find((k) => {
-        const kNorm = normalizar(k);
-        if (kNorm === postNorm) return true;
-        if (postNorm.includes('vai vem') && kNorm.includes('vai vem')) {
-          if (postNorm.includes('prepar') && kNorm.includes('prepar')) return true;
-          if (
-            (postNorm.includes('montag') || postNorm.includes('finaliz')) &&
-            (kNorm.includes('montag') || kNorm.includes('finaliz'))
-          ) {
-            return true;
+    let etapaEncontrada: any = null;
+
+    // 1. Procurar em order.etapas
+    const etapas = (order as any)?.etapas;
+    if (etapas) {
+      if (Array.isArray(etapas)) {
+        etapaEncontrada = etapas.find((e: any) => {
+          if (!e) return false;
+          if (typeof e === 'string') {
+            return normalizar(e) === postNorm || (matchedNorm && normalizar(e) === matchedNorm);
           }
-          return false;
+          const nameNorm = normalizar(e.nome || e.step || e.etapa || e.setor || '');
+          return (
+            nameNorm === postNorm ||
+            (matchedNorm && nameNorm === matchedNorm) ||
+            (matchedStep && matchStepName(e.nome || e.step || e.etapa || '', matchedStep)) ||
+            matchStepName(e.nome || e.step || e.etapa || '', nomePosto)
+          );
+        });
+        if (typeof etapaEncontrada === 'string') {
+          etapaEncontrada = { nome: etapaEncontrada };
         }
-        return false;
-      });
-
-      const postoData = chaveEncontrada ? opApts[chaveEncontrada] : undefined;
-      if (postoData) {
-        if (postoData?.pecas && Array.isArray(postoData.pecas)) {
-          return postoData.pecas.filter(
-            (p: any) => p.status === 'concluida' || p.status === 'FINALIZADO' || p.concluida === true
-          ).length;
-        }
-        if (typeof postoData?.qtdProduzida === 'number') {
-          return postoData.qtdProduzida;
-        }
-        if (typeof postoData?.concluidas === 'number') {
-          return postoData.concluidas;
+      } else if (typeof etapas === 'object') {
+        const chave = Object.keys(etapas).find((k) => {
+          const kNorm = normalizar(k);
+          return (
+            kNorm === postNorm ||
+            (matchedNorm && kNorm === matchedNorm) ||
+            (matchedStep && matchStepName(k, matchedStep)) ||
+            matchStepName(k, nomePosto)
+          );
+        });
+        if (chave && etapas[chave]) {
+          etapaEncontrada =
+            typeof etapas[chave] === 'object' ? { ...etapas[chave] } : { status: etapas[chave] };
         }
       }
     }
 
-    // 2. Se houver uma lista única de peças na OP, filtre obrigatoriamente pelo posto/etapa:
-    const opPecas = (order as any)?.pecas;
-    if (Array.isArray(opPecas)) {
-      const pecasDoPosto = opPecas.filter((p: any) => {
-        const pPostoNorm = normalizar(p.posto || p.setor || p.etapa || '');
-        const isSamePosto =
-          pPostoNorm === postNorm ||
-          (postNorm.includes('vai vem') &&
-            pPostoNorm.includes('vai vem') &&
-            ((postNorm.includes('prepar') && pPostoNorm.includes('prepar')) ||
-              ((postNorm.includes('montag') || postNorm.includes('finaliz')) &&
-                (pPostoNorm.includes('montag') || pPostoNorm.includes('finaliz')))));
-        const isConcluida =
-          p.status === 'concluida' || p.status === 'FINALIZADO' || p.concluida === true;
-        return isSamePosto && isConcluida;
-      });
-
-      if (pecasDoPosto.length > 0) {
-        return pecasDoPosto.length;
-      }
-    }
-
-    // 3. Verificação no progressoPostos da OP
+    // 2. ProgressoPostos da OP
     const progPostos = (order as any)?.progressoPostos;
     if (progPostos && typeof progPostos === 'object') {
-      const chaveProg = Object.keys(progPostos).find((k) => normalizar(k) === postNorm);
-      if (chaveProg && typeof progPostos[chaveProg]?.concluidas === 'number') {
-        return progPostos[chaveProg].concluidas;
-      }
-    }
-
-    // 4. Verificação estrita nos apontamentos recebidos
-    const aptsDoPosto = apontamentos.filter((a) => {
-      if (a.op_numero !== order.op_numero && a.op !== order.op_numero) return false;
-      const isConcluido = a.status === 'FINALIZADO' || a.status === 'CONCLUIDO';
-      if (!isConcluido) return false;
-      return postMatchStrict(a, nomePosto);
-    });
-
-    const finishedBatch = aptsDoPosto.find((a) => a.is_lote || a.unidade_numero === 0);
-    const finishedUnits = aptsDoPosto.filter((a) => !a.is_lote && a.unidade_numero > 0);
-    const uniqueUnits = new Set(finishedUnits.map((a) => a.unidade_numero));
-    let totalApts = uniqueUnits.size;
-    if (finishedBatch) {
-      totalApts = Math.max(totalApts, finishedBatch.quantidade_lote || qtdTotal);
-    }
-
-    if (totalApts > 0) {
-      return totalApts;
-    }
-
-    // 5. Fallback isolado via order.etapas (apenas se a chave casar rigorosamente)
-    if (order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas)) {
-      const etapaKey = Object.keys(order.etapas).find((k) => {
+      const chaveProg = Object.keys(progPostos).find((k) => {
         const kNorm = normalizar(k);
-        if (kNorm === postNorm) return true;
-        if (postNorm.includes('vai vem') && kNorm.includes('vai vem')) {
-          if (postNorm.includes('prepar') && kNorm.includes('prepar')) return true;
-          if (
-            (postNorm.includes('montag') || postNorm.includes('finaliz')) &&
-            (kNorm.includes('montag') || kNorm.includes('finaliz'))
-          ) {
-            return true;
-          }
-          return false;
-        }
-        return false;
+        return (
+          kNorm === postNorm ||
+          (matchedNorm && kNorm === matchedNorm) ||
+          (matchedStep && matchStepName(k, matchedStep)) ||
+          matchStepName(k, nomePosto)
+        );
       });
-
-      if (etapaKey) {
-        const st = (order.etapas as Record<string, any>)[etapaKey];
-        if (st && typeof st.concluidas === 'number' && st.concluidas > 0) {
-          if (aptsDoPosto.length > 0 || st.status === 'CONCLUIDO') {
-            return st.concluidas;
-          }
-        }
+      if (chaveProg && progPostos[chaveProg]) {
+        const pData = progPostos[chaveProg];
+        etapaEncontrada = {
+          ...etapaEncontrada,
+          ...pData,
+          status: pData.concluido ? 'concluido' : (etapaEncontrada?.status || pData.status),
+          concluidas: pData.concluidas ?? etapaEncontrada?.concluidas,
+          quantidadeProduzida: pData.concluidas ?? pData.quantidadeProduzida ?? etapaEncontrada?.quantidadeProduzida
+        };
       }
     }
 
-    return 0;
+    // 3. Apontamentos indexados por posto na OP
+    const opApts = (order as any)?.apontamentos;
+    if (opApts && typeof opApts === 'object') {
+      const chaveApts = Object.keys(opApts).find((k) => {
+        const kNorm = normalizar(k);
+        return (
+          kNorm === postNorm ||
+          (matchedNorm && kNorm === matchedNorm) ||
+          (matchedStep && matchStepName(k, matchedStep)) ||
+          matchStepName(k, nomePosto)
+        );
+      });
+      if (chaveApts && opApts[chaveApts]) {
+        const aData = opApts[chaveApts];
+        etapaEncontrada = {
+          ...etapaEncontrada,
+          ...aData,
+          pecas: aData.pecas || etapaEncontrada?.pecas
+        };
+      }
+    }
+
+    // 4. Integração com o motor oficial de avaliação de rota do PCP (evaluation)
+    const targetStep = matchedStep || steps.find((s) => matchStepName(s, nomePosto) || normalizar(s) === postNorm);
+    const evalResult = targetStep ? evaluation[targetStep] : null;
+    if (evalResult) {
+      const finalizadasEval = evalResult.finalizadas || 0;
+      const isComplete = finalizadasEval >= qtdTotal;
+
+      etapaEncontrada = {
+        ...etapaEncontrada,
+        total: qtdTotal,
+        quantidadeProduzida: Math.max(
+          Number(etapaEncontrada?.quantidadeProduzida ?? etapaEncontrada?.concluidas ?? 0),
+          finalizadasEval
+        ),
+        status: isComplete
+          ? 'concluido'
+          : (etapaEncontrada?.status || (evalResult.emAndamento > 0 ? 'em_andamento' : 'pendente'))
+      };
+    }
+
+    return etapaEncontrada;
+  };
+
+  // Retorna a quantidade numérica de peças concluídas no posto
+  const obterQtdConcluidaPorPosto = (nomePosto: string): number => {
+    const matchedStep = findStepForSector(nomePosto, steps);
+    const etapa = obterEtapaDoPosto(nomePosto, matchedStep);
+    const progresso = calcularProgressoPosto(etapa, order);
+    const [prontasStr] = progresso.split('/');
+    return Number(prontasStr) || 0;
   };
 
   // Determina o setor a ser selecionado automaticamente (único compatível ou sequência da rota)
@@ -463,8 +412,11 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
             const routeValidation = validarPostoIndustrial(order, sector, apontamentos, terminal.id);
             const isBlockedByRouteRule = !routeValidation.valido;
 
-            // Contagem isolada estritamente por posto de trabalho
+            // Contagem e progresso com a mesma lógica do Portal PCP
+            const etapaObj = obterEtapaDoPosto(sector, matchedStep);
+            const progressoTexto = calcularProgressoPosto(etapaObj, order);
             const qtdConcluidaPosto = obterQtdConcluidaPorPosto(sector);
+            const isConcluido = qtdConcluidaPosto >= qtdTotal || progressoTexto.startsWith(`${qtdTotal}/${qtdTotal}`);
 
             return (
               <button
@@ -496,6 +448,8 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                     ? 'bg-amber-950/25 border-amber-500/50 hover:border-amber-400 text-amber-200 cursor-pointer'
                     : isLaserPending
                     ? 'bg-orange-950/30 border-orange-500/60 hover:border-orange-400 text-orange-200 cursor-pointer'
+                    : isConcluido
+                    ? 'bg-emerald-950/20 border-emerald-500/30 hover:border-emerald-500/60 text-slate-200 cursor-pointer'
                     : isPartOfRoute
                     ? 'bg-slate-900 border-slate-700/80 hover:border-blue-500/60 hover:bg-slate-850 text-slate-200 cursor-pointer'
                     : 'bg-slate-950/40 border-slate-800 hover:border-slate-700 text-slate-400 hover:text-slate-200 cursor-pointer'
@@ -509,8 +463,12 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                       ? 'bg-amber-400 animate-pulse'
                       : isLaserPending
                       ? 'bg-orange-400 animate-pulse'
+                      : isConcluido
+                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]'
+                      : qtdConcluidaPosto > 0
+                      ? 'bg-amber-400 animate-pulse'
                       : isPartOfRoute
-                      ? 'bg-emerald-400'
+                      ? 'bg-blue-400/70'
                       : 'bg-slate-600'
                   }`}
                 />
@@ -524,18 +482,37 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
                     <Lock className="w-3.5 h-3.5" />
                   </div>
                 ) : isSelected ? (
-                  <div className="w-4 h-4 rounded-full bg-blue-400 text-slate-950 flex items-center justify-center font-bold shrink-0 shadow-sm ml-1.5">
-                    <Check className="w-3 h-3 stroke-[3]" />
+                  <div className="flex items-center gap-1.5 shrink-0 ml-1.5">
+                    <span
+                      className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                        isConcluido
+                          ? 'text-emerald-300 bg-emerald-950/60 border-emerald-400/50 font-bold'
+                          : 'text-blue-100 bg-blue-900/60 border-blue-400/50 font-bold'
+                      }`}
+                    >
+                      {progressoTexto}
+                    </span>
+                    <div className="w-4 h-4 rounded-full bg-blue-300 text-slate-950 flex items-center justify-center font-bold shadow-sm">
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    </div>
                   </div>
                 ) : isSobDemanda && !order.requer_solda ? (
                   <span className="text-[10px] text-amber-400 font-mono shrink-0 ml-1.5">+Solda</span>
                 ) : isLaserPending && stepEval ? (
                   <span className="text-[10px] text-orange-400 font-mono font-bold shrink-0 flex items-center gap-0.5 ml-1.5">
-                    🔥 {qtdConcluidaPosto}/{qtdTotal}
+                    🔥 {progressoTexto}
                   </span>
                 ) : isPartOfRoute ? (
-                  <span className="text-[10px] text-slate-400 font-mono shrink-0 ml-1.5">
-                    {qtdConcluidaPosto}/{qtdTotal}
+                  <span
+                    className={`text-[10px] font-mono shrink-0 ml-1.5 px-1.5 py-0.5 rounded border ${
+                      isConcluido
+                        ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30 font-bold'
+                        : qtdConcluidaPosto > 0
+                        ? 'text-amber-300 bg-amber-500/10 border-amber-500/30 font-semibold'
+                        : 'text-slate-400 bg-slate-900/60 border-slate-800'
+                    }`}
+                  >
+                    {progressoTexto}
                   </span>
                 ) : null}
               </button>
