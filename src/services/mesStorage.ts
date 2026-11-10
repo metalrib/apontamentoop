@@ -16,10 +16,8 @@ import {
 import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
-import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
 import { io, Socket } from 'socket.io-client';
 
-export { db, ref, set, get, onValue, update, push };
 export { cleanOpId, cleanOpid, formatOpNumber };
 
 /**
@@ -56,7 +54,6 @@ export function toFirebaseKey(key: string): string {
 const STORAGE_ORDERS_KEY = 'mes_pcp_orders';
 const STORAGE_APONTAMENTOS_KEY = 'mes_apontamentos';
 const STORAGE_TERMINAL_KEY = 'mes_selected_terminal';
-const STORAGE_FIREBASE_CONFIG_KEY = 'mes_firebase_config';
 export const STORAGE_OPERATORS_KEY = 'metalrib_operators';
 export const STORAGE_TERMINALS_KEY = 'metalrib_terminals_sectors';
 
@@ -73,8 +70,7 @@ export const TEST_DUMMY_OPS = new Set([
   '023838-09', '023838-10', '023838-11'
 ]);
 
-// Flags globais de inicialização no topo do módulo para evitar ReferenceError (TDZ)
-export let isFirebaseListenerInitialized = false;
+// Flags globais de inicialização no topo do módulo
 export let isLocalSocketInitialized = false;
 export let isLocalApiActive = false;
 export let bgSyncTimer: any = null;
@@ -149,20 +145,15 @@ function persistirCorrecaoOp(docId: string, dadosParaAtualizar: Record<string, a
   if (persistQueue.has(docId)) return;
   persistQueue.add(docId);
 
-  // 1. Atualiza no Firestore (usando cliente autenticado do navegador)
+  // Sincroniza em segundo plano com a API local SQLite
   try {
-    const cleanId = docId.trim();
-    const firestoreRef = doc(firestore, 'ordens_producao', cleanId);
-    updateDoc(firestoreRef, dadosParaAtualizar).catch(() => {
-      const altId = cleanId.startsWith('OP ') ? cleanId.replace(/^OP\s*/i, '').trim() : `OP ${cleanId}`;
-      updateDoc(doc(firestore, 'ordens_producao', altId), dadosParaAtualizar).catch(() => {});
-    });
-  } catch {}
-
-  // 2. Atualiza no Realtime Database (em segundo plano sem travar render)
-  try {
-    const key = toFirebaseKey(docId);
-    update(ref(db, `ordens_producao/${key}`), sanitizePayload(dadosParaAtualizar)).catch(() => {});
+    const cleanId = cleanOpId(docId);
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dadosParaAtualizar)
+    }).catch(() => {});
   } catch {}
 }
 
@@ -638,8 +629,6 @@ export function initLocalSocketListeners(): void {
 try {
   ensureInitialData();
   initLocalSocketListeners();
-  // startFirebaseBackgroundSync();
-  // initFirebaseRealtimeListeners();
 } catch (err) {
   console.warn('[MES Storage] Erro na inicialização dos listeners:', err);
 }
@@ -752,15 +741,6 @@ export function saveOperators(operators: Operator[]): void {
     };
   });
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
-  firebasePut('config/operators', cleaned);
-  try {
-    const fbMap: Record<string, any> = {};
-    cleaned.forEach((op) => {
-      fbMap[op.id] = op;
-    });
-    set(ref(db, 'config_colaboradores'), fbMap);
-    set(ref(db, 'config_operadores'), cleaned);
-  } catch {}
   broadcastUpdate();
   window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
 }
@@ -818,26 +798,6 @@ export async function updateColaboradorFirebase(id: string, dados: Partial<Opera
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(current));
   broadcastUpdate();
   window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
-
-  try {
-    await update(ref(db, `config_colaboradores/${id}`), {
-      id,
-      name: nome,
-      nome,
-      badge,
-      codigo: badge,
-      role,
-      setor: setores[0] || '',
-      setores: [...setores],
-      sectors: [...setores],
-      setoresPorTerminal: payload.setoresPorTerminal || null,
-      terminais: [...terminais],
-      especialista,
-      ativo: payload.ativo
-    });
-  } catch (err) {
-    console.error(`[Firebase] Erro ao atualizar config_colaboradores/${id}:`, err);
-  }
 }
 
 export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Operator {
@@ -1032,23 +992,6 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
   localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(cleaned));
   const setoresMap = buildSetoresMap(cleaned);
   localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-  firebasePut('config/terminals', cleaned);
-  try {
-    set(ref(db, 'config_terminais'), cleaned);
-    set(ref(db, 'config_setores'), setoresMap);
-    cleaned.forEach((term) => {
-      set(ref(db, `configuracoes_terminais/${term.id}`), {
-        id: String(term.id),
-        nome: term.name,
-        label: term.label,
-        setores: term.sectors,
-        sectors: term.sectors,
-        atualizadoEm: new Date().toISOString()
-      });
-    });
-  } catch (err) {
-    console.error('[mesStorage] Erro ao sincronizar terminais/setores no Firebase:', err);
-  }
   broadcastUpdate();
   window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
 }
@@ -1097,34 +1040,8 @@ export async function removeSectorFromTerminal(terminalId: number | string, sect
   term.sectors = (term.sectors || []).filter((s) => s.trim().toLowerCase() !== clean.toLowerCase());
   (term as any).setores = [...term.sectors];
 
-  // 1. Salva nos armazenamentos locais e no Firebase RTDB (config_terminais, config_setores, configuracoes_terminais)
+  // Salva nos armazenamentos locais
   saveTerminalsConfig(terminals);
-
-  // 2. Garante persistência explícita e atômica no RTDB
-  try {
-    await set(ref(db, `configuracoes_terminais/${termIdStr}`), {
-      id: termIdStr,
-      nome: term.name,
-      label: term.label,
-      setores: term.sectors,
-      sectors: term.sectors,
-      atualizadoEm: new Date().toISOString()
-    });
-  } catch (rtdbErr) {
-    console.warn('[mesStorage] Erro ao sincronizar configuracoes_terminais no RTDB:', rtdbErr);
-  }
-
-  // 3. Atualiza no Firebase Firestore se disponível
-  try {
-    const terminalRef = doc(firestore, 'configuracoes_terminais', termIdStr);
-    await updateDoc(terminalRef, {
-      setores: arrayRemove(clean),
-      sectors: arrayRemove(clean),
-      atualizadoEm: new Date().toISOString()
-    });
-  } catch (fsErr) {
-    console.warn('[mesStorage] Firestore updateDoc em configuracoes_terminais (RTDB garantiu persistência):', fsErr);
-  }
 
   // 4. Percorre a lista de colaboradores salvos e remove o setor dos colaboradores vinculados
   const termKey = `T${termIdStr}`.replace('TT', 'T');
@@ -1307,144 +1224,6 @@ export function importFactoryConfiguration(data: any): { success: boolean; messa
   }
 }
 
-export interface FirebaseConnectionConfig {
-  databaseURL: string;
-  apiKey?: string;
-  projectId?: string;
-  enabled: boolean;
-}
-
-export function getSavedFirebaseConfig(): FirebaseConnectionConfig {
-  const defaultConfig: FirebaseConnectionConfig = {
-    databaseURL: 'https://apontamentoop-default-rtdb.firebaseio.com',
-    apiKey: 'AIzaSyCF7Q6J8I6fBZ3kaGbxq4rlefVzFaQrUnA',
-    projectId: 'apontamentoop',
-    enabled: true
-  };
-
-  if (typeof window === 'undefined') {
-    return defaultConfig;
-  }
-  try {
-    const raw = localStorage.getItem(STORAGE_FIREBASE_CONFIG_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.databaseURL) return parsed;
-    }
-  } catch {
-    // fallback
-  }
-
-  // Fallback para variáveis de ambiente VITE_
-  const envUrl = (import.meta as any).env?.VITE_FIREBASE_DATABASE_URL || '';
-  const envKey = (import.meta as any).env?.VITE_FIREBASE_API_KEY || '';
-  const envProject = (import.meta as any).env?.VITE_FIREBASE_PROJECT_ID || '';
-  if (envUrl) {
-    return {
-      databaseURL: envUrl,
-      apiKey: envKey || defaultConfig.apiKey,
-      projectId: envProject || defaultConfig.projectId,
-      enabled: true
-    };
-  }
-
-  return defaultConfig;
-}
-
-export function initFirebaseRealtimeListeners(): void {
-  if (typeof window === 'undefined' || isFirebaseListenerInitialized) return;
-  isFirebaseListenerInitialized = true;
-  // Operação 100% via API Local SQLite + Socket.io: listeners de nuvem do Firebase suspensos
-  return;
-}
-
-export function saveFirebaseConfig(config: FirebaseConnectionConfig) {
-  if (typeof window === 'undefined') return;
-  localStorage.setItem(STORAGE_FIREBASE_CONFIG_KEY, JSON.stringify(config));
-  broadcastUpdate();
-}
-
-/**
- * Funções utilitárias de comunicação REST com Firebase Realtime Database
- */
-function getFirebaseUrl(path: string): string | null {
-  const cfg = getSavedFirebaseConfig();
-  if (!cfg.enabled || !cfg.databaseURL) return null;
-  let base = cfg.databaseURL.trim().replace(/\/+$/, '');
-  if (!base.startsWith('http://') && !base.startsWith('https://')) {
-    base = `https://${base}`;
-  }
-  const cleanPath = path.replace(/^\/+/, '');
-  const authQuery = cfg.apiKey ? `?auth=${encodeURIComponent(cfg.apiKey.trim())}` : '';
-  return `${base}/${cleanPath}.json${authQuery}`;
-}
-
-export function startFirebaseBackgroundSync(): void {
-  // Sincronização em tempo real é gerenciada diretamente pelos listeners nativos WebSocket do Firebase Realtime DB
-  // (initFirebaseRealtimeListeners). O polling REST legado de 'pcp/orders' foi desativado para eliminar qualquer risco
-  // de sobreposição assíncrona ou perda de ordens.
-}
-
-export async function firebaseGet<T>(path: string): Promise<T | null> {
-  const url = getFirebaseUrl(path);
-  if (!url) return null;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (err) {
-    console.warn(`[Firebase] Falha ao ler ${path}:`, err);
-    return null;
-  }
-}
-
-export async function firebasePut(path: string, data: any): Promise<boolean> {
-  const url = getFirebaseUrl(path);
-  if (!url) return false;
-  try {
-    const res = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    return res.ok;
-  } catch (err) {
-    console.warn(`[Firebase] Falha ao gravar ${path}:`, err);
-    return false;
-  }
-}
-
-export async function firebasePatch(path: string, data: any): Promise<boolean> {
-  const url = getFirebaseUrl(path);
-  if (!url) return false;
-  try {
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    return res.ok;
-  } catch (err) {
-    console.warn(`[Firebase] Falha ao atualizar ${path}:`, err);
-    return false;
-  }
-}
-
-export async function firebaseDelete(path: string): Promise<boolean> {
-  const url = getFirebaseUrl(path);
-  if (!url) return false;
-  try {
-    const res = await fetch(url, { method: 'DELETE' });
-    return res.ok;
-  } catch (err) {
-    console.warn(`[Firebase] Falha ao deletar ${path}:`, err);
-    return false;
-  }
-}
-
-/**
- * Salva e recupera o Terminal Físico ativo para este computador
- */
 export function getSavedTerminalId(): number | null {
   if (typeof window === 'undefined') return null;
   const raw = localStorage.getItem(STORAGE_TERMINAL_KEY);
@@ -1469,7 +1248,6 @@ export function clearTerminalSelection() {
 export async function fetchProductionOrders(): Promise<Record<string, ProductionOrder>> {
   ensureInitialData();
 
-  // 1. Prioriza carregamento da API local SQLite (Socket.io / Express) se o servidor local estiver ativo
   try {
     const hasLocal = await fetchLocalOrdens();
     if (hasLocal) {
@@ -1483,157 +1261,8 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
     }
   } catch {}
 
-  try {
-    if (!db) {
-      const rawCache = localStorage.getItem(STORAGE_ORDERS_KEY);
-      return rawCache ? JSON.parse(rawCache) : {};
-    }
-
-    const [snapshotProd, snapshotOrdens] = await Promise.all([
-      get(ref(db, 'ordens_producao')),
-      get(ref(db, 'ordens'))
-    ]);
-
-    const hasProd = snapshotProd.exists();
-    const hasOrdens = snapshotOrdens.exists();
-
-    console.log("[PCP Debug] Snapshot bruto do RTDB:", {
-      ordens_producao: hasProd ? snapshotProd.val() : null,
-      ordens: hasOrdens ? snapshotOrdens.val() : null
-    });
-
-    if (hasProd || hasOrdens) {
-      const rawMap: Record<string, any> = {};
-
-      if (hasProd) {
-        snapshotProd.forEach((child) => {
-          const item = child.val();
-          if (item && typeof item === 'object') {
-            const key = child.key || '';
-            const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-            const clean = cleanOpId(opNum);
-            if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
-              rawMap[clean] = { ...item };
-            }
-          }
-        });
-      }
-
-      if (hasOrdens) {
-        snapshotOrdens.forEach((child) => {
-          const item = child.val();
-          if (item && typeof item === 'object') {
-            const key = child.key || '';
-            const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-            const clean = cleanOpId(opNum);
-            if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
-              const existing = rawMap[clean] || {};
-              rawMap[clean] = {
-                ...existing,
-                ...item,
-                etapas: { ...(existing.etapas || {}), ...(item.etapas || {}) },
-                progressoPostos: { ...(existing.progressoPostos || {}), ...(item.progressoPostos || {}) }
-              };
-            }
-          }
-        });
-      }
-
-      const ordersMap: Record<string, ProductionOrder> = {};
-      const ordensProcessadas: ProductionOrder[] = [];
-
-      Object.entries(rawMap).forEach(([clean, item]) => {
-        const opNumero = formatOpNumber(clean);
-        const qtd = obterQuantidadeTotal(item);
-        const etapas = item.etapas || {};
-        const isVaiVem = Boolean(etapas['Montagem Porta Vai-Vem'] || etapas['Preparação Vai Vem']);
-        const isGiro = Boolean(etapas['Montagem de Portas Giratórias'] || etapas['Instalação de Gaxeta']);
-
-        const desc = item.descricao || item.produto || (
-          isVaiVem
-            ? 'PT VAI VEM INJ 2.100A X 1.200L DUPLA C/ BUMPER'
-            : (isGiro ? 'PORTA GIRATÓRIA ISOTÉRMICA REFORÇADA INOX' : 'PORTA ISOTÉRMICA METALRIB')
-        );
-        const cod = item.codigo || item.codigoProduto || (isVaiVem ? '011.0117' : (isGiro ? '001.0118' : '001.0100'));
-
-        const syncedItem = initOrSyncOrderEtapas({
-          ...item,
-          id: opNumero,
-          op_numero: opNumero,
-          numero: opNumero,
-          descricao: desc,
-          produto: desc,
-          codigo: cod,
-          codigoProduto: cod,
-          lote: item.lote || 'PADRÃO',
-          cliente: item.cliente || 'METALRIB',
-          unidade_medida: item.unidade_medida || 'PC',
-          quantidade_total: qtd,
-          quantidade: qtd
-        });
-        const correctedItem = verificarECorrigirRotaOp(syncedItem);
-        ordersMap[opNumero] = correctedItem;
-        ordensProcessadas.push(correctedItem);
-      });
-
-      console.log("[PCP Debug] Total de OPs processadas:", ordensProcessadas.length);
-
-      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-      return ordersMap;
-    } else {
-      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
-      return {};
-    }
-  } catch (err) {
-    console.warn('[Firebase] Falha na leitura consolidada de ordens, usando cache local:', err);
-  }
-
-  const raw = localStorage.getItem(STORAGE_ORDERS_KEY);
-  if (!raw || raw === '{}') return {};
-  try {
-    const orders: Record<string, ProductionOrder> = JSON.parse(raw);
-    let modified = false;
-    for (const key of Object.keys(orders)) {
-      if (TEST_DUMMY_OPS.has(key)) {
-        delete orders[key];
-        modified = true;
-        continue;
-      }
-      const o = orders[key];
-      if (o) {
-        orders[key] = verificarECorrigirRotaOp(o);
-        const qtd = obterQuantidadeTotal(o);
-        if (o.quantidade_total !== qtd || o.quantidade !== qtd) {
-          o.quantidade_total = qtd;
-          o.quantidade = qtd;
-          modified = true;
-        }
-      }
-      if (o && typeof o.quantidade_total === 'number') {
-        const isDecimal = Math.abs(o.quantidade_total - Math.round(o.quantidade_total)) > 0.001;
-        if (isDecimal) {
-          o.quantidade_m2 = o.quantidade_m2 || Number(o.quantidade_total.toFixed(2));
-          o.unidade_medida = 'M²';
-          o.quantidade_total = deducePhysicalUnitsFromM2(o.descricao || '', o.quantidade_total);
-          o.quantidade = o.quantidade_total;
-          modified = true;
-        }
-      }
-      if (o) {
-        const synced = initOrSyncOrderEtapas(o);
-        if (JSON.stringify(synced.etapas) !== JSON.stringify(o.etapas)) {
-          o.etapas = synced.etapas;
-          modified = true;
-        }
-      }
-    }
-    if (modified) {
-      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-    }
-    return orders;
-  } catch {
-    return {};
-  }
+  const rawCache = localStorage.getItem(STORAGE_ORDERS_KEY);
+  return rawCache ? JSON.parse(rawCache) : {};
 }
 
 /**
@@ -1661,32 +1290,6 @@ export async function findOrder(opNumber: string): Promise<ProductionOrder | nul
 export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[]> {
   ensureInitialData();
 
-  try {
-    const snapshot = await get(ref(db, 'historico_apontamentos'));
-    if (snapshot.exists()) {
-      const val = snapshot.val();
-      if (val && typeof val === 'object') {
-        const tree: Record<string, Record<string, Apontamento>> = {};
-        Object.entries(val).forEach(([firebasePushKey, item]: [string, any]) => {
-          if (item && item.op_numero) {
-            const cleanOp = item.op_numero.trim().toUpperCase();
-            if (!tree[cleanOp]) tree[cleanOp] = {};
-            const aptId = item.id || firebasePushKey;
-            const existing = tree[cleanOp][aptId];
-            if (!existing || item.status === 'FINALIZADO' || (item.hora_fim && !existing.hora_fim)) {
-              tree[cleanOp][aptId] = { ...item, id: aptId, firebaseKey: firebasePushKey };
-            }
-          }
-        });
-        localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-      }
-    } else {
-      localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
-    }
-  } catch (err) {
-    console.warn('[Firebase] Falha na leitura de apontamentos, usando cache:', err);
-  }
-
   const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
   let tree: Record<string, Record<string, Apontamento>> = {};
   if (raw) {
@@ -1709,13 +1312,12 @@ export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[
     });
   }
 
-  // Ordena por hora de início decrescente
-  return list.sort((a, b) => new Date(b.hora_inicio).getTime() - new Date(a.hora_inicio).getTime());
+  list.sort((a, b) => new Date(b.hora_inicio || b.horaInicio || 0).getTime() - new Date(a.hora_inicio || a.horaInicio || 0).getTime());
+  return list;
 }
 
 /**
- * Inicia uma unidade de produção para a OP e Setor selecionados
- * Guarda sob a árvore de apontamentos/<op_numero>/<id_unico>
+ * Inicia uma nova unidade
  */
 export async function startUnit(params: {
   op_numero: string;
@@ -1765,13 +1367,6 @@ export async function startUnit(params: {
 
   tree[cleanOp][uniqueId] = novoApontamento;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-  firebasePut(`apontamentos/${cleanOp}/${uniqueId}`, novoApontamento);
-  try {
-    const aptKey = toFirebaseKey(uniqueId);
-    await set(ref(db, `historico_apontamentos/${aptKey}`), novoApontamento);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
-  }
 
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
@@ -1798,22 +1393,7 @@ export async function startUnit(params: {
       }
     }
 
-    if (!targetOrder) {
-      try {
-        const numClean = cleanOpId(cleanOp);
-        const fbSnap = await get(ref(db, `ordens_producao/OP ${numClean}`));
-        if (fbSnap.exists()) {
-          targetOrder = fbSnap.val() as ProductionOrder;
-          matchedOpKey = `OP ${numClean}`;
-        } else {
-          const fbSnap2 = await get(ref(db, `ordens_producao/${numClean}`));
-          if (fbSnap2.exists()) {
-            targetOrder = fbSnap2.val() as ProductionOrder;
-            matchedOpKey = numClean;
-          }
-        }
-      } catch {}
-    }
+    
 
     const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
 
@@ -1884,14 +1464,14 @@ export async function startUnit(params: {
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
     }
 
-    if (opKey) {
-      const cleanOpUpdates = sanitizePayload(opUpdates);
-      await update(ref(db, `ordens_producao/${opKey}`), cleanOpUpdates);
-      try {
-        const cleanNoPrefix = cleanOpId(cleanOp);
-        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), cleanOpUpdates);
-      } catch {}
-    }
+    try {
+      const localUrl = getLocalServerUrl();
+      fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(targetOrder || opUpdates)
+      }).catch(() => {});
+    } catch {}
   } catch (err) {
     console.error('Erro ao atualizar status da OP ao iniciar unidade:', err);
   }
@@ -1958,13 +1538,6 @@ export async function finishUnit(
 
   tree[cleanOp][apontamentoId] = updated;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-  firebasePut(`apontamentos/${cleanOp}/${apontamentoId}`, updated);
-  try {
-    const aptKey = toFirebaseKey(apontamentoId);
-    await set(ref(db, `historico_apontamentos/${aptKey}`), updated);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
-  }
 
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
@@ -2026,14 +1599,6 @@ export async function finishUnit(
             duracaoMinutos: diffMinutesInt,
             duracaoMs: duracaoLiquidaMs
           };
-
-          const opCleanKey = cleanOp.replace(/^OP\s*/i, '').trim();
-          const rtdbUpdates: Record<string, any> = {};
-          rtdbUpdates[`ordens/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
-          rtdbUpdates[`ordens_producao/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
-          update(ref(db), sanitizePayload(rtdbUpdates)).catch((err) =>
-            console.warn('[RTDB] Erro ao sincronizar etapa:', err)
-          );
 
           const isInjecaoStep = Boolean(
             matchedStep.toLowerCase().includes('injeção') ||
@@ -2123,21 +1688,14 @@ export async function finishUnit(
         ordersMap[matchedOpKey] = targetOrder;
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
 
-        const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
-        if (opKey) {
-          await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload({
-            status: targetOrder.status,
-            status_fabrica: targetOrder.status_fabrica,
-            etapas: targetOrder.etapas,
-            progressoPostos: targetOrder.progressoPostos,
-            etapaAtual: targetOrder.etapaAtual,
-            statusEtapa: targetOrder.statusEtapa,
-            encaminhar_router: targetOrder.encaminhar_router ?? false,
-            requer_router: targetOrder.requer_router ?? false,
-            qtde_produzida: targetOrder.qtde_produzida || 0,
-            data_atualizacao: new Date().toISOString()
-          }));
-        }
+        try {
+          const localUrl = getLocalServerUrl();
+          fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(targetOrder)
+          }).catch(() => {});
+        } catch {}
       }
     }
   } catch (err) {
@@ -2204,13 +1762,6 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
   tree[cleanOp][uniqueId] = novoApontamento;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-  firebasePut(`apontamentos/${cleanOp}/${uniqueId}`, novoApontamento);
-  try {
-    const aptKey = toFirebaseKey(uniqueId);
-    await set(ref(db, `historico_apontamentos/${aptKey}`), novoApontamento);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
-  }
 
   // Atualiza status da OP para EM_PRODUCAO com data/hora e colaborador de forma estritamente granular
   try {
@@ -2238,22 +1789,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       }
     }
 
-    if (!targetOrder) {
-      try {
-        const numClean = cleanOpId(cleanOp);
-        const fbSnap = await get(ref(db, `ordens_producao/OP ${numClean}`));
-        if (fbSnap.exists()) {
-          targetOrder = fbSnap.val() as ProductionOrder;
-          matchedOpKey = `OP ${numClean}`;
-        } else {
-          const fbSnap2 = await get(ref(db, `ordens_producao/${numClean}`));
-          if (fbSnap2.exists()) {
-            targetOrder = fbSnap2.val() as ProductionOrder;
-            matchedOpKey = numClean;
-          }
-        }
-      } catch {}
-    }
+    
 
     const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
 
@@ -2324,14 +1860,14 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
     }
 
-    if (opKey) {
-      const cleanOpUpdates = sanitizePayload(opUpdates);
-      await update(ref(db, `ordens_producao/${opKey}`), cleanOpUpdates);
-      try {
-        const cleanNoPrefix = cleanOpId(cleanOp);
-        await update(ref(db, `ordens/${toFirebaseKey(cleanNoPrefix)}`), cleanOpUpdates);
-      } catch {}
-    }
+    try {
+      const localUrl = getLocalServerUrl();
+      fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(targetOrder || opUpdates)
+      }).catch(() => {});
+    } catch {}
   } catch (err) {
     console.error('Erro ao atualizar status da OP ao iniciar lote:', err);
   }
@@ -2420,13 +1956,6 @@ export async function finishBatch(
   });
 
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-  firebasePut(`apontamentos/${cleanOp}/${apontamentoId}`, updated);
-  try {
-    const aptKey = toFirebaseKey(apontamentoId);
-    await set(ref(db, `historico_apontamentos/${aptKey}`), updated);
-  } catch (err) {
-    console.warn('[Firebase] Erro ao gravar historico_apontamentos:', err);
-  }
   try {
     const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
     if (rawOrders) {
@@ -2480,14 +2009,6 @@ export async function finishBatch(
           duracaoMinutos: diffMinutesInt,
           duracaoMs: duracaoLiquidaMs
         };
-
-        const opCleanKey = cleanOp.replace(/^OP\s*/i, '').trim();
-        const rtdbEtapaUpdates: Record<string, any> = {};
-        rtdbEtapaUpdates[`ordens/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
-        rtdbEtapaUpdates[`ordens_producao/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
-        update(ref(db), sanitizePayload(rtdbEtapaUpdates)).catch((err) =>
-          console.warn('[RTDB] Erro ao sincronizar etapa de lote:', err)
-        );
 
         const isInjecaoStep = Boolean(
           matchedStep.toLowerCase().includes('injeção') ||
@@ -2569,21 +2090,14 @@ export async function finishBatch(
         ordersMap[matchedOpKey] = targetOrder;
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
 
-        const opKey = toFirebaseKey(targetOrder.op_numero || targetOrder.numero || matchedOpKey);
-        if (opKey) {
-          await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload({
-            status: targetOrder.status,
-            status_fabrica: targetOrder.status_fabrica,
-            etapas: targetOrder.etapas,
-            progressoPostos: targetOrder.progressoPostos,
-            etapaAtual: targetOrder.etapaAtual,
-            statusEtapa: targetOrder.statusEtapa,
-            encaminhar_router: targetOrder.encaminhar_router ?? false,
-            requer_router: targetOrder.requer_router ?? false,
-            qtde_produzida: targetOrder.qtde_produzida || 0,
-            data_atualizacao: new Date().toISOString()
-          }));
-        }
+        try {
+          const localUrl = getLocalServerUrl();
+          fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(targetOrder)
+          }).catch(() => {});
+        } catch {}
       }
     }
   } catch (err) {
@@ -2631,21 +2145,6 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
 
   if (deleted) {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
-    if (opNumero) {
-      const cleanOp = opNumero.trim().toUpperCase();
-      firebaseDelete(`apontamentos/${cleanOp}/${apontamentoId}`);
-    } else {
-      firebasePut('apontamentos', tree);
-    }
-    try {
-      const aptKey = toFirebaseKey(apontamentoId);
-      await set(ref(db, `historico_apontamentos/${aptKey}`), null);
-      if (fbKey && fbKey !== aptKey) {
-        await set(ref(db, `historico_apontamentos/${fbKey}`), null);
-      }
-    } catch (err) {
-      console.warn('[Firebase] Erro ao deletar historico_apontamentos:', err);
-    }
     broadcastUpdate();
   }
   return deleted;
@@ -2669,37 +2168,7 @@ export async function cancelarInicioEtapa(
   const keyNoOp = numClean;
   const cleanNoSpecial = numClean.replace(/[-_\s]/g, '').toUpperCase();
 
-  // 2. Localiza e remove apontamentos EM_ANDAMENTO deste posto em historico_apontamentos no Firebase
-  try {
-    const histSnap = await get(ref(db, 'historico_apontamentos'));
-    if (histSnap.exists()) {
-      const histData = histSnap.val() || {};
-      for (const [id, a] of Object.entries(histData)) {
-        if (!a || typeof a !== 'object') continue;
-        const aOp = cleanOpId((a as any).op_numero || (a as any).op || '');
-        const aOpNoSpecial = aOp.replace(/[-_\s]/g, '').toUpperCase();
-        if (aOp === numClean || aOpNoSpecial === cleanNoSpecial) {
-          const isEmAndamento = (a as any).status === 'EM_ANDAMENTO';
-          const matchId = apontamentoId ? id === apontamentoId : true;
-          const matchSetor =
-            matchStepName((a as any).etapa_rota || (a as any).etapaRota || '', setorOuEtapa) ||
-            doesSectorMatchStep((a as any).setorFisico || (a as any).setor || '', setorOuEtapa) ||
-            ((a as any).setor && (a as any).setor.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim()) ||
-            ((a as any).etapa_rota && (a as any).etapa_rota.toLowerCase().trim() === setorOuEtapa.toLowerCase().trim());
-
-          if (matchId && matchSetor && isEmAndamento) {
-            await set(ref(db, `historico_apontamentos/${id}`), null);
-            await set(ref(db, `apontamentos/${keyWithOp}/${id}`), null);
-            await set(ref(db, `apontamentos/${keyNoOp}/${id}`), null);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Firebase] Erro ao buscar/remover apontamento em historico_apontamentos:', err);
-  }
-
-  // 3. Localiza e remove apontamentos EM_ANDAMENTO no localStorage (STORAGE_APONTAMENTOS_KEY)
+  // 2. Localiza e remove apontamentos EM_ANDAMENTO no localStorage (STORAGE_APONTAMENTOS_KEY)
   const rawApts = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
   let tree: Record<string, Record<string, Apontamento>> = {};
   if (rawApts) {
@@ -2726,11 +2195,6 @@ export async function cancelarInicioEtapa(
 
           if (matchId && matchSetor) {
             delete opTree[id];
-            try {
-              const aptKey = toFirebaseKey(id);
-              await set(ref(db, `historico_apontamentos/${aptKey}`), null);
-              firebaseDelete(`apontamentos/${treeKey}/${id}`);
-            } catch {}
           }
         }
       }
@@ -2739,43 +2203,7 @@ export async function cancelarInicioEtapa(
   }
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
 
-  // 4. Localiza a Ordem de Produção diretamente no Firebase Realtime Database
-  let targetOrder: ProductionOrder | null = null;
-  let targetFirebaseKey: string = keyWithOp;
-
-  try {
-    const snapWithOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyWithOp)}`));
-    if (snapWithOp.exists()) {
-      targetOrder = snapWithOp.val() as ProductionOrder;
-      targetFirebaseKey = keyWithOp;
-    } else {
-      const snapNoOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyNoOp)}`));
-      if (snapNoOp.exists()) {
-        targetOrder = snapNoOp.val() as ProductionOrder;
-        targetFirebaseKey = keyNoOp;
-      } else {
-        const allSnap = await get(ref(db, 'ordens_producao'));
-        if (allSnap.exists()) {
-          const allData = allSnap.val() || {};
-          for (const [k, val] of Object.entries(allData)) {
-            const kClean = cleanOpId(k);
-            const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
-            const valNum = cleanOpId(String((val as any)?.op_numero || (val as any)?.numero || ''));
-            const valNoSpecial = valNum.replace(/[-_\s]/g, '').toUpperCase();
-            if (kClean === numClean || kNoSpecial === cleanNoSpecial || valNum === numClean || valNoSpecial === cleanNoSpecial) {
-              targetOrder = val as ProductionOrder;
-              targetFirebaseKey = k;
-              break;
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[Firebase] Erro ao buscar OP no Firebase para cancelamento:', e);
-  }
-
-  // Fallback para o localStorage se necessário
+  // 3. Localiza a Ordem de Produção no localStorage
   const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
   let ordersMap: Record<string, ProductionOrder> = {};
   if (rawOrders) {
@@ -2786,6 +2214,8 @@ export async function cancelarInicioEtapa(
     }
   }
 
+  let targetOrder: ProductionOrder | null = ordersMap[keyWithOp] || ordersMap[keyNoOp] || null;
+  let targetFirebaseKey = ordersMap[keyWithOp] ? keyWithOp : (ordersMap[keyNoOp] ? keyNoOp : keyWithOp);
   let matchedLocalKey = targetFirebaseKey;
   if (!targetOrder) {
     const foundKey = Object.keys(ordersMap).find((k) => {
@@ -2795,6 +2225,7 @@ export async function cancelarInicioEtapa(
     });
     if (foundKey) {
       matchedLocalKey = foundKey;
+      targetFirebaseKey = foundKey;
       targetOrder = ordersMap[foundKey];
     }
   }
@@ -2941,20 +2372,13 @@ export async function cancelarInicioEtapa(
     const cleanUpdates = sanitizePayload(opUpdates);
 
     try {
-      const fbKey = toFirebaseKey(targetFirebaseKey);
-      await update(ref(db, `ordens_producao/${fbKey}`), cleanUpdates);
-      if (fbKey !== toFirebaseKey(keyNoOp)) {
-        try {
-          await update(ref(db, `ordens_producao/${toFirebaseKey(keyNoOp)}`), cleanUpdates);
-        } catch {}
-      }
-      try {
-        await update(ref(db, `ordens/${toFirebaseKey(numClean)}`), cleanUpdates);
-      } catch {}
-      console.log(`[Firebase] Sucesso ao estornar etapa ${matchedStepKey} da OP ${targetFirebaseKey}`);
-    } catch (err) {
-      console.error('[Firebase] Erro ao estornar etapa no Realtime Database:', err);
-    }
+      const localUrl = getLocalServerUrl();
+      fetch(`${localUrl}/api/ordens/${cleanOpId(matchedLocalKey)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cleanUpdates)
+      }).catch(() => {});
+    } catch {}
 
     // Atualiza também no localStorage
     ordersMap[matchedLocalKey] = { ...targetOrder, ...cleanUpdates };
@@ -2990,43 +2414,7 @@ export async function resetarOpCompleta(
   const keyNoOp = numClean;
   const cleanNoSpecial = numClean.replace(/[-_\s]/g, '').toUpperCase();
 
-  // 1. Busca da OP diretamente no Firebase Realtime Database
-  let targetOrder: ProductionOrder | null = null;
-  let targetFirebaseKey: string = keyWithOp;
-
-  try {
-    const snapWithOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyWithOp)}`));
-    if (snapWithOp.exists()) {
-      targetOrder = snapWithOp.val() as ProductionOrder;
-      targetFirebaseKey = keyWithOp;
-    } else {
-      const snapNoOp = await get(ref(db, `ordens_producao/${toFirebaseKey(keyNoOp)}`));
-      if (snapNoOp.exists()) {
-        targetOrder = snapNoOp.val() as ProductionOrder;
-        targetFirebaseKey = keyNoOp;
-      } else {
-        const allSnap = await get(ref(db, 'ordens_producao'));
-        if (allSnap.exists()) {
-          const allData = allSnap.val() || {};
-          for (const [k, val] of Object.entries(allData)) {
-            const kClean = cleanOpId(k);
-            const kNoSpecial = kClean.replace(/[-_\s]/g, '').toUpperCase();
-            const valNum = cleanOpId(String((val as any)?.op_numero || (val as any)?.numero || ''));
-            const valNoSpecial = valNum.replace(/[-_\s]/g, '').toUpperCase();
-            if (kClean === numClean || kNoSpecial === cleanNoSpecial || valNum === numClean || valNoSpecial === cleanNoSpecial) {
-              targetOrder = val as ProductionOrder;
-              targetFirebaseKey = k;
-              break;
-            }
-          }
-        }
-      }
-    }
-  } catch (e) {
-    console.warn('[Firebase] Erro ao buscar OP no Firebase para reset completo:', e);
-  }
-
-  // Fallback para o localStorage se necessário
+  // 1. Busca da OP no localStorage
   const rawOrders = localStorage.getItem(STORAGE_ORDERS_KEY);
   let ordersMap: Record<string, ProductionOrder> = {};
   if (rawOrders) {
@@ -3037,6 +2425,8 @@ export async function resetarOpCompleta(
     }
   }
 
+  let targetOrder: ProductionOrder | null = ordersMap[keyWithOp] || ordersMap[keyNoOp] || null;
+  let targetFirebaseKey = ordersMap[keyWithOp] ? keyWithOp : (ordersMap[keyNoOp] ? keyNoOp : keyWithOp);
   let matchedLocalKey = targetFirebaseKey;
   if (!targetOrder) {
     const foundKey = Object.keys(ordersMap).find((k) => {
@@ -3046,6 +2436,7 @@ export async function resetarOpCompleta(
     });
     if (foundKey) {
       matchedLocalKey = foundKey;
+      targetFirebaseKey = foundKey;
       targetOrder = ordersMap[foundKey];
     }
   }
@@ -3054,33 +2445,7 @@ export async function resetarOpCompleta(
     return { success: false, message: 'OP não encontrada no banco.' };
   }
 
-  // 2. Remove TODOS os apontamentos da OP no Firebase (historico_apontamentos e apontamentos)
-  try {
-    const histSnap = await get(ref(db, 'historico_apontamentos'));
-    if (histSnap.exists()) {
-      const histData = histSnap.val() || {};
-      for (const [id, a] of Object.entries(histData)) {
-        if (!a || typeof a !== 'object') continue;
-        const aOp = cleanOpId((a as any).op_numero || (a as any).op || '');
-        const aOpNoSpecial = aOp.replace(/[-_\s]/g, '').toUpperCase();
-        if (aOp === numClean || aOpNoSpecial === cleanNoSpecial) {
-          await set(ref(db, `historico_apontamentos/${id}`), null);
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('[Firebase] Erro ao limpar historico_apontamentos:', err);
-  }
 
-  try {
-    await set(ref(db, `apontamentos/${toFirebaseKey(keyWithOp)}`), null);
-    await set(ref(db, `apontamentos/${toFirebaseKey(keyNoOp)}`), null);
-    if (targetFirebaseKey !== keyWithOp && targetFirebaseKey !== keyNoOp) {
-      await set(ref(db, `apontamentos/${toFirebaseKey(targetFirebaseKey)}`), null);
-    }
-  } catch (err) {
-    console.warn('[Firebase] Erro ao limpar apontamentos/', err);
-  }
 
   // 3. Remove apontamentos no localStorage (STORAGE_APONTAMENTOS_KEY)
   const rawApts = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
@@ -3192,19 +2557,16 @@ export async function resetarOpCompleta(
     ultimaAtualizacao: Date.now()
   };
 
-  // 8. Gravação no Firebase Realtime Database
   const cleanUpdates = sanitizePayload(opUpdates);
+
   try {
-    const fbKey = toFirebaseKey(targetFirebaseKey);
-    await update(ref(db, `ordens_producao/${fbKey}`), cleanUpdates);
-    try {
-      await update(ref(db, `ordens/${toFirebaseKey(numClean)}`), cleanUpdates);
-    } catch {}
-    console.log(`[Firebase] Sucesso ao resetar OP completa ${targetFirebaseKey}`);
-  } catch (err) {
-    console.error('[Firebase] Erro ao resetar OP completa no Realtime Database:', err);
-    return { success: false, message: 'Erro ao resetar ordem no banco de dados.' };
-  }
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanOpId(matchedLocalKey)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cleanUpdates)
+    }).catch(() => {});
+  } catch {}
 
   // 9. Atualização no localStorage
   ordersMap[matchedLocalKey] = { ...targetOrder, ...cleanUpdates };
@@ -3229,10 +2591,7 @@ export async function resetarOpCompleta(
 export async function clearAllApontamentos(): Promise<void> {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
-  firebaseDelete('apontamentos');
-  try {
-    await set(ref(db, 'historico_apontamentos'), null);
-  } catch {}
+  
   broadcastUpdate();
 }
 
@@ -3266,13 +2625,13 @@ export async function addProductionOrder(order: ProductionOrder): Promise<void> 
   orders[order.op_numero] = cleanOrder;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
   try {
-    const opKey = toFirebaseKey(order.op_numero);
-    if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload(cleanOrder));
-    }
-  } catch (err) {
-    console.error('[Firebase] Erro ao adicionar ordem:', err);
-  }
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordens: [cleanOrder] })
+    }).catch(() => {});
+  } catch {}
   broadcastUpdate();
 }
 
@@ -3304,34 +2663,11 @@ export async function deleteProductionOrder(opNumero: string): Promise<void> {
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
 
   try {
-    const pureNum = cleanInput.replace(/^OP\s*/i, '').trim();
-    const keysToDelete = new Set([
-      toFirebaseKey(foundKey || ''),
-      toFirebaseKey(cleanInput),
-      toFirebaseKey(`OP ${pureNum}`),
-      toFirebaseKey(pureNum)
-    ]);
-
-    for (const k of keysToDelete) {
-      if (k) {
-        await set(ref(db, `ordens_producao/${k}`), null);
-      }
-    }
-
-    // Exclusão definitiva também no Firestore
-    const firestoreIds = [
-      cleanInput.replace(/\//g, '-'),
-      pureNum,
-      `OP ${pureNum}`
-    ];
-    for (const fsId of firestoreIds) {
-      try {
-        await deleteDoc(doc(firestore, 'ordens_producao', fsId));
-      } catch {}
-    }
-  } catch (err) {
-    console.error('[Firebase] Erro ao deletar ordem:', err);
-  }
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanOpId(cleanInput)}`, {
+      method: 'DELETE'
+    }).catch(() => {});
+  } catch {}
   broadcastUpdate();
 }
 
@@ -3360,14 +2696,7 @@ export async function updateProductionOrder(
   };
   orders[targetKey] = updated;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  try {
-    const opKey = toFirebaseKey(targetKey);
-    if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload(updates));
-    }
-  } catch (err) {
-    console.error('[Firebase] Erro ao atualizar ordem:', err);
-  }
+  
 
   // Sincronização assíncrona com API local Express/SQLite via PUT /api/ordens/:id
   try {
@@ -3426,17 +2755,7 @@ export async function addOpMessage(
 
   orders[targetKey] = currentOp;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  try {
-    const opKey = toFirebaseKey(targetKey);
-    if (opKey) {
-      await update(ref(db, `ordens_producao/${opKey}`), sanitizePayload({
-        mensagens: currentOp.mensagens,
-        ultimo_aviso: currentOp.ultimo_aviso
-      }));
-    }
-  } catch (err) {
-    console.error('[Firebase] Erro ao adicionar mensagem na OP:', err);
-  }
+  
   broadcastUpdate();
 }
 
@@ -3481,15 +2800,7 @@ export async function addOpOccurrence(
   const opId = opNumero.trim();
   const opKey = toFirebaseKey(opId);
 
-  // 1. Grava no Firebase Realtime Database (https://apontamentoop-default-rtdb.firebaseio.com)
-  try {
-    const updates: Record<string, any> = {};
-    updates[`ordens/${toFirebaseKey(opId)}/ocorrencias/${timestamp}`] = novaOcorrencia;
-    updates[`ordens_producao/${opKey}/ocorrencias/${timestamp}`] = novaOcorrencia;
-    await update(ref(db), sanitizePayload(updates));
-  } catch (err) {
-    console.warn('[RTDB] Erro ao gravar ocorrência no Realtime Database:', err);
-  }
+  
 
   // 2. Atualiza LocalStorage para disponibilidade imediata na tela
   try {
@@ -3525,7 +2836,8 @@ export async function clearAllOrders(): Promise<void> {
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
   localStorage.removeItem('pcp_orders');
   try {
-    set(ref(db, 'ordens_producao'), null);
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens`, { method: 'DELETE' }).catch(() => {});
   } catch {}
   broadcastUpdate();
 }
@@ -3819,21 +3131,7 @@ export async function saveMultipleOrders(
 
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
 
-  // Gravação direta no Firebase Realtime Database em lotes de 50
-  try {
-    const updateKeys = Object.keys(updates);
-    const CHUNK_SIZE = 50;
-    for (let i = 0; i < updateKeys.length; i += CHUNK_SIZE) {
-      const chunkKeys = updateKeys.slice(i, i + CHUNK_SIZE);
-      const chunkUpdates: Record<string, any> = {};
-      for (const k of chunkKeys) {
-        chunkUpdates[k] = updates[k];
-      }
-      await update(ref(db), sanitizePayload(chunkUpdates));
-    }
-  } catch (err) {
-    console.error('[Firebase RTDB] Erro ao sincronizar ordens via update:', err);
-  }
+  
 
   // Sincroniza em background com a API local SQLite se online
   try {
@@ -3863,11 +3161,7 @@ export function resetFactoryData(): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
   localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify({}));
-  firebaseDelete('apontamentos');
-  try {
-    set(ref(db, 'ordens_producao'), null);
-    set(ref(db, 'historico_apontamentos'), null);
-  } catch {}
+  
   broadcastUpdate();
 }
 
@@ -3914,10 +3208,13 @@ export async function handleConcluirEtapa(
   updates[`ordens_producao/${opKey}/etapas/${etapaNome}`] = etapaAtualizada;
 
   try {
-    await update(ref(db), sanitizePayload(updates));
-  } catch (err) {
-    console.warn('[handleConcluirEtapa] Erro ao sincronizar RTDB:', err);
-  }
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanOpId(opKey)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ etapas: { [etapaNome]: etapaAtualizada } })
+    }).catch(() => {});
+  } catch {}
 
   broadcastUpdate();
   return etapaAtualizada;

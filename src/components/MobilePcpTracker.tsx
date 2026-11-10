@@ -264,7 +264,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
     return map;
   }, [apontamentos]);
 
-  // Mantém a OP selecionada rigorosamente sincronizada caso seja atualizada no Firebase/computador
+  // Mantém a OP selecionada rigorosamente sincronizada caso seja atualizada no servidor local
   useEffect(() => {
     if (selectedOp) {
       const opNumKey = selectedOp.op_numero;

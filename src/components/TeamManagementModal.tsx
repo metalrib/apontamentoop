@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Operator, TerminalConfig, TERMINALS } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
-import { db, firestore, ref, update, onValue, set } from '../services/firebase';
-import { doc, updateDoc, arrayRemove } from 'firebase/firestore';
+
 import {
   fetchOperators,
   saveOperators,
@@ -173,70 +172,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       loadData();
       resetForm();
 
-      // Sincronização reativa direta no Firebase Realtime Database
-      const colabRef = ref(db, 'config_colaboradores');
-      const unsubFb = onValue(colabRef, (snapshot) => {
-        try {
-          if (snapshot.exists()) {
-            const val = snapshot.val();
-            const list: Operator[] = Array.isArray(val)
-              ? val.filter(Boolean)
-              : Object.values(val || {});
-            if (list.length > 0) {
-              setOperators(list);
-            }
-          }
-        } catch (err) {
-          console.error('[TeamManagementModal] Erro ao sincronizar colaboradores Firebase:', err);
-        }
-      });
-
-      // Sincronização reativa de terminais e setores (config_terminais)
-      const termRef = ref(db, 'config_terminais');
-      const unsubFbTerm = onValue(termRef, (snapshot) => {
-        try {
-          if (snapshot.exists()) {
-            const val = snapshot.val();
-            if (Array.isArray(val) && val.length > 0) {
-              setTerminals(val);
-            }
-          }
-        } catch (err) {
-          console.error('[TeamManagementModal] Erro ao sincronizar terminais Firebase:', err);
-        }
-      });
-
-      // Sincronização reativa direta de configuracoes_terminais (Firebase RTDB)
-      const cfgTermRef = ref(db, 'configuracoes_terminais');
-      const unsubFbCfgTerm = onValue(cfgTermRef, (snapshot) => {
-        try {
-          if (snapshot.exists()) {
-            const val = snapshot.val();
-            if (val && typeof val === 'object') {
-              setTerminals((prev) => {
-                const base = prev.length > 0 ? prev : fetchTerminalsConfig();
-                return base.map((t) => {
-                  const termData = val[t.id] || val[String(t.id)];
-                  if (termData) {
-                    const secs = Array.isArray(termData.setores)
-                      ? termData.setores
-                      : Array.isArray(termData.sectors)
-                      ? termData.sectors
-                      : null;
-                    if (secs) {
-                      return { ...t, sectors: [...secs] };
-                    }
-                  }
-                  return t;
-                });
-              });
-            }
-          }
-        } catch (err) {
-          console.error('[TeamManagementModal] Erro ao sincronizar configuracoes_terminais Firebase:', err);
-        }
-      });
-
       const handleDataUpdate = () => {
         loadData();
       };
@@ -249,9 +184,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       });
 
       return () => {
-        unsubFb();
-        unsubFbTerm();
-        unsubFbCfgTerm();
         window.removeEventListener('metalrib_sectors_updated', handleDataUpdate);
         window.removeEventListener('metalrib_data_updated', handleDataUpdate);
         window.removeEventListener('metalrib_operators_updated', handleDataUpdate);
@@ -558,20 +490,17 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         ativo: true
       };
 
-      // 1. Grava diretamente no Firebase Realtime Database (/config_colaboradores/<id>)
-      await update(ref(db, `config_colaboradores/${targetId}`), sanitizePayload(payload));
-
-      // 2. Atualiza estado e emite broadcast para totens
+      // Atualiza estado e emite broadcast para totens
       await updateColaboradorFirebase(targetId, payload);
 
       playSuccessStart();
-      showNotification(`Colaborador "${payload.nome}" sincronizado no Firebase com sucesso!`);
+      showNotification(`Colaborador "${payload.nome}" salvo com sucesso!`);
       loadData();
       resetForm();
       if (onOperatorsUpdated) onOperatorsUpdated();
     } catch (err: any) {
       console.error('[TeamManagementModal] Erro ao salvar colaborador:', err);
-      setFormError('Erro ao gravar no Firebase: ' + (err?.message || 'Falha de comunicação.'));
+      setFormError('Erro ao gravar colaborador: ' + (err?.message || 'Falha de comunicação.'));
     } finally {
       setIsSaving(false);
     }
@@ -582,11 +511,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     if (!operatorToDelete) return;
     playClick();
     const id = operatorToDelete.id;
-    try {
-      await set(ref(db, `config_colaboradores/${id}`), null);
-    } catch (err) {
-      console.error('[Firebase] Erro ao remover de config_colaboradores:', err);
-    }
     deleteOperator(id);
     loadData();
     if (editingId === id) {
@@ -600,16 +524,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   // Restauração de Operadores com Modal In-App
   const confirmResetAction = async () => {
     playClick();
-    const defaultList = resetOperatorsToDefault();
-    try {
-      const fbMap: Record<string, any> = {};
-      defaultList.forEach((op) => {
-        fbMap[op.id] = op;
-      });
-      await set(ref(db, 'config_colaboradores'), fbMap);
-    } catch (err) {
-      console.error('[Firebase] Erro ao restaurar config_colaboradores:', err);
-    }
+    resetOperatorsToDefault();
     loadData();
     resetForm();
     setShowResetConfirmModal(false);
@@ -702,23 +617,11 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         })
       );
 
-      // 3. Persiste via mesStorage (Firebase RTDB, localStorage e eventos para terminais e operadores)
+      // Persiste via mesStorage (localStorage e eventos para terminais e operadores)
       await removeSectorFromTerminal(terminalId, setorNome);
-
-      // 4. Atualiza no Firebase Firestore se disponível
-      try {
-        const terminalRef = doc(firestore, 'configuracoes_terminais', terminalId);
-        await updateDoc(terminalRef, {
-          setores: arrayRemove(setorNome),
-          sectors: arrayRemove(setorNome),
-          atualizadoEm: new Date().toISOString()
-        });
-      } catch (fsError) {
-        console.warn('[Firestore] updateDoc em configuracoes_terminais (RTDB garantiu persistência):', fsError);
-      }
     } catch (error) {
       console.error('Erro ao excluir setor do terminal:', error);
-      alert('Erro ao excluir setor. Verifique a conexão com o banco.');
+      alert('Erro ao excluir setor.');
     }
   }
 
@@ -791,7 +694,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
               </h2>
               <p className="text-xs text-slate-400 font-mono">
                 {activeTab === 'operators'
-                  ? 'Configure terminais e setores oficiais com sincronização em tempo real no Firebase'
+                  ? 'Configure terminais e setores oficiais com sincronização em tempo real'
                   : 'Gerencie a lista de setores ativos distribuídos pelos 5 terminais'}
               </p>
             </div>
@@ -1300,7 +1203,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                       {isSaving ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Gravando no Firebase...</span>
+                          <span>Gravando...</span>
                         </>
                       ) : (
                         <>
@@ -1737,7 +1640,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
         {/* Rodapé do Modal */}
         <div className="bg-[#0e172e] border-t border-blue-900/80 px-6 py-3 flex items-center justify-between text-xs font-mono text-slate-400">
-          <span>Sincronização em tempo real: Firebase (/config_colaboradores) & Totens</span>
+          <span>Sincronização em tempo real: Servidor Local & Totens</span>
           <button
             onClick={onClose}
             className="px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold transition cursor-pointer"
@@ -1884,7 +1787,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                 <strong className="text-rose-400 font-bold font-mono">
                   {operatorToDelete.nome || operatorToDelete.name} ({operatorToDelete.badge || operatorToDelete.codigo})
                 </strong>{' '}
-                da escala da fábrica e do Firebase?
+                da escala da fábrica?
                 <br />
                 <span className="text-slate-400 mt-1 block">
                   Ele deixará de aparecer como opção nos totens de apontamento imediatamente.
@@ -1921,7 +1824,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
               <h3 className="text-lg font-bold text-white">Restaurar Colaboradores Padrão?</h3>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Esta ação redefinirá a equipe para a lista oficial com os 17 setores padronizados nos terminais e sincronizará tudo com o Firebase.
+                Esta ação redefinirá a equipe para a lista oficial com os 17 setores padronizados nos terminais e sincronizará tudo com o sistema.
               </p>
 
               <div className="flex items-center gap-3 pt-2">

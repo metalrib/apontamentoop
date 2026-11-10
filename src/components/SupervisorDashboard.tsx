@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, obterEtapasDaRota } from '../utils/routeEngine';
-import { resetFactoryData, addProductionOrder, getSavedFirebaseConfig, saveFirebaseConfig, FirebaseConnectionConfig } from '../services/mesStorage';
+import { resetFactoryData, addProductionOrder } from '../services/mesStorage';
 import { TerminalsOverview } from './TerminalsOverview';
 import { X, Factory, RefreshCw, Download, Database, Plus, CheckCircle2, Clock, Monitor, ExternalLink } from 'lucide-react';
 import { playClick } from '../utils/audio';
@@ -19,16 +19,12 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
   onClose,
   onSelectOp
 }) => {
-  const [activeTab, setActiveTab] = useState<'ops' | 'terminals' | 'logs' | 'firebase'>('ops');
+  const [activeTab, setActiveTab] = useState<'ops' | 'terminals' | 'logs' | 'server'>('ops');
   const [showNewOpModal, setShowNewOpModal] = useState<boolean>(false);
   const [newOpNumber, setNewOpNumber] = useState<string>('');
   const [newOpDesc, setNewOpDesc] = useState<string>('FOLHA PORTA INOX 304 2200x1000');
   const [newOpQtd, setNewOpQtd] = useState<number>(5);
   const [newOpLote, setNewOpLote] = useState<string>('LT-2026-X1');
-
-  // Firebase Config State
-  const [firebaseConfig, setFirebaseConfig] = useState<FirebaseConnectionConfig>(getSavedFirebaseConfig());
-  const [fbSaveMessage, setFbSaveMessage] = useState<string | null>(null);
 
   const orderList = Object.values(orders);
   const activeApontamentos = apontamentos.filter(a => a.status === 'EM_ANDAMENTO');
@@ -48,13 +44,6 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
 
     setShowNewOpModal(false);
     setNewOpNumber('');
-  };
-
-  const handleSaveFirebase = (e: React.FormEvent) => {
-    e.preventDefault();
-    saveFirebaseConfig(firebaseConfig);
-    setFbSaveMessage('Configurações salvas com sucesso!');
-    setTimeout(() => setFbSaveMessage(null), 3000);
   };
 
   const handleDownloadStandaloneHtml = () => {
@@ -83,7 +72,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                 PAINEL DE SUPERVISÃO MES
               </h2>
               <p className="text-xs text-slate-400 font-mono">
-                Visão Geral Chão de Fábrica · 5 Terminais Totem · Firebase Realtime DB
+                Visão Geral Chão de Fábrica · 5 Terminais Totem · Servidor Local SQLite
               </p>
             </div>
           </div>
@@ -143,14 +132,14 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
             Apontamentos Registados ({apontamentos.length})
           </button>
           <button
-            onClick={() => setActiveTab('firebase')}
+            onClick={() => setActiveTab('server')}
             className={`px-4 py-2.5 border-b-2 transition whitespace-nowrap cursor-pointer ${
-              activeTab === 'firebase'
-                ? 'border-amber-400 text-amber-400 bg-amber-500/10'
+              activeTab === 'server'
+                ? 'border-blue-400 text-blue-400 bg-blue-500/10'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Conexão Firebase Realtime DB
+            Servidor Local / SQLite
           </button>
         </div>
 
@@ -161,7 +150,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs font-mono text-slate-400 uppercase">
-                  Lista sincronizada do Firebase (ordens_producao)
+                  Lista de Ordens de Produção (Servidor Local SQLite)
                 </span>
                 <div className="flex items-center gap-2">
                   <button
@@ -339,86 +328,39 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
             </div>
           )}
 
-          {/* TAB 4: FIREBASE REALTIME DB CONFIG */}
-          {activeTab === 'firebase' && (
+          {/* TAB 4: SERVIDOR LOCAL / SQLITE */}
+          {activeTab === 'server' && (
             <div className="space-y-6 max-w-2xl mx-auto py-4">
               <div className="p-5 bg-slate-900/80 border border-slate-800 rounded-2xl">
                 <div className="flex items-center gap-3 mb-3">
-                  <Database className="w-6 h-6 text-amber-400" />
+                  <Database className="w-6 h-6 text-blue-400" />
                   <div>
                     <h3 className="text-lg font-bold text-white">
-                      Conexão com Firebase Realtime Database
+                      Servidor Local Metalrib MES
                     </h3>
                     <p className="text-xs text-slate-400">
-                      O sistema opera nativamente em tempo real entre abas e terminais. Você também pode apontar para sua instância Google Firebase.
+                      O sistema opera estritamente via API local SQLite e Socket.io em tempo real na rede local.
                     </p>
                   </div>
                 </div>
 
-                <form onSubmit={handleSaveFirebase} className="space-y-4 mt-4">
-                  <div>
-                    <label className="text-xs font-mono text-slate-400 block mb-1">
-                      DATABASE URL (Ex: https://meu-projeto-default-rtdb.firebaseio.com)
-                    </label>
-                    <input
-                      type="text"
-                      value={firebaseConfig.databaseURL}
-                      onChange={(e) => setFirebaseConfig({ ...firebaseConfig, databaseURL: e.target.value })}
-                      placeholder="https://sua-empresa-mes-rtdb.firebaseio.com"
-                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:outline-none"
-                    />
+                <div className="space-y-3 mt-4 text-xs font-mono">
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <span className="text-slate-400">URL do Servidor:</span>
+                    <span className="text-blue-400 font-bold">http://192.168.0.12:3001</span>
                   </div>
-
-                  <div>
-                    <label className="text-xs font-mono text-slate-400 block mb-1">
-                      API KEY (Opcional)
-                    </label>
-                    <input
-                      type="text"
-                      value={firebaseConfig.apiKey || ''}
-                      onChange={(e) => setFirebaseConfig({ ...firebaseConfig, apiKey: e.target.value })}
-                      placeholder="AIzaSy..."
-                      className="w-full px-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-white font-mono text-sm focus:border-amber-400 focus:outline-none"
-                    />
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <span className="text-slate-400">Base de Dados:</span>
+                    <span className="text-emerald-400 font-bold">server/metalrib_mes.db (SQLite)</span>
                   </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="fb_enabled"
-                      checked={firebaseConfig.enabled}
-                      onChange={(e) => setFirebaseConfig({ ...firebaseConfig, enabled: e.target.checked })}
-                      className="w-4 h-4 accent-amber-500 rounded"
-                    />
-                    <label htmlFor="fb_enabled" className="text-xs text-slate-300 font-semibold cursor-pointer">
-                      Ativar sincronização externa com Firebase Cloud
-                    </label>
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <span className="text-slate-400">Sincronização:</span>
+                    <span className="text-emerald-400 font-bold">Socket.io (Tempo Real Ativo)</span>
                   </div>
-
-                  {fbSaveMessage && (
-                    <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs rounded-xl flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>{fbSaveMessage}</span>
-                    </div>
-                  )}
-
-                  <div className="pt-2">
-                    <button
-                      type="submit"
-                      className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-xl transition"
-                    >
-                      Salvar Parâmetros
-                    </button>
+                  <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex justify-between items-center">
+                    <span className="text-slate-400">Endpoint REST:</span>
+                    <span className="text-slate-200">/api/ordens</span>
                   </div>
-                </form>
-              </div>
-
-              {/* Informações sobre Roteiro e Chaves */}
-              <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 text-xs text-slate-400 space-y-2">
-                <div className="font-bold text-slate-200">Estrutura de Nós do Firebase Realtime DB:</div>
-                <div className="font-mono text-slate-300">
-                  📁 <span className="text-amber-400">ordens_producao/</span>&lt;op_numero&gt;<br />
-                  📁 <span className="text-emerald-400">apontamentos/</span>&lt;op_numero&gt;/&lt;id_unico&gt;
                 </div>
               </div>
             </div>

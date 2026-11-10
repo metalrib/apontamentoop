@@ -4,7 +4,6 @@ import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, resetarOpCompleta, cleanOpId, formatOpNumber } from '../services/mesStorage';
-import { ref, update, rtdb } from '../services/firebase';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -172,43 +171,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
     const opKeyWithPrefix = `OP ${opKey}`;
 
     try {
-      const timestamp = Date.now();
-      const updates: Record<string, any> = {};
-
-      updates[`ordens/${opKey}/quantidadeFisica`] = novaQtd;
-      updates[`ordens/${opKey}/quantidade`] = novaQtd;
-      updates[`ordens/${opKey}/quantidade_total`] = novaQtd;
-      updates[`ordens/${opKey}/ultimaAtualizacao`] = timestamp;
-
-      updates[`ordens/${opKeyWithPrefix}/quantidadeFisica`] = novaQtd;
-      updates[`ordens/${opKeyWithPrefix}/quantidade`] = novaQtd;
-      updates[`ordens/${opKeyWithPrefix}/quantidade_total`] = novaQtd;
-      updates[`ordens/${opKeyWithPrefix}/ultimaAtualizacao`] = timestamp;
-
-      updates[`ordens_producao/${opKey}/quantidadeFisica`] = novaQtd;
-      updates[`ordens_producao/${opKey}/quantidade`] = novaQtd;
-      updates[`ordens_producao/${opKey}/quantidade_total`] = novaQtd;
-      updates[`ordens_producao/${opKey}/ultimaAtualizacao`] = timestamp;
-
-      updates[`ordens_producao/${opKeyWithPrefix}/quantidadeFisica`] = novaQtd;
-      updates[`ordens_producao/${opKeyWithPrefix}/quantidade`] = novaQtd;
-      updates[`ordens_producao/${opKeyWithPrefix}/quantidade_total`] = novaQtd;
-      updates[`ordens_producao/${opKeyWithPrefix}/ultimaAtualizacao`] = timestamp;
-
-      if (isDupla) {
-        updates[`ordens/${opKey}/quantidadeFolhas`] = novaQtd;
-        updates[`ordens/${opKey}/isDupla`] = true;
-        updates[`ordens/${opKeyWithPrefix}/quantidadeFolhas`] = novaQtd;
-        updates[`ordens/${opKeyWithPrefix}/isDupla`] = true;
-        updates[`ordens_producao/${opKey}/quantidadeFolhas`] = novaQtd;
-        updates[`ordens_producao/${opKey}/isDupla`] = true;
-        updates[`ordens_producao/${opKeyWithPrefix}/quantidadeFolhas`] = novaQtd;
-        updates[`ordens_producao/${opKeyWithPrefix}/isDupla`] = true;
-      }
-
-      await update(ref(rtdb), updates);
-
-      // Também sincroniza localmente no mesStorage para feedback imediato
+      // Sincroniza via mesStorage (local + Socket.io / SQLite)
       await updateProductionOrder(targetOp.op_numero || targetOp.numero || opKey, {
         quantidade_total: novaQtd,
         quantidade: novaQtd,

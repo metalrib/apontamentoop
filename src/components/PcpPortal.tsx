@@ -9,7 +9,6 @@ import {
   checkOp100Percent
 } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber } from '../services/mesStorage';
-import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
@@ -263,12 +262,11 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     e.target.value = '';
   };
 
-  // Função para salvar ordens importadas diretamente no Firebase Realtime Database
+  // Função para salvar ordens importadas via mesStorage (SQLite / Socket.io / Local)
   async function salvarOrdensImportadas(listaOrdens: any[]) {
     setIsImportingNomus(true);
     try {
       const ordersMap: Record<string, ProductionOrder> = {};
-      const allRtdbUpdates: Record<string, any> = {};
 
       for (const op of listaOrdens) {
         const rawId = op.id || op.numeroOp || op.numero || (op as any).op_numero || (op as any).opNumero || '';
@@ -285,61 +283,30 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           ultimaAtualizacao: Date.now()
         }));
 
-        const opKey = toFirebaseKey(docId);
-        const cleanKey = toFirebaseKey(cleanId);
         ordersMap[docId] = safeOp;
-        allRtdbUpdates[`ordens_producao/${opKey}`] = safeOp;
-        allRtdbUpdates[`ordens/${cleanKey}`] = safeOp;
       }
 
-      // 1. Gravação mandatória no Firebase Realtime Database (https://apontamentoop-default-rtdb.firebaseio.com)
-      if (replaceExistingOrders) {
-        // Se a opção de substituir estiver marcada, define atomicamente os nós /ordens_producao e /ordens
-        const ordersNode: Record<string, any> = {};
-        const cleanOrdersNode: Record<string, any> = {};
-        for (const [docId, safeOp] of Object.entries(ordersMap)) {
-          const opKey = toFirebaseKey(docId);
-          const cleanKey = toFirebaseKey(cleanOpId(docId));
-          ordersNode[opKey] = safeOp;
-          cleanOrdersNode[cleanKey] = safeOp;
-        }
-        await Promise.all([
-          set(ref(db, 'ordens_producao'), ordersNode),
-          set(ref(db, 'ordens'), cleanOrdersNode)
-        ]);
-      } else {
-        // Se for mesclagem, aplica updates em lotes de 50 no Realtime Database para máxima segurança
-        const TAMANHO_LOTE = 50;
-        const keys = Object.keys(allRtdbUpdates);
-        for (let i = 0; i < keys.length; i += TAMANHO_LOTE) {
-          const chunkKeys = keys.slice(i, i + TAMANHO_LOTE);
-          const chunkUpdates: Record<string, any> = {};
-          for (const k of chunkKeys) {
-            chunkUpdates[k] = allRtdbUpdates[k];
-          }
-          await update(ref(db), sanitizePayload(chunkUpdates));
-        }
-      }
+      await saveMultipleOrders(Object.values(ordersMap), replaceExistingOrders);
 
-      // 2. Persistência imediata no LocalStorage e notificação ao PCP
+      // Persistência imediata no LocalStorage e notificação ao PCP
       localStorage.setItem('mes_pcp_orders', JSON.stringify(ordersMap));
       if (onOrdersUpdated) {
         onOrdersUpdated(ordersMap);
       }
 
       playSuccessStart();
-      alert(`${listaOrdens.length} Ordens de Produção gravadas com sucesso no Firebase Realtime Database!`);
+      alert(`${listaOrdens.length} Ordens de Produção salvas com sucesso no servidor local!`);
       setShowNomusImportModal(false);
       window.location.reload();
     } catch (err: any) {
-      console.error('Falha ao gravar ordens no Realtime Database:', err);
-      alert('Erro ao persistir no Firebase Realtime Database: ' + (err?.message || err));
+      console.error('Falha ao gravar ordens:', err);
+      alert('Erro ao persistir ordens: ' + (err?.message || err));
     } finally {
       setIsImportingNomus(false);
     }
   }
 
-  // Confirma a importação das OPs do Nomus direto para o Firebase Realtime Database
+  // Confirma a importação das OPs do Nomus direto para o sistema local
   const handleConfirmImportNomus = async () => {
     if (!nomusParseResult || nomusParseResult.orders.length === 0 || isImportingNomus) return;
     playClick();
@@ -350,7 +317,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const handleClearOrdersList = async () => {
     playClick();
     const confirmed = window.confirm(
-      'Deseja realmente apagar todas as Ordens de Produção carregadas no sistema e no Firebase? Esta ação deixará o painel zerado para receber os dados reais importados.'
+      'Deseja realmente apagar todas as Ordens de Produção carregadas no sistema? Esta ação deixará o painel zerado para receber os dados reais importados.'
     );
     if (!confirmed) return;
     await executeClearAllOrders();

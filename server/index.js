@@ -90,6 +90,20 @@ app.put('/api/ordens/:id', (req, res) => {
   res.json({ success: true });
 });
 
+app.delete('/api/ordens/:id', (req, res) => {
+  const { id } = req.params;
+  db.prepare('DELETE FROM ordens WHERE id = ?').run(id);
+  const todas = db.prepare('SELECT * FROM ordens').all().map(r => ({ ...r, etapas: JSON.parse(r.etapas || '[]') }));
+  io.emit('ordens_atualizadas', todas);
+  res.json({ success: true });
+});
+
+app.delete('/api/ordens', (req, res) => {
+  db.prepare('DELETE FROM ordens').run();
+  io.emit('ordens_atualizadas', []);
+  res.json({ success: true });
+});
+
 io.on('connection', (socket) => {
   console.log('Cliente ligado via WebSocket:', socket.id);
 });

@@ -19,7 +19,6 @@ import {
   getLocalSocket,
   isLocalApiActive
 } from './services/mesStorage';
-// import { db, ref, onValue } from './services/firebase';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
 import { BarcodeScannerInput } from './components/BarcodeScannerInput';
@@ -89,7 +88,7 @@ export default function App() {
 
   const isFetchingRef = useRef<boolean>(false);
 
-  // Carrega OPs e Apontamentos do Storage/Firebase de forma estável (sem loops)
+  // Carrega OPs e Apontamentos da API Local / Cache de forma estável (sem loops)
   const loadData = useCallback(async () => {
     if (isFetchingRef.current) return;
     isFetchingRef.current = true;
