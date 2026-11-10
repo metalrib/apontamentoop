@@ -27,6 +27,23 @@ try {
   db.exec(`ALTER TABLE ordens ADD COLUMN requer_laser INTEGER DEFAULT 0;`);
 } catch (e) {}
 
+// Limpeza preventiva de duplicações e padronização de IDs
+try {
+  db.exec(`
+    DELETE FROM ordens 
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid) 
+      FROM ordens 
+      GROUP BY numero
+    );
+  `);
+} catch (e) {}
+
+// Garantir índice UNIQUE em numero para suportar UPSERT nativo
+try {
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ordens_numero ON ordens(numero);`);
+} catch (e) {}
+
 // Rotas da API REST
 app.get('/api/ordens', (req, res) => {
   const rows = db.prepare('SELECT * FROM ordens').all();
@@ -39,31 +56,94 @@ app.get('/api/ordens', (req, res) => {
   res.json(formatadas);
 });
 
+// Endpoint dedicado para limpeza de registros duplicados
+app.post('/api/ordens/limpar-duplicadas', (req, res) => {
+  const info = db.prepare(`
+    DELETE FROM ordens 
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid) 
+      FROM ordens 
+      GROUP BY numero
+    )
+  `).run();
+
+  const todas = db.prepare('SELECT * FROM ordens').all().map(r => ({
+    ...r,
+    requerLaser: Boolean(r.requerLaser || r.requer_laser),
+    requer_laser: Boolean(r.requerLaser || r.requer_laser),
+    etapas: JSON.parse(r.etapas || '[]')
+  }));
+  io.emit('ordens_atualizadas', todas);
+  res.json({ success: true, removidas: info.changes, total: todas.length });
+});
+
 app.post('/api/ordens', (req, res) => {
-  const { ordens } = req.body;
+  const { ordens, replaceAll, modoImportacao } = req.body;
   if (!Array.isArray(ordens)) return res.status(400).json({ error: 'Formato inválido' });
 
+  // Se o modo for 'substituir' ou replaceAll for true:
+  // Remove APENAS as ordens não iniciadas para renovar a carga de trabalho sem apagar OPs em andamento
+  const deveSubstituir = modoImportacao === 'substituir' || replaceAll === true;
+  if (deveSubstituir) {
+    db.prepare(`
+      DELETE FROM ordens 
+      WHERE (
+        status = 'pendente' 
+        OR status LIKE 'Aguardando Início%' 
+        OR status = 'Liberada' 
+        OR status = 'LIBERADA'
+        OR status = 'Produzindo Hoje'
+        OR status = 'Falta Injetar'
+        OR status IS NULL
+      )
+    `).run();
+  }
+
+  // UPSERT inteligente com ON CONFLICT(numero)
   const stmt = db.prepare(`
-    INSERT OR REPLACE INTO ordens (
+    INSERT INTO ordens (
       id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica, requerLaser, requer_laser, criadoEm, atualizadoEm
     ) VALUES (
       @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica, @requerLaser, @requer_laser, @criadoEm, @atualizadoEm
     )
+    ON CONFLICT(numero) DO UPDATE SET
+      codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
+      descricao = CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE ordens.descricao END,
+      cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
+      tipoOrdem = CASE WHEN excluded.tipoOrdem != '' THEN excluded.tipoOrdem ELSE ordens.tipoOrdem END,
+      quantidadeFisica = excluded.quantidadeFisica,
+      requerLaser = CASE WHEN excluded.requerLaser = 1 THEN 1 ELSE ordens.requerLaser END,
+      requer_laser = CASE WHEN excluded.requer_laser = 1 THEN 1 ELSE ordens.requer_laser END,
+      status = CASE 
+        WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
+        THEN excluded.status 
+        ELSE ordens.status 
+      END,
+      etapas = CASE 
+        WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
+        THEN excluded.etapas 
+        ELSE ordens.etapas 
+      END,
+      atualizadoEm = excluded.atualizadoEm
   `);
 
   const transacao = db.transaction((lista) => {
     for (const item of lista) {
+      const rawNum = String(item.numero || item.id || '').replace(/^(\s*OP\s*)+/i, '').trim();
+      if (!rawNum) continue;
+      const formattedNum = `OP ${rawNum}`;
       const laserVal = Boolean(item.requerLaser || item.requer_laser) ? 1 : 0;
+
       stmt.run({
-        id: item.id || item.numero,
-        numero: item.numero || item.id,
-        codigo: item.codigo || '',
+        id: formattedNum,
+        numero: formattedNum,
+        codigo: item.codigo || item.codigoProduto || '',
         descricao: item.descricao || item.produto || '',
         cliente: item.cliente || '',
         tipoOrdem: item.tipoOrdem || 'Padrão',
         status: item.status || 'pendente',
         etapas: JSON.stringify(item.etapas || []),
-        quantidadeFisica: Number(item.quantidadeFisica || item.quantidade || 1),
+        quantidadeFisica: Number(item.quantidadeFisica || item.quantidade_total || item.quantidade || 1),
         requerLaser: laserVal,
         requer_laser: laserVal,
         criadoEm: Number(item.criadoEm || Date.now()),
@@ -73,6 +153,16 @@ app.post('/api/ordens', (req, res) => {
   });
 
   transacao(ordens);
+
+  // Garantia absoluta de deduplicação pós-inserção
+  db.prepare(`
+    DELETE FROM ordens 
+    WHERE rowid NOT IN (
+      SELECT MIN(rowid) 
+      FROM ordens 
+      GROUP BY numero
+    )
+  `).run();
   
   const todas = db.prepare('SELECT * FROM ordens').all().map(r => ({
     ...r,
@@ -81,7 +171,7 @@ app.post('/api/ordens', (req, res) => {
     etapas: JSON.parse(r.etapas || '[]')
   }));
   io.emit('ordens_atualizadas', todas);
-  res.json({ success: true, count: ordens.length });
+  res.json({ success: true, count: todas.length });
 });
 
 app.put('/api/ordens/:id', (req, res) => {

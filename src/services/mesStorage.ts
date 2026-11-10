@@ -2902,12 +2902,33 @@ export async function saveMultipleOrders(
   replaceAll: boolean = false
 ): Promise<SaveMultipleOrdersResult> {
   const currentOrders = await fetchProductionOrders();
-  const orders: Record<string, ProductionOrder> = replaceAll ? {} : { ...currentOrders };
+  const orders: Record<string, ProductionOrder> = {};
+
+  if (replaceAll) {
+    // Modo "Substituir lista atual": Preserva OPs que já foram iniciadas na fábrica
+    Object.entries(currentOrders).forEach(([k, o]) => {
+      const isStarted = o.status === 'EM_PRODUCAO' || 
+        o.statusExecucao === 'em_andamento' || 
+        (o.apontamentos && Object.keys(o.apontamentos).length > 0) ||
+        (Array.isArray(o.etapas) && o.etapas.some((e: any) => e && (e.concluidas > 0 || e.status === 'EM_PRODUCAO' || e.status === 'CONCLUIDO')));
+      if (isStarted) {
+        const cleanK = cleanOpId(k);
+        orders[`OP ${cleanK}`] = o;
+      }
+    });
+  } else {
+    // Modo "Mesclar / Atualizar existentes": Mantém todas as OPs pré-existentes
+    Object.entries(currentOrders).forEach(([k, o]) => {
+      const cleanK = cleanOpId(k);
+      orders[`OP ${cleanK}`] = o;
+    });
+  }
+
   let count = 0;
   const updates: Record<string, any> = {};
 
   for (const opImportada of newOrders) {
-    const numeroOp = String(
+    const rawNum = String(
       (opImportada as any).numeroOp ||
       (opImportada as any).numeroOP ||
       opImportada.op_numero ||
@@ -2916,13 +2937,15 @@ export async function saveMultipleOrders(
       ''
     ).trim();
 
-    if (!numeroOp) continue;
+    const cleanNum = cleanOpId(rawNum);
+    if (!cleanNum) continue;
+    const formattedDocId = `OP ${cleanNum}`;
 
-    // Normalização para busca em memória / RTDB
-    const normNumeroOp = numeroOp.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toUpperCase();
+    // Normalização para busca em memória
+    const normNumeroOp = cleanNum.toUpperCase();
     const existingOrderKey = Object.keys(orders).find((k) => {
-      const normK = k.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '').toUpperCase();
-      return k === numeroOp || normK === normNumeroOp;
+      const normK = cleanOpId(k).toUpperCase();
+      return normK === normNumeroOp;
     });
     const existingLocalOrder = existingOrderKey ? orders[existingOrderKey] : undefined;
 
@@ -2932,16 +2955,17 @@ export async function saveMultipleOrders(
     const rotasCalculadas = rotaInfo.rota && rotaInfo.rota.length > 0 ? rotaInfo.rota : obterEtapasDaRota(opImportada);
     const etapaInicial = rotasCalculadas[0] || 'Corte';
     const statusInicial = `Aguardando Início em: ${etapaInicial}`;
-    const opKey = toFirebaseKey(numeroOp);
+    const opKey = toFirebaseKey(formattedDocId);
 
     if (!isExisting) {
       // 2. Se a OP NÃO existir: crie o registro normalmente com os campos padrão da rota e status inicial
       const cleanNewOp: ProductionOrder = {
         ...opImportada,
-        op_numero: numeroOp,
-        numero: numeroOp,
-        numeroOP: numeroOp,
-        numeroOp: numeroOp,
+        id: formattedDocId,
+        op_numero: formattedDocId,
+        numero: formattedDocId,
+        numeroOP: formattedDocId,
+        numeroOp: formattedDocId,
         quantidade_total: qtd,
         quantidade: qtd,
         familia: rotaInfo.familia,
@@ -2970,7 +2994,10 @@ export async function saveMultipleOrders(
 
       const serializableNew = JSON.parse(JSON.stringify(cleanNewOp));
       updates[`ordens_producao/${opKey}`] = serializableNew;
-      orders[numeroOp] = cleanNewOp;
+      if (existingOrderKey && existingOrderKey !== formattedDocId) {
+        delete orders[existingOrderKey];
+      }
+      orders[formattedDocId] = cleanNewOp;
       count++;
     } else {
       // 3. Se a OP JÁ existir:
@@ -3165,14 +3192,15 @@ export async function saveMultipleOrders(
 
       const serializablePreserved = JSON.parse(JSON.stringify(opPreservada));
       updates[`ordens_producao/${opKey}`] = serializablePreserved;
-      orders[existingOrderKey || numeroOp] = opPreservada;
+      if (existingOrderKey && existingOrderKey !== formattedDocId) {
+        delete orders[existingOrderKey];
+      }
+      orders[formattedDocId] = opPreservada;
       count++;
     }
   }
 
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-
-  
 
   // Sincroniza em background com a API local SQLite se online
   try {
@@ -3181,7 +3209,11 @@ export async function saveMultipleOrders(
     fetch(`${localUrl}/api/ordens`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ordens: ordensArray })
+      body: JSON.stringify({
+        ordens: ordensArray,
+        replaceAll,
+        modoImportacao: replaceAll ? 'substituir' : 'mesclar'
+      })
     }).catch(() => {});
   } catch {}
 
@@ -3193,6 +3225,28 @@ export async function saveMultipleOrders(
       return this.count;
     }
   };
+}
+
+/**
+ * Executa a deduplicação de ordens no SQLite e sincroniza a lista limpa
+ */
+export async function limparOrdensDuplicadas(): Promise<{ success: boolean; removidas: number; total: number }> {
+  try {
+    const localUrl = getLocalServerUrl();
+    const res = await fetch(`${localUrl}/api/ordens/limpar-duplicadas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+
+    // Atualiza armazenamento local com a lista limpa
+    const orders = await fetchProductionOrders();
+    localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
+    broadcastUpdate();
+    return data;
+  } catch (err: any) {
+    return { success: false, removidas: 0, total: 0 };
+  }
 }
 
 /**
