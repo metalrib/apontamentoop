@@ -281,17 +281,21 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     if (evalResult) {
       const finalizadasEval = evalResult.finalizadas || 0;
       const isComplete = finalizadasEval >= qtdTotal;
+      const etapaConcluidas = Number(etapaEncontrada?.concluidas ?? etapaEncontrada?.quantidadeProduzida ?? 0);
+      const isPendente = etapaEncontrada?.status === 'PENDENTE' || etapaEncontrada?.status === 'pendente' || (order.status && order.status.startsWith('Aguardando Início'));
+
+      const qtdProduzidaEfetiva = (isPendente && finalizadasEval === 0)
+        ? 0
+        : Math.max(etapaConcluidas, finalizadasEval);
 
       etapaEncontrada = {
         ...etapaEncontrada,
         total: qtdTotal,
-        quantidadeProduzida: Math.max(
-          Number(etapaEncontrada?.quantidadeProduzida ?? etapaEncontrada?.concluidas ?? 0),
-          finalizadasEval
-        ),
+        quantidadeProduzida: qtdProduzidaEfetiva,
+        concluidas: qtdProduzidaEfetiva,
         status: isComplete
           ? 'concluido'
-          : (etapaEncontrada?.status || (evalResult.emAndamento > 0 ? 'em_andamento' : 'pendente'))
+          : (qtdProduzidaEfetiva === 0 && isPendente ? 'pendente' : (etapaEncontrada?.status || (evalResult.emAndamento > 0 ? 'em_andamento' : 'pendente')))
       };
     }
 

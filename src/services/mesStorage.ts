@@ -669,6 +669,16 @@ export function fetchOperators(): Operator[] {
           }
         }
 
+        // Garante que Danielson (DOB-02) esteja estritamente alocado para Dobra (e nunca Corte)
+        const isDanielson = op.id === 'danielson' || nome.toLowerCase().includes('danielson') || badge === 'DOB-02';
+        if (isDanielson) {
+          const idxCorte = uniqueSectors.findIndex((s) => s.toLowerCase() === 'corte');
+          if (idxCorte >= 0) uniqueSectors.splice(idxCorte, 1);
+          if (!uniqueSectors.includes('Dobra')) {
+            uniqueSectors.push('Dobra');
+          }
+        }
+
         const setoresPorTerm = op.setoresPorTerminal ? { ...op.setoresPorTerminal } : undefined;
         if (isGabriele && setoresPorTerm) {
           if (!setoresPorTerm.T5) {
@@ -2540,6 +2550,7 @@ export async function resetarOpCompleta(
   const opUpdates: Record<string, any> = {
     etapas: etapasResetadas,
     progressoPostos: progressoPostosResetado,
+    apontamentos: {},
     status: `Aguardando Início em: ${primeiraEtapaNome}`,
     statusEtapa: `Aguardando Início em: ${primeiraEtapaNome}`,
     status_fabrica: 'Aguardando Início',
@@ -2569,9 +2580,11 @@ export async function resetarOpCompleta(
   } catch {}
 
   // 9. Atualização no localStorage
-  ordersMap[matchedLocalKey] = { ...targetOrder, ...cleanUpdates };
+  const updatedTarget = { ...targetOrder, ...cleanUpdates };
+  delete (updatedTarget as any).apontamentos;
+  ordersMap[matchedLocalKey] = updatedTarget;
   if (matchedLocalKey !== targetFirebaseKey) {
-    ordersMap[targetFirebaseKey] = { ...targetOrder, ...cleanUpdates };
+    ordersMap[targetFirebaseKey] = updatedTarget;
   }
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
 

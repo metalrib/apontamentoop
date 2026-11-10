@@ -202,33 +202,56 @@ export default function App() {
             quantidadeFisica: qtd,
             etapas: parsedEtapas
           });
-          finalMap[opNumero] = verificarECorrigirRotaOp(synced);
+          const processed = verificarECorrigirRotaOp(synced);
+          finalMap[opNumero] = processed;
+          finalMap[clean] = processed;
         }
 
-        setOrders((prev) => {
-          const prevKeys = Object.keys(prev);
-          const newKeys = Object.keys(finalMap);
-          if (
-            prevKeys.length === newKeys.length &&
-            prevKeys.every((k) => prev[k] === finalMap[k] || JSON.stringify(prev[k]) === JSON.stringify(finalMap[k]))
-          ) {
-            return prev;
-          }
-          return finalMap;
-        });
+        setOrders(finalMap);
+
+        // Recarrega apontamentos atualizados (necessário quando uma OP foi resetada ou teve unidades concluídas/estornadas)
+        const updatedApts = fetchApontamentos();
+        setApontamentos(updatedApts);
+      };
+
+      const handleOpResetada = () => {
+        loadData();
       };
 
       socket.on('ordens_atualizadas', handleAtualizacao);
+      socket.on('op_resetada', handleOpResetada);
+
+      // Listener para eventos locais disparados na mesma sessão
+      const handleWindowReset = () => {
+        loadData();
+      };
+      window.addEventListener('metalrib_orders_updated', handleWindowReset);
+      window.addEventListener('metalrib_apontamentos_updated', handleWindowReset);
+
       return () => {
         socket.off('ordens_atualizadas', handleAtualizacao);
+        socket.off('op_resetada', handleOpResetada);
+        window.removeEventListener('metalrib_orders_updated', handleWindowReset);
+        window.removeEventListener('metalrib_apontamentos_updated', handleWindowReset);
       };
     } catch (err) {
       console.warn('[Socket.io] Erro no listener em App.tsx:', err);
     }
-  }, []);
+  }, [loadData]);
 
-  // OP atual derivada diretamente do dicionário de ordens (sem criar loops de estado)
-  const currentOp: ProductionOrder | null = selectedOpNumber ? (orders[selectedOpNumber] || null) : null;
+  // OP atual derivada reativamente do dicionário de ordens com suporte flexível a chaves com/sem 'OP'
+  const currentOp: ProductionOrder | null = useMemo(() => {
+    if (!selectedOpNumber) return null;
+    const clean = cleanOpId(selectedOpNumber);
+    const formatted = formatOpNumber(clean);
+    return (
+      orders[selectedOpNumber] ||
+      orders[formatted] ||
+      orders[clean] ||
+      Object.values(orders).find((o) => cleanOpId(o.op_numero || o.numero) === clean) ||
+      null
+    );
+  }, [selectedOpNumber, orders]);
 
   // Auto-seleção inteligente e validação estrita de setor na rota da OP
   const lastOpNumRef = useRef<string | null>(null);
@@ -800,7 +823,10 @@ export default function App() {
             order={currentOp}
             apontamentos={apontamentos}
             selectedSector={selectedSector}
-            onSelectSector={(s) => setSelectedSector(s)}
+            onSelectSector={(s) => {
+              setSelectedSector(s);
+              setSelectedOperator(null);
+            }}
           />
 
           {/* Passo 2: Identificação do Colaborador */}

@@ -69,24 +69,29 @@ app.post('/api/ordens', (req, res) => {
 app.put('/api/ordens/:id', (req, res) => {
   const { id } = req.params;
   const dados = req.body;
+  const cleanId = String(id || '').replace(/^OP\s*/i, '').trim();
+  const formatId = `OP ${cleanId}`;
 
   const stmt = db.prepare(`
     UPDATE ordens SET
       status = COALESCE(@status, status),
       etapas = COALESCE(@etapas, etapas),
       atualizadoEm = @atualizadoEm
-    WHERE id = @id
+    WHERE id = @id OR id = @cleanId OR numero = @id OR numero = @formatId OR numero = @cleanId
   `);
 
   stmt.run({
     id,
+    cleanId,
+    formatId,
     status: dados.status || null,
-    etapas: dados.etapas ? JSON.stringify(dados.etapas) : null,
+    etapas: dados.etapas ? (typeof dados.etapas === 'string' ? dados.etapas : JSON.stringify(dados.etapas)) : null,
     atualizadoEm: Date.now()
   });
 
   const todas = db.prepare('SELECT * FROM ordens').all().map(r => ({ ...r, etapas: JSON.parse(r.etapas || '[]') }));
   io.emit('ordens_atualizadas', todas);
+  io.emit('op_resetada', { id: cleanId, opNumero: formatId, etapas: dados.etapas, status: dados.status });
   res.json({ success: true });
 });
 
