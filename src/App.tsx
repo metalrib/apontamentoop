@@ -19,7 +19,7 @@ import {
   getLocalSocket,
   isLocalApiActive
 } from './services/mesStorage';
-import { db, ref, onValue } from './services/firebase';
+// import { db, ref, onValue } from './services/firebase';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
 import { BarcodeScannerInput } from './components/BarcodeScannerInput';
@@ -142,176 +142,8 @@ export default function App() {
     }
   }, []);
 
-  // Executa carga inicial e escuta reativamente o Firebase e atualizações locais
+  // Executa carga inicial e escuta reativamente atualizações locais e eventos
   useEffect(() => {
-    // 1. Escuta permanente reativa do Firebase (consolidação unificada de /ordens_producao e /ordens)
-    let latestProducao: any = null;
-    let latestOrdens: any = null;
-
-    const processarSnapshotsConsolidados = () => {
-      try {
-        console.log("[PCP Debug] Snapshot bruto do RTDB:", {
-          ordens_producao: latestProducao,
-          ordens: latestOrdens
-        });
-
-        if (!latestProducao && !latestOrdens) {
-          setOrders({});
-          try {
-            localStorage.setItem('mes_pcp_orders', JSON.stringify({}));
-          } catch {}
-          return;
-        }
-
-        const rawMap: Record<string, any> = {};
-
-        // 1. Incorpora nós de ordens_producao
-        if (latestProducao && typeof latestProducao === 'object') {
-          Object.entries(latestProducao).forEach(([key, item]: [string, any]) => {
-            if (item && typeof item === 'object') {
-              const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-              const clean = cleanOpId(opNum);
-              if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
-                rawMap[clean] = { ...item };
-              }
-            }
-          });
-        }
-
-        // 2. Incorpora e consolida com o nó /ordens
-        if (latestOrdens && typeof latestOrdens === 'object') {
-          Object.entries(latestOrdens).forEach(([key, item]: [string, any]) => {
-            if (item && typeof item === 'object') {
-              const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-              const clean = cleanOpId(opNum);
-              if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
-                const existing = rawMap[clean] || {};
-                rawMap[clean] = {
-                  ...existing,
-                  ...item,
-                  etapas: { ...(existing.etapas || {}), ...(item.etapas || {}) },
-                  progressoPostos: { ...(existing.progressoPostos || {}), ...(item.progressoPostos || {}) }
-                };
-              }
-            }
-          });
-        }
-
-        const ordensProcessadas: ProductionOrder[] = [];
-        const finalMap: Record<string, ProductionOrder> = {};
-
-        Object.entries(rawMap).forEach(([clean, item]) => {
-          const opNumero = formatOpNumber(clean);
-          const qtd = obterQuantidadeTotal(item);
-          const etapas = item.etapas || {};
-          const isVaiVem = Boolean(etapas['Montagem Porta Vai-Vem'] || etapas['Preparação Vai Vem']);
-          const isGiro = Boolean(etapas['Montagem de Portas Giratórias'] || etapas['Instalação de Gaxeta']);
-
-          const desc = item.descricao || item.produto || (
-            isVaiVem
-              ? 'PT VAI VEM INJ 2.100A X 1.200L DUPLA C/ BUMPER'
-              : (isGiro ? 'PORTA GIRATÓRIA ISOTÉRMICA REFORÇADA INOX' : 'PORTA ISOTÉRMICA METALRIB')
-          );
-          const cod = item.codigo || item.codigoProduto || (isVaiVem ? '011.0117' : (isGiro ? '001.0118' : '001.0100'));
-
-          const correctedItem = verificarECorrigirRotaOp({
-            ...item,
-            id: opNumero,
-            op_numero: opNumero,
-            numero: opNumero,
-            descricao: desc,
-            produto: desc,
-            codigo: cod,
-            codigoProduto: cod,
-            lote: item.lote || 'PADRÃO',
-            cliente: item.cliente || 'METALRIB',
-            unidade_medida: item.unidade_medida || 'PC',
-            quantidade_total: qtd,
-            quantidade: qtd
-          });
-
-          finalMap[opNumero] = correctedItem;
-          ordensProcessadas.push(correctedItem);
-        });
-
-        console.log("[PCP Debug] Total de OPs processadas:", ordensProcessadas.length);
-
-        setOrders((prev) => {
-          const prevKeys = Object.keys(prev);
-          const newKeys = Object.keys(finalMap);
-          if (
-            prevKeys.length === newKeys.length &&
-            prevKeys.every((k) => prev[k] === finalMap[k] || JSON.stringify(prev[k]) === JSON.stringify(finalMap[k]))
-          ) {
-            return prev;
-          }
-          return finalMap;
-        });
-        try {
-          localStorage.setItem('mes_pcp_orders', JSON.stringify(finalMap));
-        } catch {}
-      } catch (err) {
-        console.error('[Firebase] Erro ao consolidar ordens_producao e ordens:', err);
-      }
-    };
-
-    const ordensRef = ref(db, 'ordens_producao');
-    const unsubFirebaseOrders = onValue(ordensRef, (snapshot) => {
-      latestProducao = snapshot.exists() ? snapshot.val() : null;
-      processarSnapshotsConsolidados();
-    });
-
-    const ordensDirectRef = ref(db, 'ordens');
-    const unsubFirebaseDirectOrders = onValue(ordensDirectRef, (snapshot) => {
-      latestOrdens = snapshot.exists() ? snapshot.val() : null;
-      processarSnapshotsConsolidados();
-    });
-
-    // 2. Escuta permanente reativa do Firebase (/historico_apontamentos)
-    const aptsRef = ref(db, 'historico_apontamentos');
-    const unsubFirebaseApts = onValue(aptsRef, (snapshot) => {
-      try {
-        if (!snapshot.exists()) {
-          setApontamentos([]);
-          try {
-            localStorage.setItem('mes_apontamentos', JSON.stringify({}));
-          } catch {}
-          return;
-        }
-
-        const val = snapshot.val();
-        if (val && typeof val === 'object') {
-          const tree: Record<string, Record<string, Apontamento>> = {};
-          const list: Apontamento[] = [];
-
-          Object.entries(val).forEach(([firebasePushKey, item]: [string, any]) => {
-            if (item && item.op_numero) {
-              const cleanOp = item.op_numero.trim().toUpperCase();
-              if (!tree[cleanOp]) tree[cleanOp] = {};
-              const aptId = item.id || firebasePushKey;
-              const existing = tree[cleanOp][aptId];
-              if (!existing || item.status === 'FINALIZADO' || (item.hora_fim && !existing.hora_fim)) {
-                const fullApt = { ...item, id: aptId, firebaseKey: firebasePushKey };
-                tree[cleanOp][aptId] = fullApt;
-              }
-            }
-          });
-
-          Object.values(tree).forEach((opMap) => {
-            Object.values(opMap).forEach((apt) => list.push(apt));
-          });
-
-          list.sort((a, b) => new Date(b.hora_inicio || b.horaInicio || 0).getTime() - new Date(a.hora_inicio || a.horaInicio || 0).getTime());
-          setApontamentos(list);
-          try {
-            localStorage.setItem('mes_apontamentos', JSON.stringify(tree));
-          } catch {}
-        }
-      } catch (err) {
-        console.error('[Firebase] Erro no listener reativo de historico_apontamentos:', err);
-      }
-    });
-
     loadData();
 
     const handleSectorsUpdated = () => {
@@ -333,9 +165,6 @@ export default function App() {
 
     return () => {
       clearTimeout(debounceTimer);
-      unsubFirebaseOrders();
-      unsubFirebaseDirectOrders();
-      unsubFirebaseApts();
       window.removeEventListener('metalrib_sectors_updated', handleSectorsUpdated);
       unsubscribe();
     };
