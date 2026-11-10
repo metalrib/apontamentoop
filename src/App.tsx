@@ -15,7 +15,9 @@ import {
   TEST_DUMMY_OPS,
   verificarECorrigirRotaOp,
   cleanOpId,
-  formatOpNumber
+  formatOpNumber,
+  getLocalSocket,
+  isLocalApiActive
 } from './services/mesStorage';
 import { db, ref, onValue } from './services/firebase';
 import { Header } from './components/Header';
@@ -29,7 +31,7 @@ import { AutoCleanToast } from './components/AutoCleanToast';
 import { SupervisorDashboard } from './components/SupervisorDashboard';
 import { PcpPortal } from './components/PcpPortal';
 import { MobilePcpTracker } from './components/MobilePcpTracker';
-import { getRouteForOp, findStepForSector, isAncoraOrder, obterQuantidadeTotal } from './utils/routeEngine';
+import { getRouteForOp, findStepForSector, isAncoraOrder, obterQuantidadeTotal, initOrSyncOrderEtapas } from './utils/routeEngine';
 import { playSuccessStart, playSuccessFinish, playBlockedError, playClick } from './utils/audio';
 import { Lock, Shield, KeyRound } from 'lucide-react';
 
@@ -85,8 +87,12 @@ export default function App() {
     }
   };
 
-  // Carrega OPs e Apontamentos do Storage/Firebase de forma estável
+  const isFetchingRef = useRef<boolean>(false);
+
+  // Carrega OPs e Apontamentos do Storage/Firebase de forma estável (sem loops)
   const loadData = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
       const [allOrders, allApts] = await Promise.all([
         fetchProductionOrders(),
@@ -96,18 +102,43 @@ export default function App() {
       Object.keys(allOrders || {}).forEach((k) => {
         correctedMap[k] = verificarECorrigirRotaOp(allOrders[k]);
       });
-      setOrders(correctedMap);
-      setApontamentos(allApts || []);
+
+      setOrders((prev) => {
+        const prevKeys = Object.keys(prev);
+        const newKeys = Object.keys(correctedMap);
+        if (
+          prevKeys.length === newKeys.length &&
+          prevKeys.every((k) => prev[k] === correctedMap[k] || JSON.stringify(prev[k]) === JSON.stringify(correctedMap[k]))
+        ) {
+          return prev;
+        }
+        return correctedMap;
+      });
+
+      setApontamentos((prev) => {
+        if (
+          prev.length === (allApts || []).length &&
+          prev.every((a, idx) => a.id === allApts[idx]?.id && a.status === allApts[idx]?.status)
+        ) {
+          return prev;
+        }
+        return allApts || [];
+      });
 
       // Sincroniza configuração de terminais e setores caso tenham sido editados no PCP
       const dynamicTerms = fetchTerminalsConfig();
       setCurrentTerminal((prev) => {
         if (!prev) return dynamicTerms[0] || TERMINALS[0];
         const match = dynamicTerms.find((t) => t.id === prev.id);
+        if (match && match.id === prev.id && match.name === prev.name && match.sectors?.length === prev.sectors?.length) {
+          return prev;
+        }
         return match || dynamicTerms[0] || TERMINALS[0];
       });
     } catch (err) {
       console.error('Falha ao carregar dados do MES:', err);
+    } finally {
+      isFetchingRef.current = false;
     }
   }, []);
 
@@ -205,7 +236,17 @@ export default function App() {
 
         console.log("[PCP Debug] Total de OPs processadas:", ordensProcessadas.length);
 
-        setOrders(finalMap);
+        setOrders((prev) => {
+          const prevKeys = Object.keys(prev);
+          const newKeys = Object.keys(finalMap);
+          if (
+            prevKeys.length === newKeys.length &&
+            prevKeys.every((k) => prev[k] === finalMap[k] || JSON.stringify(prev[k]) === JSON.stringify(finalMap[k]))
+          ) {
+            return prev;
+          }
+          return finalMap;
+        });
         try {
           localStorage.setItem('mes_pcp_orders', JSON.stringify(finalMap));
         } catch {}
@@ -282,18 +323,81 @@ export default function App() {
       });
     };
     window.addEventListener('metalrib_sectors_updated', handleSectorsUpdated);
+    let debounceTimer: any = null;
     const unsubscribe = subscribeToMesUpdates(() => {
-      loadData();
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadData();
+      }, 300);
     });
 
     return () => {
+      clearTimeout(debounceTimer);
       unsubFirebaseOrders();
       unsubFirebaseDirectOrders();
       unsubFirebaseApts();
       window.removeEventListener('metalrib_sectors_updated', handleSectorsUpdated);
       unsubscribe();
     };
-  }, [loadData]);
+  }, []);
+
+  // Listener exclusivo do Socket.io para atualização em tempo real (registrado apenas na montagem [])
+  useEffect(() => {
+    try {
+      const socket = getLocalSocket();
+      const handleAtualizacao = (novasOrdens: any[]) => {
+        if (!Array.isArray(novasOrdens)) return;
+        const finalMap: Record<string, ProductionOrder> = {};
+        for (const item of novasOrdens) {
+          const opNum = String(item.numero || item.id || '').trim();
+          const clean = cleanOpId(opNum);
+          if (!clean || TEST_DUMMY_OPS.has(clean)) continue;
+          const opNumero = formatOpNumber(clean);
+          const qtd = Number(item.quantidadeFisica || item.quantidade_total || item.quantidade || 1);
+          const parsedEtapas = typeof item.etapas === 'string'
+            ? JSON.parse(item.etapas || '[]')
+            : (item.etapas || []);
+
+          const synced = initOrSyncOrderEtapas({
+            ...item,
+            id: opNumero,
+            op_numero: opNumero,
+            numero: opNumero,
+            descricao: item.descricao || item.produto || '',
+            produto: item.descricao || item.produto || '',
+            codigo: item.codigo || item.codigoProduto || '',
+            codigoProduto: item.codigo || item.codigoProduto || '',
+            cliente: item.cliente || 'METALRIB',
+            tipoOrdem: item.tipoOrdem || 'Padrão',
+            quantidade_total: qtd,
+            quantidade: qtd,
+            quantidadeFisica: qtd,
+            etapas: parsedEtapas
+          });
+          finalMap[opNumero] = verificarECorrigirRotaOp(synced);
+        }
+
+        setOrders((prev) => {
+          const prevKeys = Object.keys(prev);
+          const newKeys = Object.keys(finalMap);
+          if (
+            prevKeys.length === newKeys.length &&
+            prevKeys.every((k) => prev[k] === finalMap[k] || JSON.stringify(prev[k]) === JSON.stringify(finalMap[k]))
+          ) {
+            return prev;
+          }
+          return finalMap;
+        });
+      };
+
+      socket.on('ordens_atualizadas', handleAtualizacao);
+      return () => {
+        socket.off('ordens_atualizadas', handleAtualizacao);
+      };
+    } catch (err) {
+      console.warn('[Socket.io] Erro no listener em App.tsx:', err);
+    }
+  }, []);
 
   // OP atual derivada diretamente do dicionário de ordens (sem criar loops de estado)
   const currentOp: ProductionOrder | null = selectedOpNumber ? (orders[selectedOpNumber] || null) : null;

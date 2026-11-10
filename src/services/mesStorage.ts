@@ -519,7 +519,20 @@ export const getLocalServerUrl = (): string => {
   return 'http://192.168.0.12:3001';
 };
 
-export function processAndStoreLocalOrdens(ordensList: any[]): void {
+export function getLocalSocket(): Socket {
+  if (!localSocket) {
+    const localUrl = getLocalServerUrl();
+    localSocket = io(localUrl, {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+      timeout: 3000,
+      autoConnect: true
+    });
+  }
+  return localSocket;
+}
+
+export function processAndStoreLocalOrdens(ordensList: any[], shouldBroadcast: boolean = true): Record<string, ProductionOrder> {
   try {
     const ordersMap: Record<string, ProductionOrder> = {};
     for (const item of ordensList) {
@@ -555,11 +568,19 @@ export function processAndStoreLocalOrdens(ordensList: any[]): void {
     }
 
     if (Object.keys(ordersMap).length > 0) {
-      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
-      broadcastUpdate();
+      const currentRaw = localStorage.getItem(STORAGE_ORDERS_KEY);
+      const newRaw = JSON.stringify(ordersMap);
+      if (currentRaw !== newRaw) {
+        localStorage.setItem(STORAGE_ORDERS_KEY, newRaw);
+        if (shouldBroadcast) {
+          broadcastUpdate();
+        }
+      }
     }
+    return ordersMap;
   } catch (err) {
     console.warn('[Local API] Erro ao processar ordens locais:', err);
+    return {};
   }
 }
 
@@ -570,7 +591,7 @@ export async function fetchLocalOrdens(): Promise<boolean> {
     if (!res.ok) return false;
     const data = await res.json();
     if (Array.isArray(data) && data.length > 0) {
-      processAndStoreLocalOrdens(data);
+      processAndStoreLocalOrdens(data, false);
       isLocalApiActive = true;
       return true;
     }
@@ -586,13 +607,7 @@ export function initLocalSocketListeners(): void {
 
   try {
     const localUrl = getLocalServerUrl();
-    const socket = io(localUrl, {
-      reconnectionAttempts: 5,
-      reconnectionDelay: 2000,
-      timeout: 3000,
-      autoConnect: true
-    });
-    localSocket = socket;
+    const socket = getLocalSocket();
 
     socket.on('connect', () => {
       console.log('[Socket.io] Conectado ao servidor local MES:', localUrl);
@@ -603,7 +618,7 @@ export function initLocalSocketListeners(): void {
     socket.on('ordens_atualizadas', (ordens: any[]) => {
       console.log('[Socket.io] Evento ordens_atualizadas recebido do servidor local:', ordens?.length);
       if (Array.isArray(ordens)) {
-        processAndStoreLocalOrdens(ordens);
+        processAndStoreLocalOrdens(ordens, true);
       }
     });
 
