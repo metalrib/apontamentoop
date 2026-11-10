@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import { TerminalConfig, ProductionOrder, Apontamento, TERMINALS } from './types/mes';
 import {
   fetchProductionOrders,
