@@ -2740,14 +2740,26 @@ export async function updateProductionOrder(
     }).catch(() => {});
 
     if (hasLaserUpdate) {
+      const laserPayload = {
+        requerLaser: Boolean(updated.requer_laser),
+        requer_laser: Boolean(updated.requer_laser)
+      };
+
+      // Endpoint REST: /api/ordens/:identificador/laser
+      fetch(`${localUrl}/api/ordens/${encodeURIComponent(cleanId)}/laser`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(laserPayload)
+      }).catch(() => {});
+
+      // Fallback para /api/ordens/update-laser
       fetch(`${localUrl}/api/ordens/update-laser`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: cleanId,
           opNumero: targetKey,
-          requerLaser: Boolean(updated.requer_laser),
-          requer_laser: Boolean(updated.requer_laser)
+          ...laserPayload
         })
       }).catch(() => {});
     }

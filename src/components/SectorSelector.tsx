@@ -79,16 +79,29 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
       .replace(/\s+/g, ' ')
       .trim();
 
+  const isLaserRequerido = Boolean(order.requer_laser || (order as any).requerLaser);
+  const sectorsToProcess = [...availableSectors];
+  if (terminal.id === 1 && isLaserRequerido) {
+    if (!sectorsToProcess.some(s => s.toLowerCase().includes('laser'))) {
+      const corteIdx = sectorsToProcess.findIndex(s => s.toLowerCase().includes('corte'));
+      if (corteIdx >= 0) {
+        sectorsToProcess.splice(corteIdx + 1, 0, 'Laser');
+      } else {
+        sectorsToProcess.unshift('Laser');
+      }
+    }
+  }
+
   // FILTRAR O PASSO 1 PARA MOSTRAR APENAS SETORES DA OP ATUAL (LIMPEZA VISUAL)
   // Setores que NÃO pertencem à rota da OP NÃO devem ser renderizados (nem mesmo com cadeado).
   // Nota: Montagem Porta Vai-Vem permanece visível no Terminal 5 (para Fábio/Nathan) e Terminal 4.
-  const postosExibiveis = availableSectors.filter((setorTerminal) => {
+  const postosExibiveis = sectorsToProcess.filter((setorTerminal) => {
     // Caso especial: Solda sob demanda para âncoras no Terminal 5
     if (isAncora && isTerminal5 && setorTerminal.includes('Solda')) return true;
 
     // Caso especial: Laser no Terminal 1 quando a OP requer laser
     const isLaser = setorTerminal.toLowerCase().includes('laser');
-    if (isLaser && Boolean(order.requer_laser || (order as any).requerLaser)) return true;
+    if (isLaser && isLaserRequerido) return true;
 
     // 1. Funções técnicas oficiais de correspondência de etapa
     if (etapaPertenceARota(setorTerminal, rotaOp)) return true;
@@ -150,6 +163,20 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
       return false;
     });
   });
+
+  // No Terminal 1, garante a ordem oficial do fluxo produtivo: Corte -> Laser -> Dobra
+  if (terminal.id === 1) {
+    postosExibiveis.sort((a, b) => {
+      const getPriority = (nome: string) => {
+        const norm = (nome || '').toLowerCase();
+        if (norm.includes('corte')) return 1;
+        if (norm.includes('laser')) return 2;
+        if (norm.includes('dobra')) return 3;
+        return 99;
+      };
+      return getPriority(a) - getPriority(b);
+    });
+  }
 
   const validSectors = postosExibiveis.filter((s) => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;

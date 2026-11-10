@@ -555,7 +555,7 @@ import { colaboradores, BADGES_MAP } from '../data/colaboradores';
 export { colaboradores };
 
 const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
-  T1: ['Corte', 'Dobra', 'Laser'],
+  T1: ['Corte', 'Laser', 'Dobra'],
   T2: ['Preparação de Folhas', 'Injeção'],
   T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Portas Emendadas'],
   T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Porta Vai-Vem'],

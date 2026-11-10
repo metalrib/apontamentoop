@@ -279,6 +279,73 @@ app.post('/api/ordens/update-laser', (req, res) => {
   res.json({ success: true, requerLaser: laserBool });
 });
 
+// Endpoint oficial REST: /api/ordens/:identificador/laser
+app.post('/api/ordens/:identificador/laser', (req, res) => {
+  const { identificador } = req.params;
+  const { requerLaser, requer_laser } = req.body;
+  const laserBool = Boolean(requerLaser !== undefined ? requerLaser : requer_laser);
+  const valor = laserBool ? 1 : 0;
+  const cleanId = String(identificador || '').replace(/^OP\s*/i, '').trim();
+  const formatId = `OP ${cleanId}`;
+
+  // Busca ordem atual para atualizar ou recalcular etapas no SQLite
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(identificador, cleanId, formatId, cleanId);
+  let novasEtapas = null;
+  if (opRow) {
+    try {
+      const etapasAtuais = JSON.parse(opRow.etapas || '[]');
+      if (Array.isArray(etapasAtuais)) {
+        if (laserBool) {
+          if (!etapasAtuais.some(e => String(e).toLowerCase().includes('laser'))) {
+            const corteIdx = etapasAtuais.findIndex(e => String(e).toLowerCase().includes('corte'));
+            if (corteIdx >= 0) {
+              etapasAtuais.splice(corteIdx + 1, 0, 'Laser');
+            } else {
+              etapasAtuais.unshift('Laser');
+            }
+          }
+        } else {
+          const laserIdx = etapasAtuais.findIndex(e => String(e).toLowerCase().includes('laser'));
+          if (laserIdx >= 0) {
+            etapasAtuais.splice(laserIdx, 1);
+          }
+        }
+        novasEtapas = JSON.stringify(etapasAtuais);
+      }
+    } catch {}
+  }
+
+  const stmt = db.prepare(`
+    UPDATE ordens 
+    SET requer_laser = @valor, requerLaser = @valor, etapas = COALESCE(@novasEtapas, etapas), atualizadoEm = @atualizadoEm
+    WHERE id = @identificador OR id = @cleanId OR numero = @identificador OR numero = @formatId OR numero = @cleanId
+  `);
+  stmt.run({
+    valor,
+    novasEtapas,
+    atualizadoEm: Date.now(),
+    identificador,
+    cleanId,
+    formatId
+  });
+
+  const todas = db.prepare('SELECT * FROM ordens').all().map(r => ({
+    ...r,
+    requerLaser: Boolean(r.requerLaser || r.requer_laser),
+    requer_laser: Boolean(r.requerLaser || r.requer_laser),
+    etapas: JSON.parse(r.etapas || '[]')
+  }));
+  io.emit('ordens_atualizadas', todas);
+  return res.json({ success: true, requerLaser: laserBool });
+});
+
+app.put('/api/ordens/:identificador/laser', (req, res, next) => {
+  app._router.handle({ ...req, method: 'POST' }, res, next);
+});
+app.patch('/api/ordens/:identificador/laser', (req, res, next) => {
+  app._router.handle({ ...req, method: 'POST' }, res, next);
+});
+
 app.delete('/api/ordens/:id', (req, res) => {
   const { id } = req.params;
   db.prepare('DELETE FROM ordens WHERE id = ?').run(id);

@@ -1,8 +1,8 @@
 export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
   T1: [
     'Corte',
-    'Dobra',
     'Laser',
+    'Dobra',
     'Preparação de Folhas'
   ],
   T2: [
