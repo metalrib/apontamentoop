@@ -12,6 +12,7 @@ import {
   UserCheck
 } from 'lucide-react';
 import { Operator, Apontamento, ProductionOrder } from '../types/mes';
+import { calcularDuracaoLiquidaMs } from '../utils/workShiftUtils';
 
 export type TerminalFilterType = 'TODOS' | 'T1' | 'T2' | 'T3_T4' | 'T5';
 
@@ -123,6 +124,12 @@ export const formatHour = (isoStr?: string): string => {
 };
 
 export const calculateDurationText = (apt: Apontamento): string => {
+  if (apt.duracaoFormatada) {
+    return apt.duracaoFormatada;
+  }
+  if (apt.duracaoMinutos && apt.duracaoMinutos > 0) {
+    return `${apt.duracaoMinutos} min`;
+  }
   if (apt.duracao_minutos && apt.duracao_minutos > 0) {
     return `${Math.round(apt.duracao_minutos)} min`;
   }
@@ -130,13 +137,15 @@ export const calculateDurationText = (apt: Apontamento): string => {
   if (isNaN(start)) return '';
 
   if (apt.status === 'EM_ANDAMENTO') {
-    const elapsed = Math.max(0, Math.round((Date.now() - start) / 60000));
+    const duracaoLiquidaMs = calcularDuracaoLiquidaMs(start, Date.now());
+    const elapsed = Math.max(0, Math.round(duracaoLiquidaMs / 60000));
     return `${elapsed} min`;
   }
 
   const end = new Date(apt.hora_fim || apt.horaFim || '').getTime();
   if (!isNaN(end) && end >= start) {
-    const mins = Math.round((end - start) / 60000);
+    const duracaoLiquidaMs = calcularDuracaoLiquidaMs(start, end);
+    const mins = Math.max(1, Math.round(duracaoLiquidaMs / 60000));
     return `${mins} min`;
   }
   return '';

@@ -5,6 +5,7 @@ import { ref, update, rtdb } from '../services/firebase';
 import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
 import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
+import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
 
 interface IndividualPieceCardsProps {
   order: ProductionOrder;
@@ -48,8 +49,9 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
   onOpenOccurrenceModal,
   ocorrenciasCount = 0
 }) => {
-  // Timer reativo em tempo real para unidades em andamento
+  // Timer reativo em tempo real para unidades em andamento com desconto automático de pausas
   const [now, setNow] = useState<number>(Date.now());
+  const pausaAtiva = getPausaAtual(new Date(now));
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -62,7 +64,8 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     if (!startTime) return '00:00';
     const startMs = new Date(startTime).getTime();
     if (isNaN(startMs)) return '00:00';
-    const totalSec = Math.max(0, Math.floor((now - startMs) / 1000));
+    const totalMs = calcularDuracaoLiquidaMs(startMs, now);
+    const totalSec = Math.max(0, Math.floor(totalMs / 1000));
     const hours = Math.floor(totalSec / 3600);
     const minutes = Math.floor((totalSec % 3600) / 60);
     const seconds = totalSec % 60;
@@ -539,11 +542,17 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
                 </div>
 
                 {/* Cronômetro e Operador */}
-                <div className="my-2 p-2 rounded-xl bg-slate-950/80 border border-amber-500/30 flex items-center justify-between">
+                <div className="my-2 p-2 rounded-xl bg-slate-950/80 border border-amber-500/30 flex items-center justify-between flex-wrap gap-1">
                   <div className="flex items-center gap-1.5 text-xs font-mono text-slate-300">
                     <User className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                     <span className="font-bold text-white truncate max-w-[110px]">{opNome}</span>
                   </div>
+                  {pausaAtiva && (
+                    <div className="flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-semibold animate-pulse">
+                      <span>⏸️</span>
+                      <span>{pausaAtiva.nome}</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-1 text-sm font-extrabold font-mono text-amber-300">
                     <Clock className="w-4 h-4 text-amber-400 animate-spin" />
                     <span>{formatTimer(activeApt.hora_inicio || activeApt.horaInicio)}</span>

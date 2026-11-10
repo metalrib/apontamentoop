@@ -15,6 +15,7 @@ import {
 } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
+import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
@@ -1978,7 +1979,11 @@ export async function finishUnit(
   const item = opTree[apontamentoId];
   const now = new Date();
   const start = new Date(item.horaInicio || item.hora_inicio);
-  const diffMinutes = Math.max(0.1, Number(((now.getTime() - start.getTime()) / 60000).toFixed(1)));
+  const nowMs = now.getTime();
+  const startMs = start.getTime();
+  const duracaoLiquidaMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, nowMs) : 0;
+  const diffMinutes = Math.max(0.1, Number((duracaoLiquidaMs / 60000).toFixed(1)));
+  const diffMinutesInt = Math.max(1, Math.round(duracaoLiquidaMs / 60000));
   const nowIso = now.toISOString();
 
   const updated: Apontamento = {
@@ -1995,6 +2000,9 @@ export async function finishUnit(
     horaFim: nowIso,
     duracao_minutos: diffMinutes,
     duracao: diffMinutes,
+    duracaoMs: duracaoLiquidaMs,
+    duracaoMinutos: diffMinutesInt,
+    duracaoFormatada: `${diffMinutesInt} min`,
     status: 'FINALIZADO'
   };
 
@@ -2051,15 +2059,31 @@ export async function finishUnit(
 
         if (finishedCount >= totalUnits) {
           targetOrder.etapas[matchedStep] = {
+            ...targetOrder.etapas[matchedStep],
             status: 'CONCLUIDO',
-            concluidas: totalUnits
+            concluidas: totalUnits,
+            timestampFim: nowMs,
+            duracaoMs: duracaoLiquidaMs,
+            duracaoMinutos: diffMinutesInt,
+            duracaoFormatada: `${diffMinutesInt} min`,
+            colaboradorFinalizou: updated.colaborador || updated.operador
           };
           if (!targetOrder.progressoPostos) targetOrder.progressoPostos = {};
           targetOrder.progressoPostos[matchedStep] = {
             concluido: true,
             concluidas: totalUnits,
-            dataConclusao: new Date().toISOString()
+            dataConclusao: nowIso,
+            duracaoMinutos: diffMinutesInt,
+            duracaoMs: duracaoLiquidaMs
           };
+
+          const opCleanKey = cleanOp.replace(/^OP\s*/i, '').trim();
+          const rtdbUpdates: Record<string, any> = {};
+          rtdbUpdates[`ordens/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
+          rtdbUpdates[`ordens_producao/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
+          update(ref(db), sanitizePayload(rtdbUpdates)).catch((err) =>
+            console.warn('[RTDB] Erro ao sincronizar etapa:', err)
+          );
 
           const isInjecaoStep = Boolean(
             matchedStep.toLowerCase().includes('injeção') ||
@@ -2394,7 +2418,11 @@ export async function finishBatch(
   const item = opTree[apontamentoId];
   const now = new Date();
   const start = new Date(item.horaInicio || item.hora_inicio);
-  const diffMinutes = Math.max(0.1, Number(((now.getTime() - start.getTime()) / 60000).toFixed(1)));
+  const nowMs = now.getTime();
+  const startMs = start.getTime();
+  const duracaoLiquidaMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, nowMs) : 0;
+  const diffMinutes = Math.max(0.1, Number((duracaoLiquidaMs / 60000).toFixed(1)));
+  const diffMinutesInt = Math.max(1, Math.round(duracaoLiquidaMs / 60000));
   const totalUnits = item.quantidade_lote || Math.max(1, Math.round(options?.quantidadeProduzida || 1));
   const refugo = options?.quantidadeRefugo || 0;
   const nowIso = now.toISOString();
@@ -2422,6 +2450,9 @@ export async function finishBatch(
     horaFim: nowIso,
     duracao_minutos: diffMinutes,
     duracao: diffMinutes,
+    duracaoMs: duracaoLiquidaMs,
+    duracaoMinutos: diffMinutesInt,
+    duracaoFormatada: `${diffMinutesInt} min`,
     status: 'FINALIZADO',
     quantidade_refugo: refugo,
     quantidade_lote: totalUnits,
@@ -2482,15 +2513,31 @@ export async function finishBatch(
 
         // Marca estritamente a etapa atual concluída (concluidas = totalUnits)
         targetOrder.etapas[matchedStep] = {
+          ...targetOrder.etapas[matchedStep],
           status: 'CONCLUIDO',
-          concluidas: totalUnits
+          concluidas: totalUnits,
+          timestampFim: nowMs,
+          duracaoMs: duracaoLiquidaMs,
+          duracaoMinutos: diffMinutesInt,
+          duracaoFormatada: `${diffMinutesInt} min`,
+          colaboradorFinalizou: updated.colaborador || updated.operador
         };
         if (!targetOrder.progressoPostos) targetOrder.progressoPostos = {};
         targetOrder.progressoPostos[matchedStep] = {
           concluido: true,
           concluidas: totalUnits,
-          dataConclusao: new Date().toISOString()
+          dataConclusao: new Date().toISOString(),
+          duracaoMinutos: diffMinutesInt,
+          duracaoMs: duracaoLiquidaMs
         };
+
+        const opCleanKey = cleanOp.replace(/^OP\s*/i, '').trim();
+        const rtdbEtapaUpdates: Record<string, any> = {};
+        rtdbEtapaUpdates[`ordens/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
+        rtdbEtapaUpdates[`ordens_producao/${opCleanKey}/etapas/${matchedStep}`] = targetOrder.etapas[matchedStep];
+        update(ref(db), sanitizePayload(rtdbEtapaUpdates)).catch((err) =>
+          console.warn('[RTDB] Erro ao sincronizar etapa de lote:', err)
+        );
 
         const isInjecaoStep = Boolean(
           matchedStep.toLowerCase().includes('injeção') ||
@@ -3848,4 +3895,46 @@ export function subscribeToMesUpdates(callback: () => void): () => void {
   return () => {
     subscribers.delete(callback);
   };
+}
+
+/**
+ * Conclui uma etapa gravando o cálculo de duração líquida (descontando pausas programadas)
+ */
+export async function handleConcluirEtapa(
+  op: any,
+  etapaNome: string,
+  colaboradorId?: string
+) {
+  const agora = Date.now();
+  const inicioTimestamp = op.etapas?.[etapaNome]?.timestampInicio || op.etapas?.[etapaNome]?.inicio || agora;
+  const inicioMs = typeof inicioTimestamp === 'string' ? new Date(inicioTimestamp).getTime() : Number(inicioTimestamp);
+  const duracaoLiquidaMs = !isNaN(inicioMs) ? calcularDuracaoLiquidaMs(inicioMs, agora) : 0;
+  const duracaoMinutos = Math.max(1, Math.round(duracaoLiquidaMs / 60000));
+
+  const rawOpId = op.id || op.numero || op.op_numero || '';
+  const opKey = String(rawOpId).replace(/^OP\s*/i, '').trim();
+
+  const etapaAtualizada = {
+    ...op.etapas?.[etapaNome],
+    status: 'CONCLUIDO',
+    concluidas: op.quantidade_total || op.quantidade || 1,
+    timestampFim: agora,
+    duracaoMs: duracaoLiquidaMs,
+    duracaoMinutos: duracaoMinutos,
+    duracaoFormatada: `${duracaoMinutos} min`,
+    colaboradorFinalizou: colaboradorId || op.colaborador || op.operador || 'Operador'
+  };
+
+  const updates: Record<string, any> = {};
+  updates[`ordens/${opKey}/etapas/${etapaNome}`] = etapaAtualizada;
+  updates[`ordens_producao/${opKey}/etapas/${etapaNome}`] = etapaAtualizada;
+
+  try {
+    await update(ref(db), sanitizePayload(updates));
+  } catch (err) {
+    console.warn('[handleConcluirEtapa] Erro ao sincronizar RTDB:', err);
+  }
+
+  broadcastUpdate();
+  return etapaAtualizada;
 }

@@ -5,6 +5,7 @@ import { updateProductionOrder, obterOcorrenciasDaOp } from '../services/mesStor
 import { ref, update, rtdb } from '../services/firebase';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
+import { calcularDuracaoLiquidaMs, getPausaAtual, IntervaloProgramado } from '../utils/workShiftUtils';
 import { IndividualPieceCards } from './IndividualPieceCards';
 import { OpOccurrenceModal } from './OpOccurrenceModal';
 
@@ -231,9 +232,18 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     handleAlterarQuantidadeFisica({ preventDefault: () => {}, stopPropagation: () => {} } as any, order, delta);
   };
 
-  // Timer para operação em andamento
+  // Timer para operação em andamento com desconto automático de pausas
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [refugoInput, setRefugoInput] = useState<number>(0);
+  const [pausaAtiva, setPausaAtiva] = useState<IntervaloProgramado | null>(getPausaAtual());
+
+  useEffect(() => {
+    const checkPause = () => {
+      setPausaAtiva(getPausaAtual());
+    };
+    const pauseInterval = setInterval(checkPause, 5000);
+    return () => clearInterval(pauseInterval);
+  }, []);
 
   useEffect(() => {
     if (!activeForCurrentOperator) {
@@ -243,15 +253,18 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     }
 
     const calcElapsed = () => {
-      const start = new Date(activeForCurrentOperator.hora_inicio).getTime();
+      const startIso = activeForCurrentOperator.horaInicio || activeForCurrentOperator.hora_inicio;
+      const start = new Date(startIso).getTime();
       const now = Date.now();
-      setElapsedSeconds(Math.max(0, Math.floor((now - start) / 1000)));
+      const duracaoLiquida = !isNaN(start) ? calcularDuracaoLiquidaMs(start, now) : 0;
+      setElapsedSeconds(Math.max(0, Math.floor(duracaoLiquida / 1000)));
+      setPausaAtiva(getPausaAtual(new Date(now)));
     };
 
     calcElapsed();
     const interval = setInterval(calcElapsed, 1000);
     return () => clearInterval(interval);
-  }, [activeForCurrentOperator?.id, activeForCurrentOperator?.hora_inicio]);
+  }, [activeForCurrentOperator?.id, activeForCurrentOperator?.hora_inicio, activeForCurrentOperator?.horaInicio]);
 
   const formatTimer = (totalSec: number) => {
     const hours = Math.floor(totalSec / 3600);
@@ -473,16 +486,24 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
 
       return (
         <div className="w-full bg-[#0e131f] border border-cyan-500/50 rounded-xl p-2.5 shadow-lg shrink-0 mt-auto">
-          <div className="flex items-center justify-between mb-2 text-xs font-mono">
+          <div className="flex items-center justify-between mb-2 text-xs font-mono flex-wrap gap-1.5">
             <div className="flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
               <span className="font-bold text-cyan-400 uppercase tracking-wider">
                 LOTE EM PRODUÇÃO: {totalPhysicalUnits} PC • {selectedSector} • {operatorName} • Iniciado às {startTimeFormatted}
               </span>
             </div>
-            <div className="flex items-center gap-1.5 text-cyan-300 font-extrabold text-sm font-mono">
-              <Clock className="w-4 h-4 animate-spin text-cyan-400" />
-              <span>{formatTimer(elapsedSeconds)}</span>
+            <div className="flex items-center gap-2">
+              {pausaAtiva && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse">
+                  <span>⏸️</span>
+                  <span>{pausaAtiva.nome} (Pausa Automática)</span>
+                </div>
+              )}
+              <div className="flex items-center gap-1.5 text-cyan-300 font-extrabold text-sm font-mono">
+                <Clock className="w-4 h-4 animate-spin text-cyan-400" />
+                <span>{formatTimer(elapsedSeconds)}</span>
+              </div>
             </div>
           </div>
 
@@ -773,16 +794,24 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
     // MODO UNITÁRIO: FINALIZAR UNIDADE
     return (
       <div className="w-full bg-[#0e131f] border border-rose-500/50 rounded-xl p-2.5 shadow-lg shrink-0 mt-auto">
-        <div className="flex items-center justify-between mb-2 text-xs font-mono">
+        <div className="flex items-center justify-between mb-2 text-xs font-mono flex-wrap gap-1.5">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
             <span className="font-bold text-rose-400 uppercase tracking-wider">
               UNIDADE {activeForCurrentOperator.unidade_numero} DE {totalPhysicalUnits} EM PRODUÇÃO · {operatorName}
             </span>
           </div>
-          <div className="flex items-center gap-1.5 text-rose-400 font-extrabold text-sm font-mono">
-            <Clock className="w-4 h-4 animate-spin" />
-            <span>{formatTimer(elapsedSeconds)}</span>
+          <div className="flex items-center gap-2">
+            {pausaAtiva && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse">
+                <span>⏸️</span>
+                <span>{pausaAtiva.nome} (Pausa Automática)</span>
+              </div>
+            )}
+            <div className="flex items-center gap-1.5 text-rose-400 font-extrabold text-sm font-mono">
+              <Clock className="w-4 h-4 animate-spin" />
+              <span>{formatTimer(elapsedSeconds)}</span>
+            </div>
           </div>
         </div>
 

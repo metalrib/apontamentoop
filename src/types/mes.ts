@@ -471,6 +471,8 @@ export interface Apontamento {
   horaFim?: string;
   duracao_minutos?: number;
   duracao?: number;
+  duracaoMs?: number;
+  duracaoFormatada?: string;
   status: "EM_ANDAMENTO" | "FINALIZADO";
   observacao?: string;
   is_lote?: boolean;
