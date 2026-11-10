@@ -1190,42 +1190,100 @@ export function initFirebaseRealtimeListeners(): void {
   isFirebaseListenerInitialized = true;
 
   try {
-    const ordensRef = ref(db, 'ordens_producao');
-    onValue(ordensRef, (snapshot) => {
+    let cachedProducao: any = null;
+    let cachedOrdens: any = null;
+
+    const syncConsolidatedOrders = () => {
       try {
-        if (!snapshot.exists()) {
-          // Nó ordens_producao vazio ou todas as OPs foram deletadas
+        if (!cachedProducao && !cachedOrdens) {
           localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify({}));
           broadcastUpdate();
           return;
         }
 
-        const ordersMap: Record<string, ProductionOrder> = {};
-        snapshot.forEach((child) => {
-          const item = child.val();
-          if (item && typeof item === 'object') {
-            const key = child.key || '';
-            const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-            if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
-              const qtd = obterQuantidadeTotal(item);
-              const syncedItem = initOrSyncOrderEtapas({
-                ...item,
-                op_numero: opNumero,
-                numero: item.numero || opNumero,
-                quantidade_total: qtd,
-                quantidade: qtd
-              });
-              const correctedItem = verificarECorrigirRotaOp(syncedItem);
-              ordersMap[opNumero] = correctedItem;
+        const rawMap: Record<string, any> = {};
+
+        if (cachedProducao && typeof cachedProducao === 'object') {
+          Object.entries(cachedProducao).forEach(([key, item]: [string, any]) => {
+            if (item && typeof item === 'object') {
+              const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+              const clean = cleanOpId(opNum);
+              if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
+                rawMap[clean] = { ...item };
+              }
             }
-          }
+          });
+        }
+
+        if (cachedOrdens && typeof cachedOrdens === 'object') {
+          Object.entries(cachedOrdens).forEach(([key, item]: [string, any]) => {
+            if (item && typeof item === 'object') {
+              const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+              const clean = cleanOpId(opNum);
+              if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
+                const existing = rawMap[clean] || {};
+                rawMap[clean] = {
+                  ...existing,
+                  ...item,
+                  etapas: { ...(existing.etapas || {}), ...(item.etapas || {}) },
+                  progressoPostos: { ...(existing.progressoPostos || {}), ...(item.progressoPostos || {}) }
+                };
+              }
+            }
+          });
+        }
+
+        const ordersMap: Record<string, ProductionOrder> = {};
+        Object.entries(rawMap).forEach(([clean, item]) => {
+          const opNumero = formatOpNumber(clean);
+          const qtd = obterQuantidadeTotal(item);
+          const etapas = item.etapas || {};
+          const isVaiVem = Boolean(etapas['Montagem Porta Vai-Vem'] || etapas['Preparação Vai Vem']);
+          const isGiro = Boolean(etapas['Montagem de Portas Giratórias'] || etapas['Instalação de Gaxeta']);
+
+          const desc = item.descricao || item.produto || (
+            isVaiVem
+              ? 'PT VAI VEM INJ 2.100A X 1.200L DUPLA C/ BUMPER'
+              : (isGiro ? 'PORTA GIRATÓRIA ISOTÉRMICA REFORÇADA INOX' : 'PORTA ISOTÉRMICA METALRIB')
+          );
+          const cod = item.codigo || item.codigoProduto || (isVaiVem ? '011.0117' : (isGiro ? '001.0118' : '001.0100'));
+
+          const syncedItem = initOrSyncOrderEtapas({
+            ...item,
+            id: opNumero,
+            op_numero: opNumero,
+            numero: opNumero,
+            descricao: desc,
+            produto: desc,
+            codigo: cod,
+            codigoProduto: cod,
+            lote: item.lote || 'PADRÃO',
+            cliente: item.cliente || 'METALRIB',
+            unidade_medida: item.unidade_medida || 'PC',
+            quantidade_total: qtd,
+            quantidade: qtd
+          });
+          const correctedItem = verificarECorrigirRotaOp(syncedItem);
+          ordersMap[opNumero] = correctedItem;
         });
 
         localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
         broadcastUpdate();
       } catch (err) {
-        console.error('[Firebase] Erro no listener de ordens_producao:', err);
+        console.error('[Firebase] Erro na consolidação reativa de ordens:', err);
       }
+    };
+
+    const ordensRef = ref(db, 'ordens_producao');
+    onValue(ordensRef, (snapshot) => {
+      cachedProducao = snapshot.exists() ? snapshot.val() : null;
+      syncConsolidatedOrders();
+    });
+
+    const ordensDirectRef = ref(db, 'ordens');
+    onValue(ordensDirectRef, (snapshot) => {
+      cachedOrdens = snapshot.exists() ? snapshot.val() : null;
+      syncConsolidatedOrders();
     });
 
     const aptsRef = ref(db, 'historico_apontamentos');
@@ -1467,28 +1525,95 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
   ensureInitialData();
 
   try {
-    const snapshot = await get(ref(db, 'ordens_producao'));
-    if (snapshot.exists()) {
-      const ordersMap: Record<string, ProductionOrder> = {};
-      snapshot.forEach((child) => {
-        const item = child.val();
-        if (item && typeof item === 'object') {
-          const key = child.key || '';
-          const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-          if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
-            const qtd = obterQuantidadeTotal(item);
-            const syncedItem = initOrSyncOrderEtapas({
-              ...item,
-              op_numero: opNumero,
-              numero: item.numero || opNumero,
-              quantidade_total: qtd,
-              quantidade: qtd
-            });
-            const correctedItem = verificarECorrigirRotaOp(syncedItem);
-            ordersMap[opNumero] = correctedItem;
+    const [snapshotProd, snapshotOrdens] = await Promise.all([
+      get(ref(db, 'ordens_producao')),
+      get(ref(db, 'ordens'))
+    ]);
+
+    const hasProd = snapshotProd.exists();
+    const hasOrdens = snapshotOrdens.exists();
+
+    console.log("[PCP Debug] Snapshot bruto do RTDB:", {
+      ordens_producao: hasProd ? snapshotProd.val() : null,
+      ordens: hasOrdens ? snapshotOrdens.val() : null
+    });
+
+    if (hasProd || hasOrdens) {
+      const rawMap: Record<string, any> = {};
+
+      if (hasProd) {
+        snapshotProd.forEach((child) => {
+          const item = child.val();
+          if (item && typeof item === 'object') {
+            const key = child.key || '';
+            const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+            const clean = cleanOpId(opNum);
+            if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
+              rawMap[clean] = { ...item };
+            }
           }
-        }
+        });
+      }
+
+      if (hasOrdens) {
+        snapshotOrdens.forEach((child) => {
+          const item = child.val();
+          if (item && typeof item === 'object') {
+            const key = child.key || '';
+            const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+            const clean = cleanOpId(opNum);
+            if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
+              const existing = rawMap[clean] || {};
+              rawMap[clean] = {
+                ...existing,
+                ...item,
+                etapas: { ...(existing.etapas || {}), ...(item.etapas || {}) },
+                progressoPostos: { ...(existing.progressoPostos || {}), ...(item.progressoPostos || {}) }
+              };
+            }
+          }
+        });
+      }
+
+      const ordersMap: Record<string, ProductionOrder> = {};
+      const ordensProcessadas: ProductionOrder[] = [];
+
+      Object.entries(rawMap).forEach(([clean, item]) => {
+        const opNumero = formatOpNumber(clean);
+        const qtd = obterQuantidadeTotal(item);
+        const etapas = item.etapas || {};
+        const isVaiVem = Boolean(etapas['Montagem Porta Vai-Vem'] || etapas['Preparação Vai Vem']);
+        const isGiro = Boolean(etapas['Montagem de Portas Giratórias'] || etapas['Instalação de Gaxeta']);
+
+        const desc = item.descricao || item.produto || (
+          isVaiVem
+            ? 'PT VAI VEM INJ 2.100A X 1.200L DUPLA C/ BUMPER'
+            : (isGiro ? 'PORTA GIRATÓRIA ISOTÉRMICA REFORÇADA INOX' : 'PORTA ISOTÉRMICA METALRIB')
+        );
+        const cod = item.codigo || item.codigoProduto || (isVaiVem ? '011.0117' : (isGiro ? '001.0118' : '001.0100'));
+
+        const syncedItem = initOrSyncOrderEtapas({
+          ...item,
+          id: opNumero,
+          op_numero: opNumero,
+          numero: opNumero,
+          descricao: desc,
+          produto: desc,
+          codigo: cod,
+          codigoProduto: cod,
+          lote: item.lote || 'PADRÃO',
+          cliente: item.cliente || 'METALRIB',
+          unidade_medida: item.unidade_medida || 'PC',
+          quantidade_total: qtd,
+          quantidade: qtd
+        });
+        const correctedItem = verificarECorrigirRotaOp(syncedItem);
+        ordersMap[opNumero] = correctedItem;
+        ordensProcessadas.push(correctedItem);
       });
+
+      console.log("[PCP Debug] Total de OPs processadas:", ordensProcessadas.length);
+
       localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
       return ordersMap;
     } else {
@@ -1496,7 +1621,7 @@ export async function fetchProductionOrders(): Promise<Record<string, Production
       return {};
     }
   } catch (err) {
-    console.warn('[Firebase] Falha na leitura de ordens_producao, usando cache local:', err);
+    console.warn('[Firebase] Falha na leitura consolidada de ordens, usando cache local:', err);
   }
 
   const raw = localStorage.getItem(STORAGE_ORDERS_KEY);

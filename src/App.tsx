@@ -13,7 +13,9 @@ import {
   subscribeToMesUpdates,
   fetchTerminalsConfig,
   TEST_DUMMY_OPS,
-  verificarECorrigirRotaOp
+  verificarECorrigirRotaOp,
+  cleanOpId,
+  formatOpNumber
 } from './services/mesStorage';
 import { db, ref, onValue } from './services/firebase';
 import { Header } from './components/Header';
@@ -111,11 +113,18 @@ export default function App() {
 
   // Executa carga inicial e escuta reativamente o Firebase e atualizações locais
   useEffect(() => {
-    // 1. Escuta permanente reativa do Firebase (/ordens_producao)
-    const ordensRef = ref(db, 'ordens_producao');
-    const unsubFirebaseOrders = onValue(ordensRef, (snapshot) => {
+    // 1. Escuta permanente reativa do Firebase (consolidação unificada de /ordens_producao e /ordens)
+    let latestProducao: any = null;
+    let latestOrdens: any = null;
+
+    const processarSnapshotsConsolidados = () => {
       try {
-        if (!snapshot.exists()) {
+        console.log("[PCP Debug] Snapshot bruto do RTDB:", {
+          ordens_producao: latestProducao,
+          ordens: latestOrdens
+        });
+
+        if (!latestProducao && !latestOrdens) {
           setOrders({});
           try {
             localStorage.setItem('mes_pcp_orders', JSON.stringify({}));
@@ -123,32 +132,98 @@ export default function App() {
           return;
         }
 
-        const map: Record<string, ProductionOrder> = {};
-        snapshot.forEach((child) => {
-          const item = child.val();
-          if (item && typeof item === 'object') {
-            const key = child.key || '';
-            const opNumero = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
-            if (opNumero && !TEST_DUMMY_OPS.has(opNumero)) {
-              const qtd = obterQuantidadeTotal(item);
-              const correctedItem = verificarECorrigirRotaOp({
-                ...item,
-                op_numero: opNumero,
-                numero: item.numero || opNumero,
-                quantidade_total: qtd,
-                quantidade: qtd
-              });
-              map[opNumero] = correctedItem;
+        const rawMap: Record<string, any> = {};
+
+        // 1. Incorpora nós de ordens_producao
+        if (latestProducao && typeof latestProducao === 'object') {
+          Object.entries(latestProducao).forEach(([key, item]: [string, any]) => {
+            if (item && typeof item === 'object') {
+              const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+              const clean = cleanOpId(opNum);
+              if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
+                rawMap[clean] = { ...item };
+              }
             }
-          }
+          });
+        }
+
+        // 2. Incorpora e consolida com o nó /ordens
+        if (latestOrdens && typeof latestOrdens === 'object') {
+          Object.entries(latestOrdens).forEach(([key, item]: [string, any]) => {
+            if (item && typeof item === 'object') {
+              const opNum = (item.op_numero || item.numeroOP || item.numero || item.id || key).trim();
+              const clean = cleanOpId(opNum);
+              if (clean && !TEST_DUMMY_OPS.has(clean) && !TEST_DUMMY_OPS.has(opNum)) {
+                const existing = rawMap[clean] || {};
+                rawMap[clean] = {
+                  ...existing,
+                  ...item,
+                  etapas: { ...(existing.etapas || {}), ...(item.etapas || {}) },
+                  progressoPostos: { ...(existing.progressoPostos || {}), ...(item.progressoPostos || {}) }
+                };
+              }
+            }
+          });
+        }
+
+        const ordensProcessadas: ProductionOrder[] = [];
+        const finalMap: Record<string, ProductionOrder> = {};
+
+        Object.entries(rawMap).forEach(([clean, item]) => {
+          const opNumero = formatOpNumber(clean);
+          const qtd = obterQuantidadeTotal(item);
+          const etapas = item.etapas || {};
+          const isVaiVem = Boolean(etapas['Montagem Porta Vai-Vem'] || etapas['Preparação Vai Vem']);
+          const isGiro = Boolean(etapas['Montagem de Portas Giratórias'] || etapas['Instalação de Gaxeta']);
+
+          const desc = item.descricao || item.produto || (
+            isVaiVem
+              ? 'PT VAI VEM INJ 2.100A X 1.200L DUPLA C/ BUMPER'
+              : (isGiro ? 'PORTA GIRATÓRIA ISOTÉRMICA REFORÇADA INOX' : 'PORTA ISOTÉRMICA METALRIB')
+          );
+          const cod = item.codigo || item.codigoProduto || (isVaiVem ? '011.0117' : (isGiro ? '001.0118' : '001.0100'));
+
+          const correctedItem = verificarECorrigirRotaOp({
+            ...item,
+            id: opNumero,
+            op_numero: opNumero,
+            numero: opNumero,
+            descricao: desc,
+            produto: desc,
+            codigo: cod,
+            codigoProduto: cod,
+            lote: item.lote || 'PADRÃO',
+            cliente: item.cliente || 'METALRIB',
+            unidade_medida: item.unidade_medida || 'PC',
+            quantidade_total: qtd,
+            quantidade: qtd
+          });
+
+          finalMap[opNumero] = correctedItem;
+          ordensProcessadas.push(correctedItem);
         });
-        setOrders(map);
+
+        console.log("[PCP Debug] Total de OPs processadas:", ordensProcessadas.length);
+
+        setOrders(finalMap);
         try {
-          localStorage.setItem('mes_pcp_orders', JSON.stringify(map));
+          localStorage.setItem('mes_pcp_orders', JSON.stringify(finalMap));
         } catch {}
       } catch (err) {
-        console.error('[Firebase] Erro no listener reativo de ordens_producao:', err);
+        console.error('[Firebase] Erro ao consolidar ordens_producao e ordens:', err);
       }
+    };
+
+    const ordensRef = ref(db, 'ordens_producao');
+    const unsubFirebaseOrders = onValue(ordensRef, (snapshot) => {
+      latestProducao = snapshot.exists() ? snapshot.val() : null;
+      processarSnapshotsConsolidados();
+    });
+
+    const ordensDirectRef = ref(db, 'ordens');
+    const unsubFirebaseDirectOrders = onValue(ordensDirectRef, (snapshot) => {
+      latestOrdens = snapshot.exists() ? snapshot.val() : null;
+      processarSnapshotsConsolidados();
     });
 
     // 2. Escuta permanente reativa do Firebase (/historico_apontamentos)
@@ -213,6 +288,7 @@ export default function App() {
 
     return () => {
       unsubFirebaseOrders();
+      unsubFirebaseDirectOrders();
       unsubFirebaseApts();
       window.removeEventListener('metalrib_sectors_updated', handleSectorsUpdated);
       unsubscribe();

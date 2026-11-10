@@ -139,13 +139,17 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
   const orderList = Object.values(orders).map(verificarECorrigirRotaOp);
 
-  // Filtro de OPs
+  // Filtro de OPs (com proteção estrita contra campos undefined)
   const filteredOrders = orderList.filter((op) => {
-    const matchesSearch =
-      op.op_numero.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      op.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      op.lote.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (op.codigo && op.codigo.toLowerCase().includes(searchTerm.toLowerCase()));
+    const searchLower = (searchTerm || '').trim().toLowerCase();
+    const matchesSearch = !searchLower || (
+      (op.op_numero || '').toLowerCase().includes(searchLower) ||
+      (op.numero || '').toLowerCase().includes(searchLower) ||
+      (op.descricao || '').toLowerCase().includes(searchLower) ||
+      ((op as any).produto || '').toLowerCase().includes(searchLower) ||
+      (op.lote || '').toLowerCase().includes(searchLower) ||
+      ((op.codigo || (op as any).codigoProduto || '').toLowerCase().includes(searchLower))
+    );
 
     const matchesStatus =
       statusFilter === 'ALL'
@@ -272,19 +276,27 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         }));
 
         const opKey = toFirebaseKey(docId);
+        const cleanKey = toFirebaseKey(cleanOpId(docId));
         ordersMap[docId] = safeOp;
         allRtdbUpdates[`ordens_producao/${opKey}`] = safeOp;
+        allRtdbUpdates[`ordens/${cleanKey}`] = safeOp;
       }
 
       // 1. Gravação mandatória no Firebase Realtime Database (https://apontamentoop-default-rtdb.firebaseio.com)
       if (replaceExistingOrders) {
-        // Se a opção de substituir estiver marcada, define atomicamente o nó /ordens_producao
+        // Se a opção de substituir estiver marcada, define atomicamente os nós /ordens_producao e /ordens
         const ordersNode: Record<string, any> = {};
+        const cleanOrdersNode: Record<string, any> = {};
         for (const [docId, safeOp] of Object.entries(ordersMap)) {
           const opKey = toFirebaseKey(docId);
+          const cleanKey = toFirebaseKey(cleanOpId(docId));
           ordersNode[opKey] = safeOp;
+          cleanOrdersNode[cleanKey] = safeOp;
         }
-        await set(ref(db, 'ordens_producao'), ordersNode);
+        await Promise.all([
+          set(ref(db, 'ordens_producao'), ordersNode),
+          set(ref(db, 'ordens'), cleanOrdersNode)
+        ]);
       } else {
         // Se for mesclagem, aplica updates em lotes de 50 no Realtime Database para máxima segurança
         const TAMANHO_LOTE = 50;

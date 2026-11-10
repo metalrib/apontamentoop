@@ -14,7 +14,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
   rota: string[];
   statusAtual: string;
 } {
-  const codRaw = String(op.codigo || (op as any).codigoProduto || (op as any).cod || '').trim();
+  const codigoProduto = String(op?.codigoProduto || op?.codigo || (op as any)?.cod || '').trim();
+  const codRaw = codigoProduto;
   let codNormalizado = codRaw.replace(/[^0-9]/g, '');
   const desc = String(op.descricao || (op as any).produto || '').toUpperCase();
 
