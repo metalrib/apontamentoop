@@ -8,7 +8,7 @@ import {
   isOpEmProducao,
   checkOp100Percent
 } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber } from '../services/mesStorage';
 import { db, rtdb, ref, update, set } from '../services/firebase';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
@@ -52,6 +52,13 @@ import {
   RotateCcw
 } from 'lucide-react';
 import { playClick, playSuccessStart } from '../utils/audio';
+
+// Garantia global de funções de higienização de OP
+export const cleanOpIdLocal = (rawId: string | number | null | undefined): string => {
+  if (!rawId) return '';
+  return String(rawId).replace(/^(\s*OP\s*)+/i, '').trim();
+};
+export const cleanOpid = cleanOpIdLocal;
 
 interface PcpPortalProps {
   orders: Record<string, ProductionOrder>;
@@ -264,19 +271,22 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       const allRtdbUpdates: Record<string, any> = {};
 
       for (const op of listaOrdens) {
-        const docId = String(op.id || op.numeroOp || op.numero || (op as any).op_numero || '').trim();
-        if (!docId) continue;
+        const rawId = op.id || op.numeroOp || op.numero || (op as any).op_numero || (op as any).opNumero || '';
+        const cleanId = cleanOpId(rawId);
+        if (!cleanId) continue;
+        const docId = formatOpNumber(cleanId);
 
         const safeOp: ProductionOrder = JSON.parse(JSON.stringify({
           ...op,
           id: docId,
           numero: docId,
           numeroOp: docId,
-          op_numero: docId
+          op_numero: docId,
+          ultimaAtualizacao: Date.now()
         }));
 
         const opKey = toFirebaseKey(docId);
-        const cleanKey = toFirebaseKey(cleanOpId(docId));
+        const cleanKey = toFirebaseKey(cleanId);
         ordersMap[docId] = safeOp;
         allRtdbUpdates[`ordens_producao/${opKey}`] = safeOp;
         allRtdbUpdates[`ordens/${cleanKey}`] = safeOp;

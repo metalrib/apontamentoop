@@ -12,12 +12,12 @@ import {
   normalizarCodigo,
   OpOcorrencia
 } from '../types/mes';
-import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, formatOpNumber } from '../utils/nomusParser';
+import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
 
 export { db, ref, set, get, onValue, update, push };
-export { cleanOpId, formatOpNumber };
+export { cleanOpId, cleanOpid, formatOpNumber };
 
 /**
  * Sanitiza recursivamente qualquer objeto ou payload antes de enviar para o Firebase Realtime Database.

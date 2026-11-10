@@ -856,10 +856,13 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
  *     'OP 024455-01'    -> '024455-01'
  *     '024455-01'       -> '024455-01'
  */
-export const cleanOpId = (rawId: string): string => {
+export const cleanOpId = (rawId: string | number | null | undefined): string => {
   if (!rawId) return '';
   return String(rawId).replace(/^(\s*OP\s*)+/i, '').trim();
 };
+
+// Aliases para evitar falhas caso seja chamado com variações de nomenclatura (ex: cleanOpid):
+export const cleanOpid = cleanOpId;
 
 /**
  * Retorna o número da OP formatado de forma segura e padronizada com o prefixo 'OP '.
