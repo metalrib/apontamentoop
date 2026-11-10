@@ -94,55 +94,103 @@ export const CODIGOS_PORTAS_GIRO_PADRAO = new Set([
   '0030137', '0030138'
 ]);
 
-// Tabela oficial de CÓDIGOS DE PORTAS DE CORRER PADRÃO (WHITELIST OFICIAL METALRIB)
-export const CODIGOS_PORTAS_CORRER_PADRAO = new Set([
-  // PORTAS DE CORRER RESFRIADAS PADRÃO (005)
-  '005.0100', '005.0101', '005.0102', '005.0103', '005.0104', '005.0105',
-  '005.0106', '005.0107', '005.0110', '005.0111',
-
-  // Versões normalizadas sem pontos (005)
-  '0050100', '0050101', '0050102', '0050103', '0050104', '0050105',
-  '0050106', '0050107', '0050110', '0050111',
-
-  // PORTAS DE CORRER CONGELADAS PADRÃO (007)
-  '007.0100', '007.0101', '007.0102', '007.0103', '007.0104', '007.0105',
-  '007.0106', '007.0107', '007.0108', '007.0109', '007.0110', '007.0111',
-
-  // Versões normalizadas sem pontos (007)
-  '0070100', '0070101', '0070102', '0070103', '0070104', '0070105',
-  '0070106', '0070107', '0070108', '0070109', '0070110', '0070111'
+// REGRA OFICIAL DE CATÁLOGO (WHITELIST FECHADA DE PORTAS DE CORRER PADRÃO: 0100 A 0111)
+export const CODIGOS_CORRER_PADRAO = new Set([
+  // 1. Resfriadas (005.*)
+  '005.0100', '005.0101', '005.0102', '005.0103', '005.0104',
+  '005.0105', '005.0106', '005.0107', '005.0110', '005.0111',
+  // 2. Congeladas (007.*)
+  '007.0100', '007.0101', '007.0102', '007.0103', '007.0104',
+  '007.0105', '007.0106', '007.0107', '007.0108', '007.0109',
+  '007.0110', '007.0111'
 ]);
 
-// Função validadora de portas de correr padrão (005.* e 007.*)
+// Set completo incluindo versões normalizadas sem ponto para match resiliente
+export const CODIGOS_PORTAS_CORRER_PADRAO = new Set([
+  ...CODIGOS_CORRER_PADRAO,
+  // Versões normalizadas sem pontos (005)
+  '0050100', '0050101', '0050102', '0050103', '0050104',
+  '0050105', '0050106', '0050107', '0050110', '0050111',
+  // Versões normalizadas sem pontos (007)
+  '0070100', '0070101', '0070102', '0070103', '0070104',
+  '0070105', '0070106', '0070107', '0070108', '0070109',
+  '0070110', '0070111'
+]);
+
+/**
+ * Função de Classificação Oficial de Porta de Correr:
+ * Restringe rota direta de 1 etapa estritamente à whitelist fechada de catálogo 0100 a 0111.
+ * Todo o restante é Especial Sob Medida com esteira completa de 5 etapas.
+ */
+export const classificarPortaCorrer = (codigo: string, descricao: string) => {
+  const codLimpo = String(codigo || '').trim();
+  const codSemPontos = codLimpo.replace(/[-_.\s]/g, '');
+  const descLimpa = String(descricao || '').toUpperCase();
+
+  // 1. Se for porta de emenda
+  if (descLimpa.includes('EMENDA') || codLimpo.startsWith('029.') || codLimpo.startsWith('025.')) {
+    return { tipo: 'EMENDA', rota: 'ROTA_EMENDA' };
+  }
+
+  // 2. Se pertencer à lista fechada de catálogo padrão (0100 a 0111):
+  if (CODIGOS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PORTAS_CORRER_PADRAO.has(codSemPontos)) {
+    return {
+      tipo: 'Porta de Correr Padrão (Montagem Final)',
+      tipoOrdem: 'Porta de Correr Padrão (Montagem Final)',
+      etapas: [
+        {
+          nome: "Montagem Portas de Correr Padrão e Especial",
+          ordem: 1,
+          status: "pendente",
+          quantidadeProduzida: 0,
+          total: 1
+        }
+      ]
+    };
+  }
+
+  // 3. Todo o restante é Especial Sob Medida (Fabricação Completa com Corte, Dobra, Injeção...):
+  return {
+    tipo: 'Especial Sob Medida (Fabricação Completa)',
+    tipoOrdem: 'Especial Sob Medida (Fabricação Completa)',
+    rota: 'FABRICACAO_COMPLETA'
+  };
+};
+
+// Função validadora de portas de correr padrão: RESTRITA À WHITELIST FECHADA DE CATÁLOGO (0100 A 0111)
 export const isPortaCorrerPadrao = (codigo?: string, descricao?: string): boolean => {
   const codLimpo = String(codigo || '').trim();
   const codSemPontos = codLimpo.replace(/[-_.\s]/g, '');
   const descLimpa = String(descricao || '').toUpperCase();
 
-  // Excluir portas de emenda (mantêm rota dedicada de emenda)
+  // 1. Excluir portas de emenda (mantêm rota dedicada de emenda)
   if (descLimpa.includes('EMENDA') || descLimpa.includes('PORTAS EMENDA') || codLimpo.startsWith('029.') || codLimpo.startsWith('025.')) {
     return false;
   }
 
-  // Whitelist no Set oficial
+  // 2. Se contiver termos de porta especial / inox / sob medida, NÃO é padrão
   if (
+    descLimpa.includes('ESPECIAL') ||
+    descLimpa.includes('ESP') ||
+    descLimpa.includes('INOX') ||
+    descLimpa.includes('I304') ||
+    descLimpa.includes('I430') ||
+    codLimpo.startsWith('006.') ||
+    codLimpo.startsWith('008.')
+  ) {
+    return false;
+  }
+
+  // 3. Whitelist FECHADA no Set oficial de catálogo padrão (0100 a 0111):
+  if (
+    CODIGOS_CORRER_PADRAO.has(codLimpo) ||
     CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) ||
     CODIGOS_PORTAS_CORRER_PADRAO.has(codSemPontos)
   ) {
     return true;
   }
 
-  // Whitelist de códigos padrão: 005.* (Resfriados) e 007.* (Congelados)
-  if (
-    codLimpo.startsWith('005.') ||
-    codLimpo.startsWith('007.') ||
-    codSemPontos.startsWith('005') ||
-    codSemPontos.startsWith('007') ||
-    descLimpa.includes('PT COR')
-  ) {
-    return true;
-  }
-
+  // Todo o restante (como 005.0225, 007.0150, etc.) NÃO é padrão
   return false;
 };
 
@@ -201,7 +249,7 @@ export const ROUTE_RULES: RouteRule[] = [
       "Instalação de Gaxeta",
       "Montagem de Portas Giratória Padrão e Especial"
     ],
-    badge: "Especial sob Medida (Fabricação Completa)",
+    badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
   {
@@ -215,7 +263,7 @@ export const ROUTE_RULES: RouteRule[] = [
       "Instalação de Gaxeta",
       "Montagem de Portas Giratória Padrão e Especial"
     ],
-    badge: "Especial sob Medida (Fabricação Completa)",
+    badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
   // Rota 16 - Porta Padrão Correr (Whitelist Exclusiva - Terminal 4: Montagem Direta)
@@ -223,7 +271,7 @@ export const ROUTE_RULES: RouteRule[] = [
     keyword: "PT COR PADRAO",
     label: "Porta de Correr Padrão",
     steps: ["Montagem Portas de Correr Padrão e Especial"],
-    badge: "Linha Padrão (Montagem Direta)",
+    badge: "Porta de Correr Padrão (Montagem Final)",
     isStandardLine: true
   },
   // Rota Completa - Porta Especial de Correr / Sob Medida (Padrão para qualquer PT COR fora da Whitelist)
@@ -231,14 +279,14 @@ export const ROUTE_RULES: RouteRule[] = [
     keyword: "PT COR",
     label: "Porta de Correr Especial",
     steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
-    badge: "Especial sob Medida (Fabricação Completa)",
+    badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
   {
     keyword: "PT COR ESPECIAL",
     label: "Porta de Correr Especial",
     steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
-    badge: "Especial sob Medida (Fabricação Completa)",
+    badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
   // Porta Emendada (Dimensões Excedentes ou Modelo Emendado)
@@ -425,6 +473,7 @@ export interface ProductionOrder {
   rota?: string[];
   familia?: string;
   tipoMontagem?: string;
+  tipoOrdem?: string; // ex: "Porta de Correr Padrão (Montagem Final)" ou "Especial Sob Medida (Fabricação Completa)"
   statusAtual?: string;
   etapaAtual?: string;
   statusEtapa?: string;

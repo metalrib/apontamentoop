@@ -157,6 +157,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       return {
         familia: 'Porta de Correr Padrão',
         tipoMontagem: 'Porta de Correr Padrão',
+        tipoOrdem: 'Porta de Correr Padrão (Montagem Final)',
         rota: [
           'Montagem Portas de Correr Padrão e Especial'
         ],
@@ -177,6 +178,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     return {
       familia: 'Porta de Correr Especial',
       tipoMontagem: 'Porta de Correr Especial',
+      tipoOrdem: 'Especial Sob Medida (Fabricação Completa)',
       rota: [
         'Corte',
         'Dobra',

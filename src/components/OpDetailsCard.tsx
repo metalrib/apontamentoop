@@ -197,15 +197,15 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
         )}
 
         {/* Badge de Linha Padrão / Sob Medida */}
-        {rule.badge && (
+        {(order.tipoOrdem || rule.badge) && (
           <span
             className={`hidden lg:inline-flex h-7 px-2 flex items-center rounded-md text-[10px] font-bold border shrink-0 leading-none ${
-              rule.isStandardLine
+              (order.tipoOrdem ? order.tipoOrdem.includes('Padrão') : rule.isStandardLine)
                 ? 'bg-emerald-950/80 text-emerald-300 border-emerald-500/60'
                 : 'bg-amber-950/80 text-amber-300 border-amber-500/60'
             }`}
           >
-            {rule.badge}
+            {order.tipoOrdem || rule.badge}
           </span>
         )}
 

@@ -15,10 +15,12 @@ import {
   CODIGOS_ANCORAS_PADRAO,
   normalizarCodigo,
   OpEtapaState,
-  isPortaCorrerPadrao
+  isPortaCorrerPadrao,
+  CODIGOS_CORRER_PADRAO,
+  classificarPortaCorrer
 } from '../types/mes';
 
-export { isPortaCorrerPadrao };
+export { isPortaCorrerPadrao, CODIGOS_CORRER_PADRAO, classificarPortaCorrer };
 import {
   verificarSeExigeEmenda,
   definirRotaProduto,
@@ -507,7 +509,7 @@ function resolveBaseRoute(
         keyword: 'PT GIR ESPECIAL',
         label: 'Porta Giratória Especial',
         steps,
-        badge: 'Especial sob Medida (Fabricação Completa)',
+        badge: 'Especial Sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
@@ -516,10 +518,7 @@ function resolveBaseRoute(
 
   // 6. Linha Super Cong de Correr / Especiais Sob Medida
   const codLimpoCorrer = normalizarCodigo(code || '');
-  const ehCodigoCorrerPadrao = isPortaCorrerPadrao(code || codLimpoCorrer, desc || '') || Boolean(
-    (code && (CODIGOS_PORTAS_CORRER_PADRAO.has(code) || CODIGOS_PADRAO_CORRER.has(code))) ||
-    (codLimpoCorrer && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpoCorrer) || CODIGOS_PADRAO_CORRER.has(codLimpoCorrer)))
-  );
+  const ehCodigoCorrerPadrao = isPortaCorrerPadrao(code || codLimpoCorrer, desc || '');
 
   const ehSuperCong =
     !ehCodigoCorrerPadrao &&
@@ -533,7 +532,7 @@ function resolveBaseRoute(
       keyword: 'PT COR ESPECIAL',
       label: 'Rota 13/14 - Porta Especial de Correr Super Cong',
       steps,
-      badge: 'Especial sob Medida (Fabricação Completa)',
+      badge: 'Especial Sob Medida (Fabricação Completa)',
       isStandardLine: false
     };
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
@@ -550,10 +549,7 @@ function resolveBaseRoute(
   ) {
     const exigeEmenda = desc.toUpperCase().includes('EMENDA') || verificarSeExigeEmenda(desc || '');
     const codLimpo = normalizarCodigo(code || '');
-    const ehCodigoPadrao = isPortaCorrerPadrao(code || codLimpo, desc || '') || Boolean(
-      (code && (CODIGOS_PORTAS_CORRER_PADRAO.has(code) || CODIGOS_PADRAO_CORRER.has(code))) ||
-      (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
-    );
+    const ehCodigoPadrao = isPortaCorrerPadrao(code || codLimpo, desc || '');
     const isEspecial = !ehCodigoPadrao || norm.includes('ESPECIAL') || norm.includes('ESP') || norm.includes('INOX') || (!ehCodigoPadrao && norm.includes('SUPER CONG')) || exigeEmenda;
     const montagemStep = 'Montagem Portas de Correr Padrão e Especial';
 
@@ -571,7 +567,7 @@ function resolveBaseRoute(
         keyword: 'PT COR ESPECIAL',
         label: 'Rota 13/14 - Porta Especial de Correr e Emendadas',
         steps: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', montagemStep],
-        badge: 'Especial sob Medida (Fabricação Completa)',
+        badge: 'Especial Sob Medida (Fabricação Completa)',
         isStandardLine: false
       };
       return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };

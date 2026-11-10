@@ -347,6 +347,9 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       Boolean((op as any).medidaEspecial));
 
   if (ehCorrer && ehCorrerPadrao && !ehCorrerEspecial) {
+    op.tipoOrdem = 'Porta de Correr Padrão (Montagem Final)';
+    op.familia = 'Porta de Correr Padrão';
+    op.tipoMontagem = 'Porta de Correr Padrão';
     const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
     const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
 
@@ -364,8 +367,6 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       ];
       op.rota = novaRota;
       op.etapas = novasEtapas;
-      op.familia = 'Porta de Correr Padrão';
-      op.tipoMontagem = 'Porta de Correr Padrão';
       op.etapaAtual = 'Montagem Portas de Correr Padrão e Especial';
       op.statusEtapa = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
       op.status = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
@@ -375,6 +376,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
           etapas: novasEtapas,
+          tipoOrdem: 'Porta de Correr Padrão (Montagem Final)',
           familia: 'Porta de Correr Padrão',
           tipoMontagem: 'Porta de Correr Padrão',
           etapaAtual: op.etapaAtual,
@@ -385,6 +387,10 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       }
     }
   } else if (ehCorrerEspecial) {
+    op.tipoOrdem = 'Especial Sob Medida (Fabricação Completa)';
+    op.familia = 'Porta de Correr Especial';
+    op.tipoMontagem = 'Porta de Correr Especial';
+
     const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
     if (!rotaAtual || rotaAtual.length < 4 || !rotaAtual.includes('Corte')) {
       const novaRota = [
@@ -397,8 +403,6 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
 
       op.rota = novaRota;
       op.etapas = novaRota;
-      op.familia = 'Porta de Correr Especial';
-      op.tipoMontagem = 'Porta de Correr Especial';
 
       const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
       if (semApts) {
@@ -416,12 +420,22 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
           etapas: novaRota,
+          tipoOrdem: 'Especial Sob Medida (Fabricação Completa)',
           familia: 'Porta de Correr Especial',
           tipoMontagem: 'Porta de Correr Especial',
           etapaAtual: op.etapaAtual,
           statusEtapa: op.statusEtapa,
           status: op.status,
           statusAtual: op.statusAtual
+        });
+      }
+    } else {
+      // Já possui rota completa de 5/6 etapas (ex: OP 024471-01). Preserva o processo atual onde o lote se encontra!
+      if (docId && (op.tipoOrdem !== 'Especial Sob Medida (Fabricação Completa)' || op.familia !== 'Porta de Correr Especial')) {
+        persistirCorrecaoOp(docId, {
+          tipoOrdem: 'Especial Sob Medida (Fabricação Completa)',
+          familia: 'Porta de Correr Especial',
+          tipoMontagem: 'Porta de Correr Especial'
         });
       }
     }
@@ -3782,6 +3796,7 @@ export async function saveMultipleOrders(
         metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
         metadadosParaAtualizar.status = statusEtapaFinal;
         metadadosParaAtualizar.rota = ['Montagem Portas de Correr Padrão e Especial'];
+        metadadosParaAtualizar.tipoOrdem = 'Porta de Correr Padrão (Montagem Final)';
         metadadosParaAtualizar.familia = 'Porta de Correr Padrão';
         metadadosParaAtualizar.tipoMontagem = 'Porta de Correr Padrão';
         metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial';
@@ -3800,9 +3815,16 @@ export async function saveMultipleOrders(
         metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
         metadadosParaAtualizar.status = statusEtapaFinal;
         metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.tipoOrdem = 'Especial Sob Medida (Fabricação Completa)';
         metadadosParaAtualizar.familia = 'Porta de Correr Especial';
         metadadosParaAtualizar.tipoMontagem = 'Porta de Correr Especial';
         metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Corte';
+      } else if (ehCorrer) {
+        metadadosParaAtualizar.tipoOrdem = ehCorrerPadrao
+          ? 'Porta de Correr Padrão (Montagem Final)'
+          : 'Especial Sob Medida (Fabricação Completa)';
+        metadadosParaAtualizar.familia = ehCorrerPadrao ? 'Porta de Correr Padrão' : 'Porta de Correr Especial';
+        metadadosParaAtualizar.tipoMontagem = ehCorrerPadrao ? 'Porta de Correr Padrão' : 'Porta de Correr Especial';
       }
 
       // Preservação mandatória dos dados de chão de fábrica para Realtime Database e memória

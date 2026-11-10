@@ -290,16 +290,16 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = ({
           </div>
 
           {/* Badge de Linha Padrão ou Especial */}
-          {rule.badge && (
+          {(op.tipoOrdem || rule.badge) && (
             <div>
               <span
                 className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
-                  rule.isStandardLine
+                  (op.tipoOrdem ? op.tipoOrdem.includes('Padrão') : rule.isStandardLine)
                     ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                     : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                 }`}
               >
-                {rule.badge}
+                {op.tipoOrdem || rule.badge}
               </span>
             </div>
           )}

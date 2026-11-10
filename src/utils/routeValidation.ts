@@ -83,6 +83,8 @@ import {
   CODIGOS_TRILHOS_LGT_PADRAO,
   CODIGOS_PORTAS_GIRO_PADRAO,
   CODIGOS_PORTAS_CORRER_PADRAO,
+  CODIGOS_CORRER_PADRAO,
+  classificarPortaCorrer,
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_CORRER,
   CODIGOS_FOLHAS_PADRAO,
@@ -91,7 +93,7 @@ import {
   isPortaCorrerPadrao
 } from '../types/mes';
 
-export { isPortaCorrerPadrao };
+export { isPortaCorrerPadrao, CODIGOS_CORRER_PADRAO, classificarPortaCorrer };
 
 export function normalizeValidationText(text: string): string {
   return (text || '')

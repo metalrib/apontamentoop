@@ -844,13 +844,13 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                               <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[11px] font-bold">
                                 {rule.label}
                               </span>
-                              {rule.badge && (
+                              {(op.tipoOrdem || rule.badge) && (
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                  rule.isStandardLine
+                                  (op.tipoOrdem ? op.tipoOrdem.includes('Padrão') : rule.isStandardLine)
                                     ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                                     : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
                                 }`}>
-                                  {rule.badge}
+                                  {op.tipoOrdem || rule.badge}
                                 </span>
                               )}
                             </div>
