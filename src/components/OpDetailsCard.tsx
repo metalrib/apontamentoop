@@ -173,12 +173,28 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
           </span>
         )}
 
-        {/* Badge Requer Laser */}
-        {order.requer_laser && (
-          <span className="h-7 px-2 flex items-center rounded-md text-[10px] font-bold border shrink-0 bg-orange-950/80 text-orange-300 border-orange-500/60 font-mono gap-1 leading-none">
-            <span>🔥 Laser</span>
-          </span>
-        )}
+        {/* Toggle / Checkbox Requer Laser */}
+        <button
+          type="button"
+          onClick={async () => {
+            playClick();
+            const currentVal = Boolean(order.requer_laser || (order as any).requerLaser);
+            const nextVal = !currentVal;
+            await updateProductionOrder(order.op_numero, {
+              requer_laser: nextVal,
+              requerLaser: nextVal
+            } as any);
+          }}
+          className={`h-7 px-2 rounded-md text-[10px] font-mono font-bold border flex items-center gap-1 shadow-sm transition cursor-pointer active:scale-95 shrink-0 leading-none ${
+            (order.requer_laser || (order as any).requerLaser)
+              ? 'bg-orange-500 text-slate-950 border-orange-400 font-black'
+              : 'bg-slate-950 text-orange-300 border-orange-500/50 hover:bg-orange-950/40'
+          }`}
+          title="Ativar/Desativar etapa de Laser no Terminal 1"
+        >
+          <span>🔥</span>
+          <span>{(order.requer_laser || (order as any).requerLaser) ? 'Laser Ativo' : '+ Laser'}</span>
+        </button>
 
         {/* Controle compacto de Solda sob demanda para Âncora */}
         {isAncora && (

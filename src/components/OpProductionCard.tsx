@@ -551,6 +551,38 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             </div>
           )}
 
+          {/* Controle Universal de Envio ao Laser antes da Dobra (Terminal 1) */}
+          <div className="bg-orange-950/20 border border-orange-500/30 p-2.5 rounded-xl flex items-center justify-between gap-3 text-xs font-mono">
+            <div>
+              <span className="text-orange-300 font-bold flex items-center gap-1.5">
+                <span>🔥</span>
+                Laser CNC (Terminal 1)
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                {(order.requer_laser || (order as any).requerLaser) ? 'Etapa Laser inclusa na rota da OP' : 'Fluxo padrão sem Laser'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                playClick();
+                const nextVal = !Boolean(order.requer_laser || (order as any).requerLaser);
+                await updateProductionOrder(order.op_numero, {
+                  requer_laser: nextVal,
+                  requerLaser: nextVal
+                } as any);
+              }}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                (order.requer_laser || (order as any).requerLaser)
+                  ? 'bg-orange-500 text-slate-950 border-orange-400 shadow-md'
+                  : 'bg-slate-900 hover:bg-slate-800 text-orange-300 border-orange-500/50'
+              }`}
+            >
+              {(order.requer_laser || (order as any).requerLaser) ? '✓ Requer Laser' : '+ Ativar Laser'}
+            </button>
+          </div>
+
           {/* Resumo das Etapas da Rota */}
           <div className="space-y-1.5 bg-slate-950/60 p-3 rounded-xl border border-blue-950/60">
             <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 font-semibold mb-1">

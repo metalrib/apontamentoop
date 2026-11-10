@@ -86,6 +86,10 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     // Caso especial: Solda sob demanda para âncoras no Terminal 5
     if (isAncora && isTerminal5 && setorTerminal.includes('Solda')) return true;
 
+    // Caso especial: Laser no Terminal 1 quando a OP requer laser
+    const isLaser = setorTerminal.toLowerCase().includes('laser');
+    if (isLaser && Boolean(order.requer_laser || (order as any).requerLaser)) return true;
+
     // 1. Funções técnicas oficiais de correspondência de etapa
     if (etapaPertenceARota(setorTerminal, rotaOp)) return true;
     if (findStepForSector(setorTerminal, rotaOp) !== null) return true;
@@ -149,6 +153,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
 
   const validSectors = postosExibiveis.filter((s) => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
+    if (s.toLowerCase().includes('laser') && Boolean(order.requer_laser || (order as any).requerLaser)) return true;
     const isStep = findStepForSector(s, steps) !== null;
     if (!isStep) return false;
     const v = validarPostoIndustrial(order, s, apontamentos, terminal.id);

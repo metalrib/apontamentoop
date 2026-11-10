@@ -622,7 +622,7 @@ export function getRouteForOp(
   explicitCodigo?: string
 ): { rule: RouteRule; steps: string[]; badge: string; isStandardLine: boolean } {
   const resolved = resolveBaseRoute(input, explicitCodigo);
-  const requerLaser = typeof input === 'object' && input !== null && Boolean(input.requer_laser);
+  const requerLaser = typeof input === 'object' && input !== null && Boolean((input as any).requer_laser || (input as any).requerLaser);
 
   // Define as etapas oficiais dinâmicas a partir do gerador centralizado por produto (Matriz Oficial Metalrib)
   const dynamicSteps = obterEtapasDaRota(input);
@@ -967,9 +967,10 @@ export function initOrSyncOrderEtapas(
   order: ProductionOrder,
   apontamentos: Apontamento[] = []
 ): ProductionOrder {
-  const safeApontamentos = Array.isArray(apontamentos) 
-    ? apontamentos 
-    : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? Object.values(apontamentos) : []);
+  const listaApontamentos: Apontamento[] = Array.isArray(apontamentos)
+    ? apontamentos
+    : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? (Object.values(apontamentos) as Apontamento[]) : []);
+  const safeApontamentos = listaApontamentos;
   const { steps } = getRouteForOp(order);
   const total = obterQuantidadeTotal(order);
   const rawEtapas = order.etapas && !Array.isArray(order.etapas) && typeof order.etapas === 'object'
@@ -978,7 +979,8 @@ export function initOrSyncOrderEtapas(
   const currentEtapas: Record<string, OpEtapaState> = {};
 
   steps.forEach((step) => {
-    const stepApontamentos = safeApontamentos.filter((a) => {
+    const stepApontamentos = listaApontamentos.filter((a) => {
+      if (!a) return false;
       if (a.op_numero !== order.op_numero && a.op !== order.op_numero) return false;
       const aptEtapa = a.etapa_rota || a.etapaRota;
       if (aptEtapa) {
@@ -1019,8 +1021,8 @@ export function initOrSyncOrderEtapas(
         currentEtapas[step] = { status: 'PENDENTE', concluidas: 0, total };
       }
     } else {
-      // Se estava marcado como CONCLUIDO mas tem 0 apontamentos reais desta etapa, reverte para PENDENTE (auto-correção)
-      if (existing.status === 'CONCLUIDO' && totalFinished === 0 && stepApontamentos.length === 0) {
+      // Se não há apontamentos reais para esta etapa e totalFinished === 0 (ex: após reset de OP), reseta para PENDENTE com 0 concluídas
+      if (totalFinished === 0 && totalActive === 0 && stepApontamentos.length === 0) {
         currentEtapas[step] = { status: 'PENDENTE', concluidas: 0, total };
       } else {
         const concluidas = Math.max(existing.concluidas || 0, totalFinished);
@@ -1236,19 +1238,23 @@ export function getRouteEvaluation(
   apontamentos: Apontamento[] = [],
   routeSteps: string[]
 ): Record<string, StepStatus> {
-  const safeApontamentos: Apontamento[] = Array.isArray(apontamentos) 
-    ? apontamentos 
+  const listaApontamentos: Apontamento[] = Array.isArray(apontamentos)
+    ? apontamentos
     : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? (Object.values(apontamentos) as Apontamento[]) : []);
+  const safeApontamentos = listaApontamentos;
   const result: Record<string, StepStatus> = {};
   const total = obterQuantidadeTotal(op);
-  const synchronizedOp = initOrSyncOrderEtapas(op, safeApontamentos);
+  const synchronizedOp = initOrSyncOrderEtapas(op, listaApontamentos);
   const etapas = synchronizedOp.etapas || {};
 
   const cleanOpNum = String(op.op_numero || op.numero || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+  const safeSteps = Array.isArray(routeSteps) && routeSteps.length > 0
+    ? routeSteps
+    : (Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : obterEtapasDaRota(op));
 
-  routeSteps.forEach((step, index) => {
+  safeSteps.forEach((step, index) => {
     // Apontamentos desta etapa (validação estrita por etapa_rota/etapaRota ou fallback de setor seguro)
-    const stepApontamentos = safeApontamentos.filter(a => {
+    const stepApontamentos = listaApontamentos.filter(a => {
       if (!a) return false;
       const cleanAptOp = String(a.op_numero || a.op || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
       if (cleanAptOp !== cleanOpNum && a.op_numero !== op.op_numero && a.op !== op.op_numero) return false;
@@ -1310,7 +1316,7 @@ export function getRouteEvaluation(
     } else if (index === 0) {
       canStart = true;
     } else {
-      const previousStep = routeSteps[index - 1];
+      const previousStep = safeSteps[index - 1];
       prevName = previousStep;
 
       const prevApontamentos = safeApontamentos.filter(a => {

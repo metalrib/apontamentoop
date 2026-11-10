@@ -24,6 +24,8 @@ db.exec(`
     status TEXT,
     etapas TEXT,
     quantidadeFisica INTEGER DEFAULT 1,
+    requerLaser INTEGER DEFAULT 0,
+    requer_laser INTEGER DEFAULT 0,
     criadoEm INTEGER,
     atualizadoEm INTEGER
   );

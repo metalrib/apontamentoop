@@ -1083,6 +1083,22 @@ export function obterEtapasDaRota(op: any): string[] {
   else if (cod === '090.0002') steps = ['Corte', 'Solda', 'Montagem Estante'];
   else steps = ['Montagem Portas de Correr Padrão e Especial'];
 
+  // Encaminhar para Laser (sob demanda via checkbox Requer Laser no Terminal 1)
+  const temLaser = Boolean(op?.requer_laser || op?.requerLaser);
+  if (temLaser && !steps.some((s) => s.toUpperCase().includes('LASER'))) {
+    const corteIdx = steps.findIndex((s) => s.toUpperCase().includes('CORTE'));
+    if (corteIdx >= 0) {
+      steps.splice(corteIdx + 1, 0, 'Laser');
+    } else {
+      const dobraIdx = steps.findIndex((s) => s.toUpperCase().includes('DOBRA'));
+      if (dobraIdx >= 0) {
+        steps.splice(dobraIdx, 0, 'Laser');
+      } else {
+        steps.unshift('Laser');
+      }
+    }
+  }
+
   // Encaminhar para Router (sob demanda para Vai-Vem e Office Door)
   const isEligible = isEligibleForRouter(op);
   const temRouter = isEligible && (
@@ -1470,6 +1486,14 @@ export function validarPostoIndustrial(
   if (!postoSelecionado) return { valido: true };
 
   const normPostoUpper = postoSelecionado.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[-_]/g, ' ');
+
+  // REGRA DE FLUXO DIRETO / SOB DEMANDA: Laser no Terminal 1
+  const isLaser = normPostoUpper.includes('LASER');
+  if (isLaser) {
+    if (Boolean(op?.requer_laser) || Boolean(op?.requerLaser) || terminalId === 1) {
+      return { valido: true };
+    }
+  }
 
   // REGRA DE FLUXO PARALELO: Liberação antecipada de Dobra
   const isDobra = normPostoUpper.includes('DOBRA');

@@ -2707,22 +2707,50 @@ export async function updateProductionOrder(
     ...orders[targetKey],
     ...updates
   };
+
+  // Se requer_laser ou requerLaser foi alterado, sincroniza propriedades e recalcula a rota oficial da OP
+  const hasLaserUpdate = updates.requer_laser !== undefined || (updates as any).requerLaser !== undefined;
+  if (hasLaserUpdate) {
+    const isLaser = Boolean(updates.requer_laser !== undefined ? updates.requer_laser : (updates as any).requerLaser);
+    updated.requer_laser = isLaser;
+    (updated as any).requerLaser = isLaser;
+    const { steps } = getRouteForOp(updated);
+    updated.rota = steps;
+  }
+
   orders[targetKey] = updated;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
-  
 
-  // Sincronização assíncrona com API local Express/SQLite via PUT /api/ordens/:id
+  // Sincronização assíncrona com API local Express/SQLite via PUT /api/ordens/:id e /api/ordens/update-laser
   try {
     const cleanId = cleanOpId(targetKey);
     const localUrl = getLocalServerUrl();
+    const bodyPayload: any = {
+      status: updated.status,
+      etapas: updated.etapas
+    };
+    if (hasLaserUpdate) {
+      bodyPayload.requerLaser = Boolean(updated.requer_laser);
+      bodyPayload.requer_laser = Boolean(updated.requer_laser);
+    }
     fetch(`${localUrl}/api/ordens/${cleanId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        status: updated.status,
-        etapas: updated.etapas
-      })
+      body: JSON.stringify(bodyPayload)
     }).catch(() => {});
+
+    if (hasLaserUpdate) {
+      fetch(`${localUrl}/api/ordens/update-laser`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: cleanId,
+          opNumero: targetKey,
+          requerLaser: Boolean(updated.requer_laser),
+          requer_laser: Boolean(updated.requer_laser)
+        })
+      }).catch(() => {});
+    }
   } catch {}
 
   broadcastUpdate();

@@ -105,17 +105,20 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
     )
   );
 
-  const [sendToLaser, setSendToLaser] = useState<boolean>(Boolean(order.requer_laser));
+  const [sendToLaser, setSendToLaser] = useState<boolean>(Boolean(order.requer_laser || (order as any).requerLaser));
 
   useEffect(() => {
-    setSendToLaser(Boolean(order.requer_laser));
-  }, [order.op_numero, order.requer_laser]);
+    setSendToLaser(Boolean(order.requer_laser || (order as any).requerLaser));
+  }, [order.op_numero, order.requer_laser, (order as any).requerLaser]);
 
   const handleToggleLaser = async () => {
     playClick();
     const nextVal = !sendToLaser;
     setSendToLaser(nextVal);
-    await updateProductionOrder(order.op_numero, { requer_laser: nextVal });
+    await updateProductionOrder(order.op_numero, {
+      requer_laser: nextVal,
+      requerLaser: nextVal
+    } as any);
   };
 
   // Regra do Seletor de Quantidade Física (Totem):
@@ -1268,8 +1271,11 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                 type="checkbox"
                 id="send-to-laser-toggle-batch"
                 checked={sendToLaser}
-                readOnly
-                className="w-5 h-5 rounded border-slate-600 text-orange-500 accent-orange-500 cursor-pointer pointer-events-none shrink-0"
+                onChange={(e) => {
+                  e.stopPropagation();
+                  handleToggleLaser();
+                }}
+                className="w-5 h-5 rounded border-slate-600 text-orange-500 accent-orange-500 cursor-pointer shrink-0"
               />
               <span className="text-sm font-medium">
                 Enviar peça para o Laser antes da Dobra{' '}
@@ -1380,7 +1386,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
             onClick={async () => {
               playClick();
               if (isCorteSector) {
-                await updateProductionOrder(order.op_numero, { requer_laser: sendToLaser });
+                await updateProductionOrder(order.op_numero, { requer_laser: sendToLaser, requerLaser: sendToLaser } as any);
               }
               if (onStartBatch) {
                 onStartBatch(matchedStep, totalPhysicalUnits);
@@ -1475,8 +1481,11 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
               type="checkbox"
               id="send-to-laser-toggle-unit"
               checked={sendToLaser}
-              readOnly
-              className="w-5 h-5 rounded border-slate-600 text-orange-500 accent-orange-500 cursor-pointer pointer-events-none shrink-0"
+              onChange={(e) => {
+                e.stopPropagation();
+                handleToggleLaser();
+              }}
+              className="w-5 h-5 rounded border-slate-600 text-orange-500 accent-orange-500 cursor-pointer shrink-0"
             />
             <span className="text-sm font-medium">
               Enviar peça para o Laser antes da Dobra{' '}
@@ -1505,7 +1514,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
           onClick={async () => {
             playClick();
             if (isCorteSector) {
-              await updateProductionOrder(order.op_numero, { requer_laser: sendToLaser });
+              await updateProductionOrder(order.op_numero, { requer_laser: sendToLaser, requerLaser: sendToLaser } as any);
             }
             onStartUnit(nextUnitNumber, matchedStep);
           }}
