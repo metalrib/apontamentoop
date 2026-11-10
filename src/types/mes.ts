@@ -96,14 +96,55 @@ export const CODIGOS_PORTAS_GIRO_PADRAO = new Set([
 
 // Tabela oficial de CÓDIGOS DE PORTAS DE CORRER PADRÃO (WHITELIST OFICIAL METALRIB)
 export const CODIGOS_PORTAS_CORRER_PADRAO = new Set([
-  // PORTAS DE CORRER PADRÃO (007)
+  // PORTAS DE CORRER RESFRIADAS PADRÃO (005)
+  '005.0100', '005.0101', '005.0102', '005.0103', '005.0104', '005.0105',
+  '005.0106', '005.0107', '005.0110', '005.0111',
+
+  // Versões normalizadas sem pontos (005)
+  '0050100', '0050101', '0050102', '0050103', '0050104', '0050105',
+  '0050106', '0050107', '0050110', '0050111',
+
+  // PORTAS DE CORRER CONGELADAS PADRÃO (007)
   '007.0100', '007.0101', '007.0102', '007.0103', '007.0104', '007.0105',
   '007.0106', '007.0107', '007.0108', '007.0109', '007.0110', '007.0111',
 
-  // Versões normalizadas sem pontos
+  // Versões normalizadas sem pontos (007)
   '0070100', '0070101', '0070102', '0070103', '0070104', '0070105',
   '0070106', '0070107', '0070108', '0070109', '0070110', '0070111'
 ]);
+
+// Função validadora de portas de correr padrão (005.* e 007.*)
+export const isPortaCorrerPadrao = (codigo?: string, descricao?: string): boolean => {
+  const codLimpo = String(codigo || '').trim();
+  const codSemPontos = codLimpo.replace(/[-_.\s]/g, '');
+  const descLimpa = String(descricao || '').toUpperCase();
+
+  // Excluir portas de emenda (mantêm rota dedicada de emenda)
+  if (descLimpa.includes('EMENDA') || descLimpa.includes('PORTAS EMENDA') || codLimpo.startsWith('029.') || codLimpo.startsWith('025.')) {
+    return false;
+  }
+
+  // Whitelist no Set oficial
+  if (
+    CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) ||
+    CODIGOS_PORTAS_CORRER_PADRAO.has(codSemPontos)
+  ) {
+    return true;
+  }
+
+  // Whitelist de códigos padrão: 005.* (Resfriados) e 007.* (Congelados)
+  if (
+    codLimpo.startsWith('005.') ||
+    codLimpo.startsWith('007.') ||
+    codSemPontos.startsWith('005') ||
+    codSemPontos.startsWith('007') ||
+    descLimpa.includes('PT COR')
+  ) {
+    return true;
+  }
+
+  return false;
+};
 
 // Aliases para retrocompatibilidade em todo o sistema
 export const CODIGOS_GIRATORIA_PADRAO = CODIGOS_PORTAS_GIRO_PADRAO;

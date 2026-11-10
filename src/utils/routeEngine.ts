@@ -14,8 +14,11 @@ import {
   CODIGOS_BATENTES_PADRAO,
   CODIGOS_ANCORAS_PADRAO,
   normalizarCodigo,
-  OpEtapaState
+  OpEtapaState,
+  isPortaCorrerPadrao
 } from '../types/mes';
+
+export { isPortaCorrerPadrao };
 import {
   verificarSeExigeEmenda,
   definirRotaProduto,
@@ -513,15 +516,14 @@ function resolveBaseRoute(
 
   // 6. Linha Super Cong de Correr / Especiais Sob Medida
   const codLimpoCorrer = normalizarCodigo(code || '');
-  const ehCodigoCorrerPadrao = Boolean(
+  const ehCodigoCorrerPadrao = isPortaCorrerPadrao(code || codLimpoCorrer, desc || '') || Boolean(
     (code && (CODIGOS_PORTAS_CORRER_PADRAO.has(code) || CODIGOS_PADRAO_CORRER.has(code))) ||
     (codLimpoCorrer && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpoCorrer) || CODIGOS_PADRAO_CORRER.has(codLimpoCorrer)))
   );
 
   const ehSuperCong =
     !ehCodigoCorrerPadrao &&
-    ((code && code.startsWith('007.') && !ehCodigoCorrerPadrao) ||
-    norm.includes('SUPER CONG') ||
+    (norm.includes('SUPER CONG') ||
     norm.includes('SUPER CONGELADO') ||
     norm.includes('PORTA ESPECIAL'));
 
@@ -538,10 +540,17 @@ function resolveBaseRoute(
   }
 
   // 7. Portas de Correr (Padrão vs Especial e Emendadas)
-  if (norm.includes('PT COR') || norm.includes('PORTA CORRER') || norm.includes('PORTA DE CORRER') || norm.includes('EMENDADA') || (code && code.startsWith('007.'))) {
-    const exigeEmenda = verificarSeExigeEmenda(desc || '');
+  if (
+    norm.includes('PT COR') ||
+    norm.includes('PORTA CORRER') ||
+    norm.includes('PORTA DE CORRER') ||
+    norm.includes('EMENDADA') ||
+    isPortaCorrerPadrao(code || '', desc || '') ||
+    (code && (code.startsWith('007.') || code.startsWith('005.')))
+  ) {
+    const exigeEmenda = desc.toUpperCase().includes('EMENDA') || verificarSeExigeEmenda(desc || '');
     const codLimpo = normalizarCodigo(code || '');
-    const ehCodigoPadrao = Boolean(
+    const ehCodigoPadrao = isPortaCorrerPadrao(code || codLimpo, desc || '') || Boolean(
       (code && (CODIGOS_PORTAS_CORRER_PADRAO.has(code) || CODIGOS_PADRAO_CORRER.has(code))) ||
       (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
     );

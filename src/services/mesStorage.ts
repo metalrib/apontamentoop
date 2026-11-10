@@ -10,7 +10,8 @@ import {
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_CORRER,
   normalizarCodigo,
-  OpOcorrencia
+  OpOcorrencia,
+  isPortaCorrerPadrao
 } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
@@ -319,11 +320,13 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
 
   // 2. Correr: Padrão vs Especial / Sob Medida
   const ehCorrerPadrao =
-    Boolean(
-      (codRaw && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRaw) || CODIGOS_PADRAO_CORRER.has(codRaw))) ||
-      (codNormalizado && (CODIGOS_PORTAS_CORRER_PADRAO.has(codNormalizado) || CODIGOS_PADRAO_CORRER.has(codNormalizado)))
-    ) &&
+    (isPortaCorrerPadrao(codRaw || codNormalizado, desc) ||
+      Boolean(
+        (codRaw && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRaw) || CODIGOS_PADRAO_CORRER.has(codRaw))) ||
+        (codNormalizado && (CODIGOS_PORTAS_CORRER_PADRAO.has(codNormalizado) || CODIGOS_PADRAO_CORRER.has(codNormalizado)))
+      )) &&
     !desc.includes('EMENDAD') &&
+    !desc.includes('EMENDA') &&
     !desc.includes('INOX') &&
     !desc.includes('I304') &&
     !desc.includes('I430') &&
@@ -347,9 +350,19 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
     const semApts = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
 
     if (semApts && (rotaAtual.length > 1 || rotaAtual.includes('Corte') || op.familia === 'Porta de Correr Especial')) {
+      const totalQtd = op.quantidadeFisica || op.quantidade || 1;
       const novaRota = ['Montagem Portas de Correr Padrão e Especial'];
+      const novasEtapas = [
+        {
+          nome: 'Montagem Portas de Correr Padrão e Especial',
+          ordem: 1,
+          status: 'pendente',
+          quantidadeProduzida: 0,
+          total: totalQtd
+        }
+      ];
       op.rota = novaRota;
-      op.etapas = novaRota;
+      op.etapas = novasEtapas;
       op.familia = 'Porta de Correr Padrão';
       op.tipoMontagem = 'Porta de Correr Padrão';
       op.etapaAtual = 'Montagem Portas de Correr Padrão e Especial';
@@ -360,7 +373,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       if (docId) {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
-          etapas: novaRota,
+          etapas: novasEtapas,
           familia: 'Porta de Correr Padrão',
           tipoMontagem: 'Porta de Correr Padrão',
           etapaAtual: op.etapaAtual,
@@ -3687,11 +3700,13 @@ export async function saveMultipleOrders(
         codChecagem.startsWith('025');
 
       const ehCorrerPadrao =
-        Boolean(
-          (codRawChecagem && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRawChecagem) || CODIGOS_PADRAO_CORRER.has(codRawChecagem))) ||
-          (codChecagem && (CODIGOS_PORTAS_CORRER_PADRAO.has(codChecagem) || CODIGOS_PADRAO_CORRER.has(codChecagem)))
-        ) &&
+        (isPortaCorrerPadrao(codRawChecagem || codChecagem, descChecagem) ||
+          Boolean(
+            (codRawChecagem && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRawChecagem) || CODIGOS_PADRAO_CORRER.has(codRawChecagem))) ||
+            (codChecagem && (CODIGOS_PORTAS_CORRER_PADRAO.has(codChecagem) || CODIGOS_PADRAO_CORRER.has(codChecagem)))
+          )) &&
         !descChecagem.includes('EMENDAD') &&
+        !descChecagem.includes('EMENDA') &&
         !descChecagem.includes('INOX') &&
         !descChecagem.includes('I304') &&
         !descChecagem.includes('I430') &&
@@ -3703,14 +3718,23 @@ export async function saveMultipleOrders(
         !codChecagem.startsWith('025');
 
       if (ehCorrer && ehCorrerPadrao && semApontamentos) {
-        etapasFinais = ['Montagem Portas de Correr Padrão e Especial'];
+        const totalQtd = dadosAtuais.quantidadeFisica || dadosAtuais.quantidade || 1;
+        etapasFinais = [
+          {
+            nome: 'Montagem Portas de Correr Padrão e Especial',
+            ordem: 1,
+            status: 'pendente',
+            quantidadeProduzida: 0,
+            total: totalQtd
+          }
+        ];
         etapaAtualFinal = 'Montagem Portas de Correr Padrão e Especial';
         statusEtapaFinal = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
         metadadosParaAtualizar.etapas = etapasFinais;
         metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
         metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
         metadadosParaAtualizar.status = statusEtapaFinal;
-        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.rota = ['Montagem Portas de Correr Padrão e Especial'];
         metadadosParaAtualizar.familia = 'Porta de Correr Padrão';
         metadadosParaAtualizar.tipoMontagem = 'Porta de Correr Padrão';
         metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial';

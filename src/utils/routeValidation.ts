@@ -87,8 +87,11 @@ import {
   CODIGOS_PADRAO_CORRER,
   CODIGOS_FOLHAS_PADRAO,
   CODIGOS_BATENTES_PADRAO,
-  normalizarCodigo
+  normalizarCodigo,
+  isPortaCorrerPadrao
 } from '../types/mes';
+
+export { isPortaCorrerPadrao };
 
 export function normalizeValidationText(text: string): string {
   return (text || '')
@@ -1035,11 +1038,14 @@ export function obterEtapasDaRota(op: any): string[] {
     const ehEmendada = desc.includes('EMENDAD') || cod.startsWith('029.') || cod.startsWith('025.');
 
     // WHITELIST ESTRITA POR CÓDIGO DO PRODUTO:
-    // Uma porta de correr SÓ recebe rota curta de 1 etapa se constar explicitamente na Whitelist
+    // Uma porta de correr SÓ recebe rota curta de 1 etapa se constar explicitamente na Whitelist (005.* e 007.*) ou isPortaCorrerPadrao
     // E não contiver indicadores especiais (Inox, Emendada, etc.)
-    const ehCodigoPadrao = Boolean(
-      (cod && (CODIGOS_PORTAS_CORRER_PADRAO.has(cod) || CODIGOS_PADRAO_CORRER.has(cod))) ||
-      (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
+    const ehCodigoPadrao = (
+      isPortaCorrerPadrao(cod || codLimpo, desc) ||
+      Boolean(
+        (cod && (CODIGOS_PORTAS_CORRER_PADRAO.has(cod) || CODIGOS_PADRAO_CORRER.has(cod))) ||
+        (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
+      )
     ) &&
       !ehInox &&
       !ehEmendada &&
@@ -1224,10 +1230,13 @@ export function definirRotaProduto(op: {
     const ehSuperCong = desc.includes('SUPER CONG') || desc.includes('SUPER CONGELADO') || cod === '007.0011';
     const ehEmendada = desc.includes('EMENDAD') || cod.startsWith('029.') || cod.startsWith('025.');
 
-    const ehCodigoPadrao = Boolean(
-      (cod && (CODIGOS_PORTAS_CORRER_PADRAO.has(cod) || CODIGOS_PADRAO_CORRER.has(cod))) ||
-      (codRaw && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRaw) || CODIGOS_PADRAO_CORRER.has(codRaw))) ||
-      (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
+    const ehCodigoPadrao = (
+      isPortaCorrerPadrao(cod || codRaw || codLimpo, desc) ||
+      Boolean(
+        (cod && (CODIGOS_PORTAS_CORRER_PADRAO.has(cod) || CODIGOS_PADRAO_CORRER.has(cod))) ||
+        (codRaw && (CODIGOS_PORTAS_CORRER_PADRAO.has(codRaw) || CODIGOS_PADRAO_CORRER.has(codRaw))) ||
+        (codLimpo && (CODIGOS_PORTAS_CORRER_PADRAO.has(codLimpo) || CODIGOS_PADRAO_CORRER.has(codLimpo)))
+      )
     ) &&
       !ehInox &&
       !ehEmendada &&
@@ -1530,23 +1539,26 @@ export function validarPostoIndustrial(
   const codNorm = String(op?.codigoProduto || op?.cod || op?.codigo || '').trim();
   const descNorm = String(op?.descricao || op?.produto || '').toUpperCase();
 
+  const ehPadraoCorrer = isPortaCorrerPadrao(codNorm, descNorm);
   const ehSuperCongOuEspecial = 
-    codNorm.startsWith('007.') || 
-    codNorm.startsWith('003.') || 
-    codNorm.startsWith('009.') || 
-    codNorm.startsWith('010.') || 
-    codNorm.startsWith('011.') || 
-    codNorm.startsWith('002.') || 
-    codNorm.startsWith('004.') || 
-    codNorm.startsWith('006.') || 
-    codNorm.startsWith('008.') || 
-    descNorm.includes('SUPER CONG') ||
-    descNorm.includes('SUPER CONGELADO') ||
-    descNorm.includes('VAI VEM') ||
-    descNorm.includes('OFFICE DOOR') ||
-    descNorm.includes('INOX') ||
-    descNorm.includes('I304') ||
-    descNorm.includes('I430');
+    !ehPadraoCorrer && (
+      codNorm.startsWith('007.') || 
+      codNorm.startsWith('003.') || 
+      codNorm.startsWith('009.') || 
+      codNorm.startsWith('010.') || 
+      codNorm.startsWith('011.') || 
+      codNorm.startsWith('002.') || 
+      codNorm.startsWith('004.') || 
+      codNorm.startsWith('006.') || 
+      codNorm.startsWith('008.') || 
+      descNorm.includes('SUPER CONG') ||
+      descNorm.includes('SUPER CONGELADO') ||
+      descNorm.includes('VAI VEM') ||
+      descNorm.includes('OFFICE DOOR') ||
+      descNorm.includes('INOX') ||
+      descNorm.includes('I304') ||
+      descNorm.includes('I430')
+    );
 
   if (ehSuperCongOuEspecial) {
     const etapasPermitidas = obterEtapasDaRota(op);

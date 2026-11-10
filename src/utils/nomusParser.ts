@@ -4,14 +4,16 @@ import {
   CODIGOS_PORTAS_GIRO_PADRAO,
   CODIGOS_PORTAS_CORRER_PADRAO,
   CODIGOS_GIRATORIA_PADRAO,
-  CODIGOS_PADRAO_CORRER
+  CODIGOS_PADRAO_CORRER,
+  isPortaCorrerPadrao
 } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
-export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string }): {
+export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string; quantidadeFisica?: number; quantidade?: number }): {
   familia: string;
   tipoMontagem: string;
   rota: string[];
+  etapas?: any;
   statusAtual: string;
 } {
   const codigoProduto = String(op?.codigoProduto || op?.codigo || (op as any)?.cod || '').trim();
@@ -131,13 +133,16 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     codNormalizado.startsWith('025');
 
   if (ehCorrer) {
-    // Uma porta de correr SÓ é padrão se constar explicitamente na Whitelist e não for sob medida/especial
+    const totalQtd = op.quantidadeFisica || op.quantidade || 1;
+    // Uma porta de correr SÓ é padrão se constar na Whitelist (005.* e 007.*) ou isPortaCorrerPadrao e não for sob medida/especial
     const ehPadrao =
-      Boolean(
-        (codNormalizado && (CODIGOS_PORTAS_CORRER_PADRAO.has(codNormalizado) || CODIGOS_PADRAO_CORRER.has(codNormalizado))) ||
-        (codigoProduto && (CODIGOS_PORTAS_CORRER_PADRAO.has(codigoProduto) || CODIGOS_PADRAO_CORRER.has(codigoProduto)))
-      ) &&
+      (isPortaCorrerPadrao(codigoProduto || codNormalizado, desc) ||
+        Boolean(
+          (codNormalizado && (CODIGOS_PORTAS_CORRER_PADRAO.has(codNormalizado) || CODIGOS_PADRAO_CORRER.has(codNormalizado))) ||
+          (codigoProduto && (CODIGOS_PORTAS_CORRER_PADRAO.has(codigoProduto) || CODIGOS_PADRAO_CORRER.has(codigoProduto)))
+        )) &&
       !desc.includes('EMENDAD') &&
+      !desc.includes('EMENDA') &&
       !desc.includes('INOX') &&
       !desc.includes('I304') &&
       !desc.includes('I430') &&
@@ -154,6 +159,15 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
         tipoMontagem: 'Porta de Correr Padrão',
         rota: [
           'Montagem Portas de Correr Padrão e Especial'
+        ],
+        etapas: [
+          {
+            nome: 'Montagem Portas de Correr Padrão e Especial',
+            ordem: 1,
+            status: 'pendente',
+            quantidadeProduzida: 0,
+            total: totalQtd
+          }
         ],
         statusAtual: 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial'
       };
@@ -805,7 +819,7 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     novaOp.tipoMontagem = rotaInfo.tipoMontagem;
     novaOp.rota = rotaInfo.rota;
     novaOp.statusAtual = rotaInfo.statusAtual;
-    novaOp.etapas = rotaInfo.rota;
+    novaOp.etapas = rotaInfo.etapas || rotaInfo.rota;
     novaOp.etapaAtual = rotaInfo.rota[0] || 'Corte';
     novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
     novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
