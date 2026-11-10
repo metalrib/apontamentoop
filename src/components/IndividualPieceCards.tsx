@@ -28,7 +28,7 @@ interface IndividualPieceCardsProps {
   ocorrenciasCount?: number;
 }
 
-const IndividualPieceCardsComponent: React.FC<IndividualPieceCardsProps> = ({
+export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.memo(({
   order,
   apontamentos,
   selectedSector,
@@ -690,7 +690,6 @@ const IndividualPieceCardsComponent: React.FC<IndividualPieceCardsProps> = ({
       )}
     </div>
   );
-};
+});
 
-export const IndividualPieceCards = React.memo(IndividualPieceCardsComponent);
 export default IndividualPieceCards;

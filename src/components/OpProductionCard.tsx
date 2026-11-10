@@ -29,7 +29,7 @@ interface OpProductionCardProps {
   onResetOpCompleta?: (opNumero: string) => void;
 }
 
-const OpProductionCardComponent: React.FC<OpProductionCardProps> = ({
+export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
   order: propOrder,
   op: propOp,
   apontamentos = [],
@@ -825,8 +825,7 @@ const OpProductionCardComponent: React.FC<OpProductionCardProps> = ({
       )}
     </div>
   );
-};
+});
 
-export const OpProductionCard = React.memo(OpProductionCardComponent);
 export const StatusCard = OpProductionCard;
 export default OpProductionCard;

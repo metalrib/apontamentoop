@@ -22,7 +22,7 @@ interface ProductionActionProps {
   isLoading?: boolean;
 }
 
-export const ProductionAction: React.FC<ProductionActionProps> = ({
+export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   order,
   apontamentos,
   selectedSector,
@@ -1552,4 +1552,6 @@ export const ProductionAction: React.FC<ProductionActionProps> = ({
       />
     </div>
   );
-};
+});
+
+export default ProductionAction;
