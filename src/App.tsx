@@ -173,7 +173,7 @@ export default function App() {
   useEffect(() => {
     try {
       const socket = getLocalSocket();
-      const handleAtualizacao = (novasOrdens: any[]) => {
+      const handleAtualizacao = async (novasOrdens: any[]) => {
         if (!Array.isArray(novasOrdens)) return;
         const finalMap: Record<string, ProductionOrder> = {};
         for (const item of novasOrdens) {
@@ -210,8 +210,8 @@ export default function App() {
         setOrders(finalMap);
 
         // Recarrega apontamentos atualizados (necessário quando uma OP foi resetada ou teve unidades concluídas/estornadas)
-        const updatedApts = fetchApontamentos();
-        setApontamentos(updatedApts);
+        const updatedApts = await fetchApontamentos();
+        setApontamentos(Array.isArray(updatedApts) ? updatedApts : []);
       };
 
       const handleOpResetada = () => {

@@ -16,17 +16,18 @@ interface OpDetailsCardProps {
 
 export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
   order: propOrder,
-  apontamentos,
+  apontamentos = [],
   selectedSector,
   currentTerminal
 }) => {
   const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
+  const safeApontamentos = Array.isArray(apontamentos) ? apontamentos : [];
   const order = verificarECorrigirRotaOp(propOrder);
   const ocorrencias = obterOcorrenciasDaOp(order);
   const qtdTotal = obterQuantidadeTotal(order);
   const { rule } = getRouteForOp(order);
   const steps = Array.isArray(order.rota) && order.rota.length >= 4 ? order.rota : obterEtapasDaRota(order);
-  const evaluation = getRouteEvaluation(order, apontamentos, steps);
+  const evaluation = getRouteEvaluation(order, safeApontamentos, steps);
 
   // Calcula total geral de unidades finalizadas na última etapa da rota (produto acabado)
   const finalStep = steps[steps.length - 1];

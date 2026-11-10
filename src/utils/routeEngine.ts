@@ -967,6 +967,9 @@ export function initOrSyncOrderEtapas(
   order: ProductionOrder,
   apontamentos: Apontamento[] = []
 ): ProductionOrder {
+  const safeApontamentos = Array.isArray(apontamentos) 
+    ? apontamentos 
+    : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? Object.values(apontamentos) : []);
   const { steps } = getRouteForOp(order);
   const total = obterQuantidadeTotal(order);
   const rawEtapas = order.etapas && !Array.isArray(order.etapas) && typeof order.etapas === 'object'
@@ -975,7 +978,7 @@ export function initOrSyncOrderEtapas(
   const currentEtapas: Record<string, OpEtapaState> = {};
 
   steps.forEach((step) => {
-    const stepApontamentos = apontamentos.filter((a) => {
+    const stepApontamentos = safeApontamentos.filter((a) => {
       if (a.op_numero !== order.op_numero && a.op !== order.op_numero) return false;
       const aptEtapa = a.etapa_rota || a.etapaRota;
       if (aptEtapa) {
@@ -1046,7 +1049,7 @@ export function initOrSyncOrderEtapas(
       etapaAtual === 'Montagem de Portas Giratória Padrão e Especial' ||
       etapaAtual === 'Montagem Portas de Correr Padrão e Especial' ||
       etapaAtual.includes('Montagem')) &&
-    apontamentos.length === 0 &&
+    safeApontamentos.length === 0 &&
     (!order.statusExecucao || order.statusExecucao === 'pendente' || String(status || '').includes('Aguardando Início'))
   ) {
     etapaAtual = 'Corte';
@@ -1230,19 +1233,22 @@ export interface StepStatus {
  */
 export function getRouteEvaluation(
   op: ProductionOrder,
-  apontamentos: Apontamento[],
+  apontamentos: Apontamento[] = [],
   routeSteps: string[]
 ): Record<string, StepStatus> {
+  const safeApontamentos: Apontamento[] = Array.isArray(apontamentos) 
+    ? apontamentos 
+    : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? (Object.values(apontamentos) as Apontamento[]) : []);
   const result: Record<string, StepStatus> = {};
   const total = obterQuantidadeTotal(op);
-  const synchronizedOp = initOrSyncOrderEtapas(op, apontamentos);
+  const synchronizedOp = initOrSyncOrderEtapas(op, safeApontamentos);
   const etapas = synchronizedOp.etapas || {};
 
   const cleanOpNum = String(op.op_numero || op.numero || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
 
   routeSteps.forEach((step, index) => {
     // Apontamentos desta etapa (validação estrita por etapa_rota/etapaRota ou fallback de setor seguro)
-    const stepApontamentos = apontamentos.filter(a => {
+    const stepApontamentos = safeApontamentos.filter(a => {
       if (!a) return false;
       const cleanAptOp = String(a.op_numero || a.op || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
       if (cleanAptOp !== cleanOpNum && a.op_numero !== op.op_numero && a.op !== op.op_numero) return false;
@@ -1307,7 +1313,7 @@ export function getRouteEvaluation(
       const previousStep = routeSteps[index - 1];
       prevName = previousStep;
 
-      const prevApontamentos = apontamentos.filter(a => {
+      const prevApontamentos = safeApontamentos.filter(a => {
         if (a.op_numero !== op.op_numero && a.op !== op.op_numero) return false;
         const aptEtapa = a.etapa_rota || a.etapaRota;
         if (aptEtapa) {
