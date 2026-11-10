@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useDeferredValue, useCallback, useRef } from 'react';
 import { Operator, ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
 import {
   getRouteForOp,
@@ -143,31 +143,118 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const [newOpLote, setNewOpLote] = useState<string>('LT-2026-01');
   const [newOpClient, setNewOpClient] = useState<string>('');
 
-  const orderList = Object.values(orders).map(verificarECorrigirRotaOp);
+  // 1. Separação de estado de digitação e filtro (useDeferredValue para zero travamento)
+  const deferredSearch = useDeferredValue(searchTerm);
+  const deferredAndonSearch = useDeferredValue(andonSearchTerm);
 
-  // Filtro de OPs (com proteção estrita contra campos undefined)
-  const filteredOrders = orderList.filter((op) => {
-    const searchLower = (searchTerm || '').trim().toLowerCase();
-    const matchesSearch = !searchLower || (
-      (op.op_numero || '').toLowerCase().includes(searchLower) ||
-      (op.numero || '').toLowerCase().includes(searchLower) ||
-      (op.descricao || '').toLowerCase().includes(searchLower) ||
-      ((op as any).produto || '').toLowerCase().includes(searchLower) ||
-      (op.lote || '').toLowerCase().includes(searchLower) ||
-      ((op.codigo || (op as any).codigoProduto || '').toLowerCase().includes(searchLower))
-    );
+  // 2. Memorização da lista base de ordens com rotas corrigidas
+  const orderList = useMemo(() => {
+    return Object.values(orders).map(verificarECorrigirRotaOp);
+  }, [orders]);
 
-    const matchesStatus =
-      statusFilter === 'ALL'
-        ? true
-        : statusFilter === 'EM_PRODUCAO'
-        ? isOpEmProducao(op, apontamentos)
-        : statusFilter === 'FINALIZADA'
-        ? (op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos))
-        : op.status === statusFilter;
+  // 3. Memorização do filtro de OPs do Portal PCP
+  const filteredOrders = useMemo(() => {
+    const searchLower = (deferredSearch || '').trim().toLowerCase();
+    return orderList.filter((op) => {
+      const matchesSearch = !searchLower || (
+        (op.op_numero || '').toLowerCase().includes(searchLower) ||
+        (op.numero || '').toLowerCase().includes(searchLower) ||
+        (op.descricao || '').toLowerCase().includes(searchLower) ||
+        ((op as any).produto || '').toLowerCase().includes(searchLower) ||
+        (op.lote || '').toLowerCase().includes(searchLower) ||
+        ((op.codigo || (op as any).codigoProduto || '').toLowerCase().includes(searchLower)) ||
+        (op.cliente || '').toLowerCase().includes(searchLower)
+      );
 
-    return matchesSearch && matchesStatus;
-  });
+      const matchesStatus =
+        statusFilter === 'ALL'
+          ? true
+          : statusFilter === 'EM_PRODUCAO'
+          ? isOpEmProducao(op, apontamentos)
+          : statusFilter === 'FINALIZADA'
+          ? (op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos))
+          : op.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [orderList, deferredSearch, statusFilter, apontamentos]);
+
+  // Contadores memorizados para evitar recomputações a cada tecla
+  const totalEmProducao = useMemo(() => {
+    return orderList.filter((o) => isOpEmProducao(o, apontamentos)).length;
+  }, [orderList, apontamentos]);
+
+  const totalConcluidas = useMemo(() => {
+    return orderList.filter((o) => o.status === 'FINALIZADA' || checkOp100Percent(o, apontamentos)).length;
+  }, [orderList, apontamentos]);
+
+  // Totais e filtro memorizados do Painel TV Andon
+  const andonTotals = useMemo(() => {
+    const totalEmAndamento = orderList.filter((op) => isOpEmProducao(op, apontamentos) && !checkOp100Percent(op, apontamentos)).length;
+    const totalConcluidas = orderList.filter((op) => checkOp100Percent(op, apontamentos) || op.status === 'FINALIZADA').length;
+    const totalAtrasadas = orderList.filter((op) => calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op, apontamentos) && op.status !== 'FINALIZADA').length;
+    return { totalEmAndamento, totalConcluidas, totalAtrasadas };
+  }, [orderList, apontamentos]);
+
+  const filteredAndonOrders = useMemo(() => {
+    const query = deferredAndonSearch.trim().toLowerCase();
+    return orderList.filter((op) => {
+      if (query) {
+        const matchOp = (op.op_numero || '').toLowerCase().includes(query) || (op.numero || '').toLowerCase().includes(query);
+        const matchCode = (op.codigo || '').toLowerCase().includes(query);
+        const matchDesc = (op.descricao || '').toLowerCase().includes(query);
+        const matchClient = (op.cliente || '').toLowerCase().includes(query);
+        if (!matchOp && !matchCode && !matchDesc && !matchClient) {
+          return false;
+        }
+      }
+
+      if (andonFilterPill === 'em_andamento') {
+        return isOpEmProducao(op, apontamentos) && !checkOp100Percent(op, apontamentos);
+      }
+      if (andonFilterPill === 'concluidas') {
+        return checkOp100Percent(op, apontamentos) || op.status === 'FINALIZADA';
+      }
+      if (andonFilterPill === 'atrasadas') {
+        return calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op, apontamentos) && op.status !== 'FINALIZADA';
+      }
+      return true;
+    });
+  }, [orderList, deferredAndonSearch, andonFilterPill, apontamentos]);
+
+  // Handlers estáveis para evitar re-renderização desnecessária dos cards React.memo
+  const ordersRef = useRef(orders);
+  useEffect(() => {
+    ordersRef.current = orders;
+  }, [orders]);
+
+  const handleOpenChat = useCallback((o: ProductionOrder) => {
+    setChatOrder(o);
+  }, []);
+
+  const handleSelectForTotem = useCallback((opNum: string) => {
+    onSelectOpForTotem(opNum);
+    onSwitchToTotem();
+  }, [onSelectOpForTotem, onSwitchToTotem]);
+
+  const handleResetOp = useCallback((opNum: string) => {
+    showToast(`OP ${opNum} foi completamente resetada para o início!`, 'success');
+  }, []);
+
+  const handleDeleteOp = useCallback(async (opNum: string) => {
+    const confirmed = typeof window !== 'undefined'
+      ? window.confirm(`Deseja realmente excluir a OP ${opNum}?`)
+      : true;
+    if (!confirmed) return;
+    playClick();
+    await deleteProductionOrder(opNum);
+    if (onOrdersUpdated) {
+      const next = { ...ordersRef.current };
+      delete next[opNum];
+      onOrdersUpdated(next);
+    }
+    showToast(`OP ${opNum} excluída com sucesso!`, 'info');
+  }, [onOrdersUpdated]);
 
   // Métricas de Fábrica
   const totalOps = orderList.length;
@@ -633,7 +720,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
                 >
-                  Em Produção ({orderList.filter((o) => isOpEmProducao(o, apontamentos)).length})
+                  Em Produção ({totalEmProducao})
                 </button>
                 <button
                   onClick={() => setStatusFilter('FINALIZADA')}
@@ -643,7 +730,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
                 >
-                  Concluídas ({orderList.filter((o) => o.status === 'FINALIZADA' || checkOp100Percent(o, apontamentos)).length})
+                  Concluídas ({totalConcluidas})
                 </button>
 
                 <div className="h-6 w-px bg-blue-950 mx-1 hidden sm:block" />
@@ -747,28 +834,10 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                     key={op.op_numero}
                     order={op}
                     apontamentos={apontamentos}
-                    onOpenChat={(o) => setChatOrder(o)}
-                    onSelectForTotem={(opNum) => {
-                      onSelectOpForTotem(opNum);
-                      onSwitchToTotem();
-                    }}
-                    onResetOpCompleta={(opNum) => {
-                      showToast(`OP ${opNum} foi completamente resetada para o início!`, 'success');
-                    }}
-                    onDelete={async (opNum) => {
-                      const confirmed = typeof window !== 'undefined'
-                        ? window.confirm(`Deseja realmente excluir a OP ${opNum}?`)
-                        : true;
-                      if (!confirmed) return;
-                      playClick();
-                      await deleteProductionOrder(opNum);
-                      if (onOrdersUpdated) {
-                        const next = { ...orders };
-                        delete next[opNum];
-                        onOrdersUpdated(next);
-                      }
-                      showToast(`OP ${opNum} excluída com sucesso!`, 'info');
-                    }}
+                    onOpenChat={handleOpenChat}
+                    onSelectForTotem={handleSelectForTotem}
+                    onResetOpCompleta={handleResetOp}
+                    onDelete={handleDeleteOp}
                   />
                 ))}
               </div>
@@ -961,33 +1030,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
         {/* ABA 5: STATUS DE PRODUÇÃO / TV ANDON */}
         {activeTab === 'tv_status' && (() => {
-          const totalEmAndamento = orderList.filter((op) => isOpEmProducao(op, apontamentos) && !checkOp100Percent(op, apontamentos)).length;
-          const totalConcluidas = orderList.filter((op) => checkOp100Percent(op, apontamentos) || op.status === 'FINALIZADA').length;
-          const totalAtrasadas = orderList.filter((op) => calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op, apontamentos) && op.status !== 'FINALIZADA').length;
-
-          const filteredAndonOrders = orderList.filter((op) => {
-            if (andonSearchTerm.trim()) {
-              const query = andonSearchTerm.trim().toLowerCase();
-              const matchOp = (op.op_numero || '').toLowerCase().includes(query) || (op.numero || '').toLowerCase().includes(query);
-              const matchCode = (op.codigo || '').toLowerCase().includes(query);
-              const matchDesc = (op.descricao || '').toLowerCase().includes(query);
-              const matchClient = (op.cliente || '').toLowerCase().includes(query);
-              if (!matchOp && !matchCode && !matchDesc && !matchClient) {
-                return false;
-              }
-            }
-
-            if (andonFilterPill === 'em_andamento') {
-              return isOpEmProducao(op, apontamentos) && !checkOp100Percent(op, apontamentos);
-            }
-            if (andonFilterPill === 'concluidas') {
-              return checkOp100Percent(op, apontamentos) || op.status === 'FINALIZADA';
-            }
-            if (andonFilterPill === 'atrasadas') {
-              return calculateDeadlineInfo(op.data_entrega).isDelayed && !checkOp100Percent(op, apontamentos) && op.status !== 'FINALIZADA';
-            }
-            return true;
-          });
+          const { totalEmAndamento, totalConcluidas: totalAndonConcluidas, totalAtrasadas } = andonTotals;
 
           return (
             <div className="space-y-6 animate-in fade-in duration-200">
@@ -1079,7 +1122,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                   >
                     <span>✅ 100% Concluídas</span>
                     <span className={`px-1.5 py-0.2 rounded text-[10px] ${andonFilterPill === 'concluidas' ? 'bg-emerald-500/30 text-emerald-200' : 'bg-slate-800 text-slate-400'}`}>
-                      {totalConcluidas}
+                      {totalAndonConcluidas}
                     </span>
                   </button>
 
@@ -1123,14 +1166,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                       key={op.op_numero}
                       order={op}
                       apontamentos={apontamentos}
-                      onOpenChat={(o) => setChatOrder(o)}
-                      onSelectForTotem={(opNum) => {
-                        onSelectOpForTotem(opNum);
-                        onSwitchToTotem();
-                      }}
-                      onResetOpCompleta={(opNum) => {
-                        showToast(`OP ${opNum} foi completamente resetada para o início!`, 'success');
-                      }}
+                      onOpenChat={handleOpenChat}
+                      onSelectForTotem={handleSelectForTotem}
+                      onResetOpCompleta={handleResetOp}
                     />
                   ))}
                 </div>

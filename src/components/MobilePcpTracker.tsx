@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useDeferredValue, useCallback } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterEtapasDaRota } from '../utils/routeEngine';
 import { verificarECorrigirRotaOp } from '../services/mesStorage';
@@ -209,6 +209,151 @@ export function getShortStepName(stepName: string): string {
   return clean.length > 14 ? clean.slice(0, 12) + '...' : clean;
 }
 
+interface MobileOpCardItemProps {
+  op: ProductionOrder;
+  apontamentos: Apontamento[];
+  activeApt?: Apontamento;
+  onSelect: (opNumero: string) => void;
+}
+
+const MobileOpCardItem = React.memo<MobileOpCardItemProps>(({
+  op,
+  apontamentos,
+  activeApt,
+  onSelect
+}) => {
+  const isRunning = Boolean(activeApt);
+  const dl = calculateDeadlineInfo(op.data_entrega);
+  const opEffectiveEtapa = getOpEffectiveEtapa(op, apontamentos);
+  const terminalForOp = getTerminalForOp(op, apontamentos);
+  const shortStep = getShortStepName(opEffectiveEtapa);
+
+  // Cálculo dinâmico do progresso segmentado por etapas
+  const opSteps = obterEtapasDaRota(op);
+  const totalSteps = opSteps.length;
+  const evalResult = getRouteEvaluation(op, apontamentos, opSteps);
+  const totalOpQtd = op.quantidade_total || 1;
+
+  let finishedCount = 0;
+  let inProgressStepIdx = -1;
+  opSteps.forEach((s, idx) => {
+    const stepEval = evalResult[s];
+    if (stepEval && stepEval.finalizadas >= totalOpQtd) {
+      finishedCount++;
+    } else if (inProgressStepIdx === -1 && stepEval && (stepEval.emAndamento || 0) > 0) {
+      inProgressStepIdx = idx;
+    }
+  });
+  const progressPercent =
+    totalSteps > 0 ? Math.round((finishedCount / totalSteps) * 100) : 0;
+  const isFinished =
+    op.status === 'FINALIZADA' || (totalSteps > 0 && finishedCount >= totalSteps);
+
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(op.op_numero)}
+      className={`w-full p-3 bg-slate-900/90 hover:bg-slate-850 active:scale-[0.99] border rounded-2xl text-left transition-all flex flex-col gap-2 cursor-pointer group shadow-sm ${
+        isRunning
+          ? 'border-cyan-500/60 bg-[#0a1528] ring-1 ring-cyan-500/30'
+          : isFinished
+          ? 'border-emerald-500/30 bg-emerald-950/10'
+          : dl.isDelayed
+          ? 'border-red-900/60 bg-red-950/10'
+          : 'border-slate-800/90 hover:border-slate-700'
+      }`}
+    >
+      {/* LINHA 1: Topo com OP + Quantidade + Badges de Status e Terminal */}
+      <div className="flex items-center justify-between gap-2 w-full">
+        {/* Esquerda: OP e Qtd */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="font-mono font-black text-blue-300 text-xs tracking-wide bg-[#1C2F8A] border border-blue-400/50 px-2 py-0.5 rounded-lg shrink-0 shadow-sm">
+            {formatOpNumber(op.op_numero || op.numero)}
+          </span>
+          <span className="text-[10px] font-mono font-bold bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded-md border border-slate-700 shrink-0">
+            {op.quantidade_total || 1} {op.unidade_medida || 'PC'}
+          </span>
+        </div>
+
+        {/* Direita: Prazo e Posto */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {dl.isDelayed ? (
+            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-red-950 text-red-300 border border-red-800 shrink-0 whitespace-nowrap flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse shrink-0" />
+              {Math.abs(dl.daysDiff)}d atraso
+            </span>
+          ) : dl.isHistoric || dl.text === 'Lote Anterior' ? (
+            <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700 shrink-0 whitespace-nowrap">
+              Lote Ant.
+            </span>
+          ) : null}
+
+          <span
+            className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border shrink-0 whitespace-nowrap ${getTerminalBadgeColor(
+              terminalForOp
+            )}`}
+          >
+            {terminalForOp} • {shortStep}
+          </span>
+        </div>
+      </div>
+
+      {/* LINHA 2: Cliente / Obra (se existir no cadastro da OP) */}
+      {op.cliente && (
+        <div className="flex items-center gap-1.5 text-[11px] font-mono text-sky-300 font-semibold truncate">
+          <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          <span className="truncate">{op.cliente}</span>
+        </div>
+      )}
+
+      {/* LINHA 3: Descrição da Peça */}
+      <div className="flex items-center justify-between gap-2 w-full text-xs min-w-0">
+        <p className="text-xs text-slate-200 font-medium truncate flex-1 min-w-0">
+          {op.descricao}
+        </p>
+        <ChevronRight className="w-4 h-4 text-slate-500 shrink-0 group-hover:text-blue-300 group-hover:translate-x-0.5 transition-transform" />
+      </div>
+
+      {/* LINHA 4: Indicador Pulsante se estiver com Operador Ativo */}
+      {isRunning && activeApt && (
+        <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 rounded-lg px-2.5 py-1">
+          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+          <User className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="truncate">
+            <strong>{activeApt.operador}</strong> em <strong>{activeApt.setor.toUpperCase()}</strong>
+          </span>
+        </div>
+      )}
+
+      {/* LINHA 5: Barra Segmentada de Progresso */}
+      <div className="flex items-center gap-2 pt-1 border-t border-slate-800/70">
+        <div className="flex-1 flex items-center gap-1 h-1.5 bg-slate-950 rounded-full p-0.5 border border-slate-800">
+          {opSteps.map((st, i) => {
+            const isDone = i < finishedCount;
+            const isCur = i === inProgressStepIdx || (i === finishedCount && isRunning);
+            return (
+              <div
+                key={st}
+                className={`h-full flex-1 rounded-full transition-all ${
+                  isDone
+                    ? 'bg-emerald-400'
+                    : isCur
+                    ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50'
+                    : 'bg-slate-800'
+                }`}
+                title={`${i + 1}. ${st}`}
+              />
+            );
+          })}
+        </div>
+        <span className="text-[10px] font-mono font-bold text-slate-400 shrink-0">
+          {finishedCount}/{totalSteps} ({progressPercent}%)
+        </span>
+      </div>
+    </button>
+  );
+});
+
 interface MobilePcpTrackerProps {
   orders: Record<string, ProductionOrder>;
   apontamentos: Apontamento[];
@@ -229,6 +374,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
   onOpenSupervisor
 }) => {
   const [searchTerm, setSearchTerm] = useState<string>(initialOpNumber || '');
+  const deferredSearch = useDeferredValue(searchTerm);
   const [selectedOp, setSelectedOp] = useState<ProductionOrder | null>(null);
   const [selectedTerminal, setSelectedTerminal] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>('ALL');
@@ -289,7 +435,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
   }, [orders, orderList]);
 
   // Busca e seleção por número digitado ou clicado
-  const handleSelectOpByNumber = (opNum: string) => {
+  const handleSelectOpByNumber = useCallback((opNum: string) => {
     playClick();
     const cleanNum = opNum.replace(/^(\s*OP\s*)+/i, '').trim();
     const found =
@@ -306,7 +452,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
     } else {
       setSelectedOp(null);
     }
-  };
+  }, [orders, orderList]);
 
   // Gerenciamento do Scanner de Câmera
   useEffect(() => {
@@ -422,11 +568,11 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
     return { running, delayed, waiting, finished, totalActive };
   }, [orderList, activeApontamentoByOp]);
 
-  // Lista de Ordens filtradas reativamente
+  // Lista de Ordens filtradas reativamente com busca diferida (zero travamento)
   const filteredOrders = useMemo(() => {
     return orderList.filter((op) => {
       const isActive = isOpActive(op);
-      const hasSearch = searchTerm.trim().length > 0;
+      const hasSearch = deferredSearch.trim().length > 0;
       const cleanNum = (op.op_numero || op.numero || '').replace(/^(\s*OP\s*)+/i, '').trim();
       const isRunning = Boolean(
         activeApontamentoByOp[cleanNum] || (op.op_numero && activeApontamentoByOp[op.op_numero])
@@ -458,7 +604,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
 
       // Filtro de Pesquisa de Texto
       if (hasSearch) {
-        const query = searchTerm.toLowerCase().trim();
+        const query = deferredSearch.toLowerCase().trim();
         const cleanQuery = query.replace(/^(\s*OP\s*)+/i, '').trim();
         const opNum = (op.op_numero || op.numero || '').toLowerCase();
         const desc = (op.descricao || '').toLowerCase();
@@ -476,7 +622,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
 
       return true;
     });
-  }, [orderList, statusFilter, selectedTerminal, searchTerm, activeApontamentoByOp, apontamentos]);
+  }, [orderList, statusFilter, selectedTerminal, deferredSearch, activeApontamentoByOp, apontamentos]);
 
   // Dados da OP selecionada para o Bottom Sheet (Opção 4)
   const routeData = selectedOp ? getRouteForOp(selectedOp) : null;
@@ -804,139 +950,17 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
             <div className="space-y-2">
               {filteredOrders.map((op) => {
                 const cleanNum = (op.op_numero || op.numero || '').replace(/^(\s*OP\s*)+/i, '').trim();
-                const dl = calculateDeadlineInfo(op.data_entrega);
-                const opEffectiveEtapa = getOpEffectiveEtapa(op, apontamentos);
-                const terminalForOp = getTerminalForOp(op, apontamentos);
-                const shortStep = getShortStepName(opEffectiveEtapa);
                 const activeApt =
                   activeApontamentoByOp[cleanNum] ||
                   (op.op_numero ? activeApontamentoByOp[op.op_numero] : undefined);
-                const isRunning = Boolean(activeApt);
-
-                // Cálculo dinâmico do progresso segmentado por etapas
-                const opSteps = obterEtapasDaRota(op);
-                const totalSteps = opSteps.length;
-                const evalResult = getRouteEvaluation(op, apontamentos, opSteps);
-                const totalOpQtd = op.quantidade_total || 1;
-
-                let finishedCount = 0;
-                let inProgressStepIdx = -1;
-                opSteps.forEach((s, idx) => {
-                  const stepEval = evalResult[s];
-                  if (stepEval && stepEval.finalizadas >= totalOpQtd) {
-                    finishedCount++;
-                  } else if (inProgressStepIdx === -1 && stepEval && (stepEval.emAndamento || 0) > 0) {
-                    inProgressStepIdx = idx;
-                  }
-                });
-                const progressPercent =
-                  totalSteps > 0 ? Math.round((finishedCount / totalSteps) * 100) : 0;
-                const isFinished =
-                  op.status === 'FINALIZADA' || (totalSteps > 0 && finishedCount >= totalSteps);
-
                 return (
-                  <button
+                  <MobileOpCardItem
                     key={op.op_numero}
-                    type="button"
-                    onClick={() => handleSelectOpByNumber(op.op_numero)}
-                    className={`w-full p-3 bg-slate-900/90 hover:bg-slate-850 active:scale-[0.99] border rounded-2xl text-left transition-all flex flex-col gap-2 cursor-pointer group shadow-sm ${
-                      isRunning
-                        ? 'border-cyan-500/60 bg-[#0a1528] ring-1 ring-cyan-500/30'
-                        : isFinished
-                        ? 'border-emerald-500/30 bg-emerald-950/10'
-                        : dl.isDelayed
-                        ? 'border-red-900/60 bg-red-950/10'
-                        : 'border-slate-800/90 hover:border-slate-700'
-                    }`}
-                  >
-                    {/* LINHA 1: Topo com OP + Quantidade + Badges de Status e Terminal */}
-                    <div className="flex items-center justify-between gap-2 w-full">
-                      {/* Esquerda: OP e Qtd */}
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-mono font-black text-blue-300 text-xs tracking-wide bg-[#1C2F8A] border border-blue-400/50 px-2 py-0.5 rounded-lg shrink-0 shadow-sm">
-                          {formatOpNumber(op.op_numero || op.numero)}
-                        </span>
-                        <span className="text-[10px] font-mono font-bold bg-slate-800 text-amber-300 px-1.5 py-0.5 rounded-md border border-slate-700 shrink-0">
-                          {op.quantidade_total || 1} {op.unidade_medida || 'PC'}
-                        </span>
-                      </div>
-
-                      {/* Direita: Prazo e Posto */}
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {dl.isDelayed ? (
-                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-red-950 text-red-300 border border-red-800 shrink-0 whitespace-nowrap flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse shrink-0" />
-                            {Math.abs(dl.daysDiff)}d atraso
-                          </span>
-                        ) : dl.isHistoric || dl.text === 'Lote Anterior' ? (
-                          <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-800 text-slate-400 border border-slate-700 shrink-0 whitespace-nowrap">
-                            Lote Ant.
-                          </span>
-                        ) : null}
-
-                        <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border shrink-0 whitespace-nowrap ${getTerminalBadgeColor(
-                            terminalForOp
-                          )}`}
-                        >
-                          {terminalForOp} • {shortStep}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* LINHA 2: Cliente / Obra (se existir no cadastro da OP) */}
-                    {op.cliente && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-mono text-sky-300 font-semibold truncate">
-                        <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
-                        <span className="truncate">{op.cliente}</span>
-                      </div>
-                    )}
-
-                    {/* LINHA 3: Descrição da Peça */}
-                    <div className="flex items-center justify-between gap-2 w-full text-xs min-w-0">
-                      <p className="text-xs text-slate-200 font-medium truncate flex-1 min-w-0">
-                        {op.descricao}
-                      </p>
-                      <ChevronRight className="w-4 h-4 text-slate-500 shrink-0 group-hover:text-blue-300 group-hover:translate-x-0.5 transition-transform" />
-                    </div>
-
-                    {/* LINHA 4: Indicador Pulsante se estiver com Operador Ativo */}
-                    {isRunning && activeApt && (
-                      <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 rounded-lg px-2.5 py-1">
-                        <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
-                        <User className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        <span className="truncate">
-                          <strong>{activeApt.operador}</strong> em <strong>{activeApt.setor.toUpperCase()}</strong>
-                        </span>
-                      </div>
-                    )}
-
-                    {/* LINHA 5: Barra Segmentada de Progresso */}
-                    <div className="flex items-center gap-2 pt-1 border-t border-slate-800/70">
-                      <div className="flex-1 flex items-center gap-1 h-1.5 bg-slate-950 rounded-full p-0.5 border border-slate-800">
-                        {opSteps.map((st, i) => {
-                          const isDone = i < finishedCount;
-                          const isCur = i === inProgressStepIdx || (i === finishedCount && isRunning);
-                          return (
-                            <div
-                              key={st}
-                              className={`h-full flex-1 rounded-full transition-all ${
-                                isDone
-                                  ? 'bg-emerald-400'
-                                  : isCur
-                                  ? 'bg-cyan-400 animate-pulse shadow-sm shadow-cyan-400/50'
-                                  : 'bg-slate-800'
-                              }`}
-                              title={`${i + 1}. ${st}`}
-                            />
-                          );
-                        })}
-                      </div>
-                      <span className="text-[10px] font-mono font-bold text-slate-400 shrink-0">
-                        {finishedCount}/{totalSteps} ({progressPercent}%)
-                      </span>
-                    </div>
-                  </button>
+                    op={op}
+                    apontamentos={apontamentos}
+                    activeApt={activeApt}
+                    onSelect={handleSelectOpByNumber}
+                  />
                 );
               })}
             </div>

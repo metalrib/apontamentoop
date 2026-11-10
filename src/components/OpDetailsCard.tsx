@@ -14,7 +14,7 @@ interface OpDetailsCardProps {
   currentTerminal: TerminalConfig | null;
 }
 
-export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
+const OpDetailsCardComponent: React.FC<OpDetailsCardProps> = ({
   order: propOrder,
   apontamentos,
   selectedSector,
@@ -286,4 +286,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
     </div>
   );
 };
+
+export const OpDetailsCard = React.memo(OpDetailsCardComponent);
+export default OpDetailsCard;
 
