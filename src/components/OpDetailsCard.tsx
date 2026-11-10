@@ -3,6 +3,7 @@ import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp } from '../services/mesStorage';
+import { ref, update, rtdb } from '../services/firebase';
 import { playClick } from '../utils/audio';
 import { CheckCircle2, Clock, Lock, Layers, Calendar, Tag, FileText, Hash, AlertCircle, Sparkles, AlertTriangle } from 'lucide-react';
 import { OpOccurrenceModal } from './OpOccurrenceModal';
@@ -93,22 +94,76 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
     isM2Fracionado ||
     order.quantidadeFisica !== undefined;
 
-  // Ajuste rápido de quantidade física a produzir
-  const handleAdjustPhysicalQuantity = async (delta: number) => {
-    playClick();
-    const current = Math.round(
-      order.quantidadeFisica ??
-      (isDupla && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : qtdTotal)
-    );
-    const nextVal = Math.max(1, current + delta);
-    if (nextVal === current) return;
+  // 1. FUNÇÃO LÓGICA DE ATUALIZAÇÃO DA QUANTIDADE FÍSICA
+  const handleAlterarQuantidadeFisica = async (
+    e: React.MouseEvent,
+    targetOp: any,
+    delta: number
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-    await updateProductionOrder(order.op_numero, {
-      quantidade_total: nextVal,
-      quantidade: nextVal,
-      quantidadeFisica: nextVal,
-      ...(isDupla ? { quantidadeFolhas: nextVal, isDupla: true } : {})
-    });
+    playClick();
+
+    const qtdAtual = Number(targetOp.quantidadeFisica || targetOp.quantidade || 1);
+    const novaQtd = Math.max(1, qtdAtual + delta);
+
+    if (novaQtd === qtdAtual) return;
+
+    const opKey = String(targetOp.id || targetOp.numero || targetOp.op_numero || '').replace(/^OP\s*/i, '').trim();
+    if (!opKey) return;
+    const opKeyWithPrefix = `OP ${opKey}`;
+
+    try {
+      const timestamp = Date.now();
+      const updates: Record<string, any> = {};
+
+      updates[`ordens/${opKey}/quantidadeFisica`] = novaQtd;
+      updates[`ordens/${opKey}/quantidade`] = novaQtd;
+      updates[`ordens/${opKey}/quantidade_total`] = novaQtd;
+      updates[`ordens/${opKey}/ultimaAtualizacao`] = timestamp;
+
+      updates[`ordens/${opKeyWithPrefix}/quantidadeFisica`] = novaQtd;
+      updates[`ordens/${opKeyWithPrefix}/quantidade`] = novaQtd;
+      updates[`ordens/${opKeyWithPrefix}/quantidade_total`] = novaQtd;
+      updates[`ordens/${opKeyWithPrefix}/ultimaAtualizacao`] = timestamp;
+
+      updates[`ordens_producao/${opKey}/quantidadeFisica`] = novaQtd;
+      updates[`ordens_producao/${opKey}/quantidade`] = novaQtd;
+      updates[`ordens_producao/${opKey}/quantidade_total`] = novaQtd;
+      updates[`ordens_producao/${opKey}/ultimaAtualizacao`] = timestamp;
+
+      updates[`ordens_producao/${opKeyWithPrefix}/quantidadeFisica`] = novaQtd;
+      updates[`ordens_producao/${opKeyWithPrefix}/quantidade`] = novaQtd;
+      updates[`ordens_producao/${opKeyWithPrefix}/quantidade_total`] = novaQtd;
+      updates[`ordens_producao/${opKeyWithPrefix}/ultimaAtualizacao`] = timestamp;
+
+      if (isDupla) {
+        updates[`ordens/${opKey}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens/${opKey}/isDupla`] = true;
+        updates[`ordens/${opKeyWithPrefix}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens/${opKeyWithPrefix}/isDupla`] = true;
+        updates[`ordens_producao/${opKey}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens_producao/${opKey}/isDupla`] = true;
+        updates[`ordens_producao/${opKeyWithPrefix}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens_producao/${opKeyWithPrefix}/isDupla`] = true;
+      }
+
+      await update(ref(rtdb), updates);
+
+      await updateProductionOrder(targetOp.op_numero || targetOp.numero || opKey, {
+        quantidade_total: novaQtd,
+        quantidade: novaQtd,
+        quantidadeFisica: novaQtd,
+        ...(isDupla ? { quantidadeFolhas: novaQtd, isDupla: true } : {})
+      });
+    } catch (error) {
+      console.error("[PCP] Erro ao atualizar quantidade física:", error);
+    }
+  };
+
+  const handleAdjustPhysicalQuantity = (delta: number) => {
+    handleAlterarQuantidadeFisica({ preventDefault: () => {}, stopPropagation: () => {} } as any, order, delta);
   };
 
   return (
@@ -221,11 +276,14 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
             <span className="text-white font-black text-sm">
               {qtdTotal} {order.unidade_medida === 'UN' ? 'UN' : 'PC'}
             </span>
-            <div className="flex items-center gap-1 pl-1 border-l border-slate-800">
+            <div 
+              className="flex items-center gap-1 pl-1 border-l border-slate-800"
+              onClick={(e) => e.stopPropagation()}
+            >
               <button
                 type="button"
-                onClick={() => handleAdjustPhysicalQuantity(-1)}
-                disabled={qtdTotal <= 1}
+                onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
+                disabled={(order.quantidadeFisica || order.quantidade || qtdTotal || 1) <= 1}
                 className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95"
                 title="Diminuir peças físicas"
               >
@@ -233,7 +291,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handleAdjustPhysicalQuantity(1)}
+                onClick={(e) => handleAlterarQuantidadeFisica(e, order, 1)}
                 className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95"
                 title="Aumentar peças físicas"
               >

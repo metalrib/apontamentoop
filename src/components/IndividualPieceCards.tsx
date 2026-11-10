@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { updateProductionOrder } from '../services/mesStorage';
+import { ref, update, rtdb } from '../services/firebase';
 import { StepStatus, doesSectorMatchStep, matchStepName, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
 import { Play, Square, Lock, Clock, CheckCircle2, User, Sparkles, Layers, AlertTriangle, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -238,21 +239,75 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
     isQtdUm ||
     order.quantidadeFisica !== undefined;
 
-  const handleAdjustPhysicalQuantity = async (delta: number) => {
-    playClick();
-    const current = Math.round(
-      order.quantidadeFisica ??
-      (isDupla && (order.quantidade_total === 1 || order.quantidade === 1) ? 2 : totalPhysicalUnits)
-    );
-    const nextVal = Math.max(1, current + delta);
-    if (nextVal === current) return;
+  const handleAlterarQuantidadeFisica = async (
+    e: React.MouseEvent,
+    targetOp: any,
+    delta: number
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-    await updateProductionOrder(order.op_numero, {
-      quantidade_total: nextVal,
-      quantidade: nextVal,
-      quantidadeFisica: nextVal,
-      ...(isDupla ? { quantidadeFolhas: nextVal, isDupla: true } : {})
-    });
+    playClick();
+
+    const qtdAtual = Number(targetOp.quantidadeFisica || targetOp.quantidade || 1);
+    const novaQtd = Math.max(1, qtdAtual + delta);
+
+    if (novaQtd === qtdAtual) return;
+
+    const opKey = String(targetOp.id || targetOp.numero || targetOp.op_numero || '').replace(/^OP\s*/i, '').trim();
+    if (!opKey) return;
+    const opKeyWithPrefix = `OP ${opKey}`;
+
+    try {
+      const timestamp = Date.now();
+      const updates: Record<string, any> = {};
+
+      updates[`ordens/${opKey}/quantidadeFisica`] = novaQtd;
+      updates[`ordens/${opKey}/quantidade`] = novaQtd;
+      updates[`ordens/${opKey}/quantidade_total`] = novaQtd;
+      updates[`ordens/${opKey}/ultimaAtualizacao`] = timestamp;
+
+      updates[`ordens/${opKeyWithPrefix}/quantidadeFisica`] = novaQtd;
+      updates[`ordens/${opKeyWithPrefix}/quantidade`] = novaQtd;
+      updates[`ordens/${opKeyWithPrefix}/quantidade_total`] = novaQtd;
+      updates[`ordens/${opKeyWithPrefix}/ultimaAtualizacao`] = timestamp;
+
+      updates[`ordens_producao/${opKey}/quantidadeFisica`] = novaQtd;
+      updates[`ordens_producao/${opKey}/quantidade`] = novaQtd;
+      updates[`ordens_producao/${opKey}/quantidade_total`] = novaQtd;
+      updates[`ordens_producao/${opKey}/ultimaAtualizacao`] = timestamp;
+
+      updates[`ordens_producao/${opKeyWithPrefix}/quantidadeFisica`] = novaQtd;
+      updates[`ordens_producao/${opKeyWithPrefix}/quantidade`] = novaQtd;
+      updates[`ordens_producao/${opKeyWithPrefix}/quantidade_total`] = novaQtd;
+      updates[`ordens_producao/${opKeyWithPrefix}/ultimaAtualizacao`] = timestamp;
+
+      if (isDupla) {
+        updates[`ordens/${opKey}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens/${opKey}/isDupla`] = true;
+        updates[`ordens/${opKeyWithPrefix}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens/${opKeyWithPrefix}/isDupla`] = true;
+        updates[`ordens_producao/${opKey}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens_producao/${opKey}/isDupla`] = true;
+        updates[`ordens_producao/${opKeyWithPrefix}/quantidadeFolhas`] = novaQtd;
+        updates[`ordens_producao/${opKeyWithPrefix}/isDupla`] = true;
+      }
+
+      await update(ref(rtdb), updates);
+
+      await updateProductionOrder(targetOp.op_numero || targetOp.numero || opKey, {
+        quantidade_total: novaQtd,
+        quantidade: novaQtd,
+        quantidadeFisica: novaQtd,
+        ...(isDupla ? { quantidadeFolhas: novaQtd, isDupla: true } : {})
+      });
+    } catch (error) {
+      console.error("[PCP] Erro ao atualizar quantidade física:", error);
+    }
+  };
+
+  const handleAdjustPhysicalQuantity = (delta: number) => {
+    handleAlterarQuantidadeFisica({ preventDefault: () => {}, stopPropagation: () => {} } as any, order, delta);
   };
 
   return (
@@ -276,28 +331,34 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = ({
         {/* Indicadores de Progresso */}
           {/* Seletor rápido de quantidade física a produzir nos cartões unitários */}
           {showPhysicalQuantitySelector && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-amber-500/50">
-              <span className="text-[11px] font-mono font-bold text-amber-300">
+            <div 
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-amber-500/50"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <span className="text-[11px] font-mono font-bold text-amber-300 select-none">
                 Qtde Física:
               </span>
-              <div className="flex items-center gap-1">
+              <div 
+                className="flex items-center gap-1.5"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <button
                   type="button"
-                  onClick={() => handleAdjustPhysicalQuantity(-1)}
-                  disabled={totalPhysicalUnits <= 1 || isLoading}
-                  className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold font-mono text-xs flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                  onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
+                  disabled={(order.quantidadeFisica || order.quantidade || totalPhysicalUnits || 1) <= 1 || isLoading}
+                  className="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 active:scale-95 text-white font-bold border border-slate-600 transition-all select-none cursor-pointer"
                   title="Diminuir peças físicas da OP"
                 >
                   -
                 </button>
-                <span className="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded font-mono font-black text-white text-xs min-w-[24px] text-center">
-                  {totalPhysicalUnits}
+                <span className="px-3 py-1 font-bold text-sm bg-slate-900 border border-slate-700 rounded text-amber-400 min-w-[36px] text-center select-none">
+                  {order.quantidadeFisica || order.quantidade || totalPhysicalUnits || 1}
                 </span>
                 <button
                   type="button"
-                  onClick={() => handleAdjustPhysicalQuantity(1)}
+                  onClick={(e) => handleAlterarQuantidadeFisica(e, order, 1)}
                   disabled={isLoading}
-                  className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold font-mono text-xs flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                  className="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold border border-slate-600 transition-all select-none cursor-pointer"
                   title="Aumentar peças físicas da OP"
                 >
                   +
