@@ -17,6 +17,7 @@ import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, 
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
 import { db, firestore, doc, updateDoc, deleteDoc, arrayRemove, setDoc, getDoc, ref, set, get, onValue, update, push, writeBatch } from './firebase';
+import { io, Socket } from 'socket.io-client';
 
 export { db, ref, set, get, onValue, update, push };
 export { cleanOpId, cleanOpid, formatOpNumber };
@@ -71,6 +72,13 @@ export const TEST_DUMMY_OPS = new Set([
   '023838-05', '023838-06', '023838-07', '023838-08',
   '023838-09', '023838-10', '023838-11'
 ]);
+
+// Flags globais de inicialização no topo do módulo para evitar ReferenceError (TDZ)
+export let isFirebaseListenerInitialized = false;
+export let isLocalSocketInitialized = false;
+export let isLocalApiActive = false;
+export let bgSyncTimer: any = null;
+export let localSocket: Socket | null = null;
 
 let broadcastChannel: BroadcastChannel | null = null;
 if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
@@ -500,10 +508,126 @@ export function ensureInitialData() {
   }
 }
 
-// Inicializa no carregamento
-ensureInitialData();
-startFirebaseBackgroundSync();
-initFirebaseRealtimeListeners();
+export const getLocalServerUrl = (): string => {
+  if (typeof window !== 'undefined' && window.location.hostname) {
+    const host = window.location.hostname;
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
+    return `http://${host}:3001`;
+  }
+  return 'http://192.168.0.12:3001';
+};
+
+export function processAndStoreLocalOrdens(ordensList: any[]): void {
+  try {
+    const ordersMap: Record<string, ProductionOrder> = {};
+    for (const item of ordensList) {
+      const opNum = String(item.numero || item.id || '').trim();
+      const clean = cleanOpId(opNum);
+      if (!clean || TEST_DUMMY_OPS.has(clean)) continue;
+      const opNumero = formatOpNumber(clean);
+      const qtd = Number(item.quantidadeFisica || item.quantidade_total || item.quantidade || 1);
+      
+      const parsedEtapas = typeof item.etapas === 'string'
+        ? JSON.parse(item.etapas || '[]')
+        : (item.etapas || []);
+
+      const syncedItem = initOrSyncOrderEtapas({
+        ...item,
+        id: opNumero,
+        op_numero: opNumero,
+        numero: opNumero,
+        descricao: item.descricao || item.produto || '',
+        produto: item.descricao || item.produto || '',
+        codigo: item.codigo || item.codigoProduto || '',
+        codigoProduto: item.codigo || item.codigoProduto || '',
+        cliente: item.cliente || 'METALRIB',
+        tipoOrdem: item.tipoOrdem || 'Padrão',
+        quantidade_total: qtd,
+        quantidade: qtd,
+        quantidadeFisica: qtd,
+        etapas: parsedEtapas
+      });
+
+      const corrected = verificarECorrigirRotaOp(syncedItem);
+      ordersMap[opNumero] = corrected;
+    }
+
+    if (Object.keys(ordersMap).length > 0) {
+      localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(ordersMap));
+      broadcastUpdate();
+    }
+  } catch (err) {
+    console.warn('[Local API] Erro ao processar ordens locais:', err);
+  }
+}
+
+export async function fetchLocalOrdens(): Promise<boolean> {
+  try {
+    const localUrl = getLocalServerUrl();
+    const res = await fetch(`${localUrl}/api/ordens`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (Array.isArray(data) && data.length > 0) {
+      processAndStoreLocalOrdens(data);
+      isLocalApiActive = true;
+      return true;
+    }
+  } catch {
+    // Servidor local offline
+  }
+  return false;
+}
+
+export function initLocalSocketListeners(): void {
+  if (typeof window === 'undefined' || isLocalSocketInitialized) return;
+  isLocalSocketInitialized = true;
+
+  try {
+    const localUrl = getLocalServerUrl();
+    const socket = io(localUrl, {
+      reconnectionAttempts: 5,
+      reconnectionDelay: 2000,
+      timeout: 3000,
+      autoConnect: true
+    });
+    localSocket = socket;
+
+    socket.on('connect', () => {
+      console.log('[Socket.io] Conectado ao servidor local MES:', localUrl);
+      isLocalApiActive = true;
+      fetchLocalOrdens();
+    });
+
+    socket.on('ordens_atualizadas', (ordens: any[]) => {
+      console.log('[Socket.io] Evento ordens_atualizadas recebido do servidor local:', ordens?.length);
+      if (Array.isArray(ordens)) {
+        processAndStoreLocalOrdens(ordens);
+      }
+    });
+
+    socket.on('connect_error', () => {
+      isLocalApiActive = false;
+    });
+
+    socket.on('disconnect', () => {
+      isLocalApiActive = false;
+    });
+  } catch (err) {
+    console.warn('[Socket.io] Erro ao conectar ao servidor local:', err);
+  }
+}
+
+// Inicializa no carregamento com tratamento de exceções para proteger a UI contra tela branca
+try {
+  ensureInitialData();
+  initLocalSocketListeners();
+  startFirebaseBackgroundSync();
+  initFirebaseRealtimeListeners();
+} catch (err) {
+  console.warn('[MES Storage] Erro na inicialização dos listeners:', err);
+}
 
 /**
  * Funções de Gestão de Operadores / Colaboradores (Chave: metalrib_operators)
@@ -1212,12 +1336,16 @@ export function getSavedFirebaseConfig(): FirebaseConnectionConfig {
   return defaultConfig;
 }
 
-let isFirebaseListenerInitialized = false;
 export function initFirebaseRealtimeListeners(): void {
   if (typeof window === 'undefined' || isFirebaseListenerInitialized) return;
   isFirebaseListenerInitialized = true;
 
   try {
+    // Se a API local SQLite/Socket.io estiver ativa ou Firebase não estiver configurado/disponível
+    if (isLocalApiActive || !db) {
+      console.log('[Firebase] Operando via API Local ou Firebase inativo. Listeners do Firebase suspensos.');
+      return;
+    }
     let cachedProducao: any = null;
     let cachedOrdens: any = null;
 
@@ -1461,7 +1589,6 @@ function getFirebaseUrl(path: string): string | null {
   return `${base}/${cleanPath}.json${authQuery}`;
 }
 
-let bgSyncTimer: any = null;
 export function startFirebaseBackgroundSync(): void {
   // Sincronização em tempo real é gerenciada diretamente pelos listeners nativos WebSocket do Firebase Realtime DB
   // (initFirebaseRealtimeListeners). O polling REST legado de 'pcp/orders' foi desativado para eliminar qualquer risco
@@ -1552,7 +1679,26 @@ export function clearTerminalSelection() {
 export async function fetchProductionOrders(): Promise<Record<string, ProductionOrder>> {
   ensureInitialData();
 
+  // 1. Prioriza carregamento da API local SQLite (Socket.io / Express) se o servidor local estiver ativo
   try {
+    const hasLocal = await fetchLocalOrdens();
+    if (hasLocal) {
+      const rawLocal = localStorage.getItem(STORAGE_ORDERS_KEY);
+      if (rawLocal && rawLocal !== '{}') {
+        const parsed: Record<string, ProductionOrder> = JSON.parse(rawLocal);
+        if (Object.keys(parsed).length > 0) {
+          return parsed;
+        }
+      }
+    }
+  } catch {}
+
+  try {
+    if (!db) {
+      const rawCache = localStorage.getItem(STORAGE_ORDERS_KEY);
+      return rawCache ? JSON.parse(rawCache) : {};
+    }
+
     const [snapshotProd, snapshotOrdens] = await Promise.all([
       get(ref(db, 'ordens_producao')),
       get(ref(db, 'ordens'))
@@ -3432,6 +3578,21 @@ export async function updateProductionOrder(
   } catch (err) {
     console.error('[Firebase] Erro ao atualizar ordem:', err);
   }
+
+  // Sincronização assíncrona com API local Express/SQLite via PUT /api/ordens/:id
+  try {
+    const cleanId = cleanOpId(targetKey);
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status: updated.status,
+        etapas: updated.etapas
+      })
+    }).catch(() => {});
+  } catch {}
+
   broadcastUpdate();
   return updated;
 }
@@ -3883,6 +4044,17 @@ export async function saveMultipleOrders(
   } catch (err) {
     console.error('[Firebase RTDB] Erro ao sincronizar ordens via update:', err);
   }
+
+  // Sincroniza em background com a API local SQLite se online
+  try {
+    const localUrl = getLocalServerUrl();
+    const ordensArray = Object.values(orders);
+    fetch(`${localUrl}/api/ordens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ordens: ordensArray })
+    }).catch(() => {});
+  } catch {}
 
   broadcastUpdate();
   return {
