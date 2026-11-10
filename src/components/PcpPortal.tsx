@@ -858,9 +858,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
             ) : orderViewMode === 'cards' ? (
               /* MODO CARDS DE PRODUÇÃO IDENTICOS AO SISTEMA DE CHÃO DE FÁBRICA */
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredOrders.map((op) => (
+                {filteredOrders.map((op, index) => (
                   <OpProductionCard
-                    key={op.op_numero}
+                    key={`${op.id || op.numero || op.op_numero}-${index}`}
                     order={op}
                     apontamentos={apontamentos}
                     onOpenChat={handleOpenChat}
@@ -885,16 +885,17 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-blue-950">
-                    {filteredOrders.map((op) => {
+                    {filteredOrders.map((op, index) => {
                       const { rule } = getRouteForOp(op);
                       const steps = obterEtapasDaRota(op);
                       const evalResult = getRouteEvaluation(op, apontamentos, steps);
                       const lastStep = steps[steps.length - 1];
                       const finishedCount = evalResult[lastStep]?.finalizadas || 0;
-                      const percent = Math.min(100, Math.round((finishedCount / op.quantidade_total) * 100));
+                      const totalQtd = Math.max(1, op.quantidade_total || (op as any).quantidade || 1);
+                      const percent = Math.min(100, Math.round((finishedCount / totalQtd) * 100));
 
                       return (
-                        <tr key={op.op_numero} className="hover:bg-slate-900/60 transition">
+                        <tr key={`${op.id || op.numero || op.op_numero}-${index}`} className="hover:bg-slate-900/60 transition">
                           <td className="p-3.5 font-bold text-blue-300 font-mono text-sm">
                             {op.numero || op.op_numero}
                           </td>
@@ -1190,9 +1191,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                  {filteredAndonOrders.map((op) => (
+                  {filteredAndonOrders.map((op, index) => (
                     <OpProductionCard
-                      key={op.op_numero}
+                      key={`${op.id || op.numero || op.op_numero}-${index}`}
                       order={op}
                       apontamentos={apontamentos}
                       onOpenChat={handleOpenChat}
@@ -1547,8 +1548,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-blue-950/60">
-                        {nomusParseResult.orders.map((o) => (
-                          <tr key={o.op_numero} className="hover:bg-slate-900/50">
+                        {nomusParseResult.orders.map((o, idx) => (
+                          <tr key={`${o.id || o.numero || o.op_numero}-${idx}`} className="hover:bg-slate-900/50">
                             <td className="p-2.5 text-amber-300 font-bold whitespace-nowrap">
                               {o.data_entrega || '—'}
                             </td>

@@ -1300,6 +1300,27 @@ export async function findOrder(opNumber: string): Promise<ProductionOrder | nul
 export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[]> {
   ensureInitialData();
 
+  try {
+    const localUrl = getLocalServerUrl();
+    const res = await fetch(`${localUrl}/api/apontamentos`, { signal: AbortSignal.timeout(2000) });
+    if (res.ok) {
+      const dbApts = await res.json();
+      if (Array.isArray(dbApts) && dbApts.length > 0) {
+        const rawStorage = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+        let treeStorage = {};
+        if (rawStorage) {
+          try { treeStorage = JSON.parse(rawStorage); } catch { treeStorage = {}; }
+        }
+        dbApts.forEach((apt) => {
+          const clean = (apt.op_numero || apt.op || "").trim().toUpperCase();
+          if (!treeStorage[clean]) treeStorage[clean] = {};
+          treeStorage[clean][apt.id] = apt;
+        });
+        localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(treeStorage));
+      }
+    }
+  } catch {}
+
   const raw = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
   let tree: Record<string, Record<string, Apontamento>> = {};
   if (raw) {
@@ -1480,6 +1501,11 @@ export async function startUnit(params: {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(targetOrder || opUpdates)
+      }).catch(() => {});
+      fetch(`${localUrl}/api/apontamentos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(novoApontamento)
       }).catch(() => {});
     } catch {}
   } catch (err) {
@@ -1705,6 +1731,11 @@ export async function finishUnit(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(targetOrder)
           }).catch(() => {});
+          fetch(`${localUrl}/api/apontamentos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated)
+          }).catch(() => {});
         } catch {}
       }
     }
@@ -1876,6 +1907,11 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(targetOrder || opUpdates)
+      }).catch(() => {});
+      fetch(`${localUrl}/api/apontamentos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(novoApontamento)
       }).catch(() => {});
     } catch {}
   } catch (err) {
@@ -2107,6 +2143,11 @@ export async function finishBatch(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(targetOrder)
           }).catch(() => {});
+          fetch(`${localUrl}/api/apontamentos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updated)
+          }).catch(() => {});
         } catch {}
       }
     }
@@ -2155,6 +2196,12 @@ export async function deleteApontamento(apontamentoId: string, opNumero?: string
 
   if (deleted) {
     localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+    try {
+      const localUrl = getLocalServerUrl();
+      fetch(`${localUrl}/api/apontamentos/${encodeURIComponent(apontamentoId)}`, {
+        method: 'DELETE'
+      }).catch(() => {});
+    } catch {}
     broadcastUpdate();
   }
   return deleted;
@@ -2572,6 +2619,11 @@ export async function resetarOpCompleta(
 
   try {
     const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanOpId(matchedLocalKey)}/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: cleanOpId(matchedLocalKey), opNumero: keyWithOp })
+    }).catch(() => {});
     fetch(`${localUrl}/api/ordens/${cleanOpId(matchedLocalKey)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -2876,6 +2928,15 @@ export async function addOpOccurrence(
   } catch (err) {
     console.warn('Erro ao atualizar ocorrência no LocalStorage:', err);
   }
+
+  try {
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/ordens/${cleanOpId(opNumero)}/ocorrencias`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...novaOcorrencia, opNumero })
+    }).catch(() => {});
+  } catch {}
 
   broadcastUpdate();
   return novaOcorrencia;

@@ -54,29 +54,30 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
   }, [loadOps]);
 
   // Função auxiliar para verificar exclusividade de tags específicas de setor
-  const isTagExclusivaDeOutroPosto = (badge: string, targetSector: string): boolean => {
-    if (!badge || !targetSector) return false;
-    const b = badge.trim().toUpperCase();
+  const isTagExclusivaDeOutroPosto = (badge: string, targetSector: string, role?: string): boolean => {
+    if (!targetSector) return false;
+    const b = (badge || '').trim().toUpperCase();
+    const r = (role || '').trim().toUpperCase();
     const ts = targetSector.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-    // DOB-xx é exclusivo do posto de Dobra
-    if (b.startsWith('DOB') && !ts.includes('dobra')) {
+    // DOB-xx ou cargo exclusivo de Dobra
+    if ((b.startsWith('DOB') || r.includes('DOBRA')) && !ts.includes('dobra')) {
       return true;
     }
-    // CORTE-xx é exclusivo do posto de Corte
-    if (b.startsWith('CORTE') && (!ts.includes('corte') || ts.includes('aluminio') || ts.includes('trilho'))) {
+    // CORTE-xx ou cargo exclusivo de Corte
+    if ((b.startsWith('CORTE') || r.includes('CORTE')) && (!ts.includes('corte') || ts.includes('aluminio') || ts.includes('trilho'))) {
       return true;
     }
-    // LASER-xx é exclusivo do posto de Laser
-    if (b.startsWith('LASER') && !ts.includes('laser')) {
+    // LASER-xx ou cargo exclusivo de Laser
+    if ((b.startsWith('LASER') || r.includes('LASER')) && !ts.includes('laser')) {
       return true;
     }
-    // ROU-xx é exclusivo de Router
-    if (b.startsWith('ROU') && !ts.includes('router')) {
+    // ROU-xx ou cargo de Router
+    if ((b.startsWith('ROU') || r.includes('ROUTER')) && !ts.includes('router')) {
       return true;
     }
-    // SOL-xx é exclusivo de Solda
-    if (b.startsWith('SOL') && !ts.includes('solda')) {
+    // SOL-xx ou cargo de Solda
+    if ((b.startsWith('SOL') || r.includes('SOLDA')) && !ts.includes('solda')) {
       return true;
     }
     return false;
@@ -184,7 +185,8 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
 
       // 3. Regra de exclusão por tag/código exclusivo de outro setor (ex: DOB-02 quando o posto é Corte)
       const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
-      if (isTagExclusivaDeOutroPosto(badge, selectedSector)) {
+      const role = (colab.role || (colab as any).funcao || (colab as any).cargo || '').trim().toUpperCase();
+      if (isTagExclusivaDeOutroPosto(badge, selectedSector, role)) {
         return false;
       }
 
@@ -209,6 +211,16 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       return hasDirectSector;
     });
   }, [operators, selectedSector, currentTerminal?.id]);
+
+  // Se o colaborador selecionado não pertencer mais ao posto ativo, limpa a seleção
+  useEffect(() => {
+    if (selectedOperator && filteredOperators.length > 0) {
+      const exists = filteredOperators.some((op) => op.name === selectedOperator);
+      if (!exists) {
+        onSelectOperator('');
+      }
+    }
+  }, [filteredOperators, selectedOperator, onSelectOperator]);
 
   return (
     <div className="w-full bg-[#0e131f] border border-slate-700/80 rounded-xl p-2.5 shadow-md shrink-0">

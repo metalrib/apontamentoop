@@ -188,16 +188,17 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/80">
-                    {orderList.map((op) => {
+                    {orderList.map((op, index) => {
                       const { rule } = getRouteForOp(op);
                       const steps = obterEtapasDaRota(op);
                       const evalResult = getRouteEvaluation(op, apontamentos, steps);
                       const lastStep = steps[steps.length - 1];
                       const finishedCount = evalResult[lastStep]?.finalizadas || 0;
-                      const percent = Math.round((finishedCount / op.quantidade_total) * 100);
+                      const totalQtd = Math.max(1, op.quantidade_total || (op as any).quantidade || 1);
+                      const percent = Math.min(100, Math.round((finishedCount / totalQtd) * 100));
 
                       return (
-                        <tr key={op.op_numero} className="hover:bg-slate-900/60 transition">
+                        <tr key={`${op.id || op.numero || op.op_numero}-${index}`} className="hover:bg-slate-900/60 transition">
                           <td className="p-3.5 font-bold text-amber-400 font-mono text-sm">
                             {op.op_numero}
                           </td>

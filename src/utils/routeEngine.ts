@@ -1561,12 +1561,20 @@ export function checkOp100Percent(op: any, apontamentos: any[] = []): boolean {
   if (!op) return false;
   const statusUpper = String(op.status || '').toUpperCase().trim();
   if (statusUpper === 'FINALIZADA' || statusUpper === 'CONCLUIDA') return true;
+  if (statusUpper.includes('AGUARDANDO INÍCIO') || statusUpper.includes('AGUARDANDO INICIO') || statusUpper === 'PENDENTE') {
+    return false;
+  }
 
-  const steps = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : obterEtapasDaRota(op);
-  if (!steps || steps.length === 0) return false;
+  const safeApontamentos: any[] = Array.isArray(apontamentos)
+    ? apontamentos
+    : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? Object.values(apontamentos) : []);
+
+  const rawSteps = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : obterEtapasDaRota(op);
+  const steps = Array.isArray(rawSteps) ? rawSteps : [];
+  if (steps.length === 0) return false;
 
   const total = Math.max(1, Math.round(obterQuantidadeTotal(op) || op.quantidade_total || 1));
-  const evaluation = getRouteEvaluation(op, apontamentos, steps);
+  const evaluation = getRouteEvaluation(op, safeApontamentos, steps);
 
   return steps.every((s: string) => {
     const st = (!Array.isArray(op.etapas) && typeof op.etapas === 'object') ? (op.etapas as any)?.[s] : undefined;
@@ -1596,9 +1604,32 @@ export function isOpEmProducao(op: any, apontamentos: any[] = []): boolean {
     return false;
   }
 
+  const safeApontamentos: any[] = Array.isArray(apontamentos)
+    ? apontamentos
+    : (apontamentos && typeof apontamentos === 'object' && !('then' in (apontamentos as any)) ? Object.values(apontamentos) : []);
+
   // Se já concluiu 100% de todas as etapas da rota, não está mais em produção ativa
-  if (checkOp100Percent(op, apontamentos)) {
+  if (checkOp100Percent(op, safeApontamentos)) {
     return false;
+  }
+
+  // Se a OP está recém-resetada ou aguardando início sem posto ativo e sem apontamentos ativos, não está em produção
+  if (statusUpper.includes('AGUARDANDO INÍCIO') || statusUpper.includes('AGUARDANDO INICIO') || statusUpper === 'PENDENTE') {
+    if (!op.emProducao && !op.postoAtivo) {
+      const cleanOrderOp = String(op.op_numero || op.numero || '')
+        .replace(/^(\s*OP\s*)+/i, '')
+        .replace(/[-_\s]/g, '')
+        .toUpperCase();
+      const hasActive = cleanOrderOp && safeApontamentos.some((a) => {
+        if (!a) return false;
+        const cleanAptOp = String(a.op_numero || a.op || '')
+          .replace(/^(\s*OP\s*)+/i, '')
+          .replace(/[-_\s]/g, '')
+          .toUpperCase();
+        return cleanAptOp === cleanOrderOp && String(a.status || '').toUpperCase().trim() === 'EM_ANDAMENTO';
+      });
+      if (!hasActive) return false;
+    }
   }
 
   // 1. Flag explícita no nó raiz da OP
@@ -1623,8 +1654,8 @@ export function isOpEmProducao(op: any, apontamentos: any[] = []): boolean {
     .replace(/[-_\s]/g, '')
     .toUpperCase();
 
-  if (Array.isArray(apontamentos) && apontamentos.length > 0 && cleanOrderOp) {
-    const hasActiveApontamento = apontamentos.some((a) => {
+  if (safeApontamentos.length > 0 && cleanOrderOp) {
+    const hasActiveApontamento = safeApontamentos.some((a) => {
       if (!a) return false;
       const cleanAptOp = String(a.op_numero || a.op || '')
         .replace(/^(\s*OP\s*)+/i, '')
@@ -1646,8 +1677,9 @@ export function isOpEmProducao(op: any, apontamentos: any[] = []): boolean {
   }
 
   // 4. Alguma etapa no objeto op.etapas estiver com status em andamento/produção
-  if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
-    const hasEtapaAtiva = Object.values(op.etapas).some((val: any) => {
+  if (op.etapas && typeof op.etapas === 'object') {
+    const safeEtapas = Array.isArray(op.etapas) ? op.etapas : Object.values(op.etapas);
+    const hasEtapaAtiva = safeEtapas.some((val: any) => {
       if (!val) return false;
       const st = String(val.status || val || '').toUpperCase().trim();
       return (

@@ -955,7 +955,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                   (op.op_numero ? activeApontamentoByOp[op.op_numero] : undefined);
                 return (
                   <MobileOpCardItem
-                    key={op.op_numero}
+                    key={`${op.id || op.numero || op.op_numero}-${idx}`}
                     op={op}
                     apontamentos={apontamentos}
                     activeApt={activeApt}

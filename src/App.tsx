@@ -200,6 +200,8 @@ export default function App() {
             quantidade_total: qtd,
             quantidade: qtd,
             quantidadeFisica: qtd,
+            requer_laser: Boolean(item.requer_laser || item.requerLaser),
+            requerLaser: Boolean(item.requer_laser || item.requerLaser),
             etapas: parsedEtapas
           });
           const processed = verificarECorrigirRotaOp(synced);
