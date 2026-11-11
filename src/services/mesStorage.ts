@@ -693,6 +693,26 @@ export function fetchOperators(): Operator[] {
           if (!uniqueSectors.includes('Preparação de Folha')) uniqueSectors.push('Preparação de Folha');
         }
 
+        // Garante terminais e badges corretos dos especialistas para que não vazem entre terminais
+        const isSergio = op.id === 'sergio' || nome.toLowerCase().includes('sergio') || badge === 'ESP-T3';
+        if (isSergio) {
+          const idxT1 = terminais.indexOf('T1');
+          if (idxT1 >= 0) terminais.splice(idxT1, 1);
+          if (!terminais.includes('T3')) terminais.push('T3');
+        }
+
+        const isFabio = op.id === 'fabio' || nome.toLowerCase().includes('fabio') || badge === 'ESP-T5';
+        if (isFabio) {
+          const idxT1 = terminais.indexOf('T1');
+          if (idxT1 >= 0) terminais.splice(idxT1, 1);
+          if (!terminais.includes('T5')) terminais.push('T5');
+        }
+
+        const isBrunoC = op.id === 'bruno_c' || nome.toLowerCase().includes('bruno constancio') || badge === 'ESP-T1';
+        if (isBrunoC) {
+          if (!terminais.includes('T1')) terminais.push('T1');
+        }
+
         const setoresPorTerm = op.setoresPorTerminal ? { ...op.setoresPorTerminal } : undefined;
         if (isGabriele && setoresPorTerm) {
           if (!setoresPorTerm.T5) {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Operator, TerminalConfig, ProductionOrder } from '../types/mes';
 import { fetchOperators, subscribeToMesUpdates, getLocalSocket } from '../services/mesStorage';
-import { Check, User } from 'lucide-react';
+import { Check, User, Sparkles } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
 interface OperatorSelectorProps {
@@ -11,6 +11,21 @@ interface OperatorSelectorProps {
   order?: ProductionOrder | null;
   onSelectOperator: (operatorName: string) => void;
 }
+
+// Identifica se o colaborador possui perfil de Especialista / Suporte Técnico
+const checkIsEspecialista = (colab: Operator): boolean => {
+  const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+  const role = (colab.role || '').toLowerCase();
+  return Boolean(
+    colab.especialista ||
+    (colab as any).isEspecialista ||
+    (colab as any).isCuringa ||
+    colab.isRoaming ||
+    colab.especialistaVolante ||
+    badge.startsWith('ESP') ||
+    role.includes('especialista')
+  );
+};
 
 export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
   selectedOperator,
@@ -134,9 +149,9 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     return false;
   };
 
-  // Filtro Direto e Padronizado por Terminal e Posto Selecionado
+  // 1 & 2: Filtro Rigoroso de Terminal Ativo e Posto Selecionado
   const filteredOperators = useMemo(() => {
-    // 1. Se nenhum posto estiver selecionado no Passo 1, lista vazia
+    // Se nenhum posto estiver selecionado no Passo 1, lista vazia
     if (!selectedSector || selectedSector.trim() === '') {
       return [];
     }
@@ -150,29 +165,35 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       // 1. Status ativo
       if (colab.ativo === false) return false;
 
-      // 2. Terminal ativo (ex: 'T1' ou 1) ou especialista roaming
+      // 2. FILTRO RIGOROSO DE TERMINAL ATIVO:
+      // O colaborador SÓ PODE APARECER se o terminal atual (ex: Terminal 1) estiver dentro do seu array de terminais autorizados,
+      // OU se ele for ESP-MULTI / tiver autorização explícita em todos os terminais.
+      // Sergio (T3) e Fabio (T5) NÃO devem aparecer no Terminal 1.
       const colabTerminais = Array.isArray(colab.terminais) ? colab.terminais : [];
-      const hasTerminal = colabTerminais.some(
-        (t) => String(t).toUpperCase().trim() === termKey || String(t).replace(/[^\d]/g, '') === String(termId)
-      );
+      const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+      const isEsp = checkIsEspecialista(colab);
 
-      const isEspecialista = Boolean(
-        colab.especialista ||
-        (colab as any).isEspecialista ||
-        (colab as any).isCuringa ||
-        colab.isRoaming ||
-        colab.especialistaVolante
-      );
+      const isMultiTerminal =
+        badge === 'ESP-MULTI' ||
+        badge.includes('MULTI') ||
+        colabTerminais.some((t) => {
+          const s = String(t).toUpperCase().trim();
+          return s === 'TODOS' || s === 'ALL' || s === 'MULTI';
+        }) ||
+        colabTerminais.length >= 5;
 
-      // Se não pertence ao terminal e não é especialista volante, descarta
-      if (!hasTerminal && !isEspecialista) return false;
+      const hasTerminal = isMultiTerminal || colabTerminais.some((t) => {
+        const normT = String(t).toUpperCase().trim();
+        return normT === termKey || normT.replace(/[^\d]/g, '') === String(termId);
+      });
 
-      // a) Especialista / Curinga tem acesso livre
-      if (isEspecialista) {
-        return true;
+      // Se NÃO pertence ao terminal atual, DESCARTA IMEDIATAMENTE (inclusive especialistas de outros terminais)
+      if (!hasTerminal) {
+        return false;
       }
 
-      // 3. Coleta todos os setores autorizados do colaborador
+      // 3. FILTRO POR POSTO SELECIONADO:
+      // Coleta todos os setores autorizados do colaborador
       const colabSetores: string[] = [
         ...(Array.isArray(colab.setores) ? colab.setores : []),
         ...(Array.isArray(colab.sectors) ? colab.sectors : []),
@@ -181,7 +202,18 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         ...(colab.setoresPorTerminal?.[termKey] || [])
       ];
 
-      // Verificação direta para "Preparação de Folha" (Leonardo C., Danielson e operadores habilitados)
+      // a) Se for Especialista:
+      // Se tiver permissão no posto OU se for especialista designado para aquele terminal
+      if (isEsp) {
+        const isDesignatedForThisTerm = isMultiTerminal || badge === `ESP-${termKey}` || hasTerminal;
+        const hasPostoPermission = colabSetores.includes('TODOS') || colabSetores.some((s) => matchPosto(s, targetSector));
+        if (isDesignatedForThisTerm || hasPostoPermission) {
+          return true;
+        }
+      }
+
+      // b) Se for Operador:
+      // Caso especial: Preparação de Folha (Leonardo C., Danielson e operadores habilitados)
       const isTargetPrepFolha = targetNorm.includes('preparacao') && targetNorm.includes('folha');
       if (isTargetPrepFolha) {
         const hasPrepFolha = colabSetores.some((s) => {
@@ -195,11 +227,10 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         }
       }
 
-      // b) Tenham o posto selecionado ativo em seus setores autorizados
+      // Atuação no setor selecionado via matchPosto
       const hasDirectSector = colabSetores.some((s) => matchPosto(s, targetSector));
       if (hasDirectSector) {
-        // Se o posto selecionado for Corte da guilhotina, não exibir operadores de Dobra sem código/permissão de corte
-        const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+        // Se o posto selecionado for Corte da guilhotina, não exibir operadores com tag exclusiva de Dobra sem código de corte
         if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho')) {
           if (badge.startsWith('DOB')) {
             return false;
@@ -208,8 +239,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         return true;
       }
 
-      // c) Tenham o código/badge correspondente ao posto
-      const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+      // Código/badge correspondente ao posto
       if (targetNorm.includes('dobra') && badge.startsWith('DOB')) {
         return true;
       }
@@ -230,6 +260,24 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     });
   }, [operators, selectedSector, currentTerminal?.id]);
 
+  // 3. Divisão dos colaboradores em dois grupos claros:
+  // A) Operadores da Etapa
+  // B) Especialistas / Suporte Técnico
+  const { operadoresEtapa, especialistasApoio } = useMemo(() => {
+    const operadores: Operator[] = [];
+    const especialistas: Operator[] = [];
+
+    filteredOperators.forEach((op) => {
+      if (checkIsEspecialista(op)) {
+        especialistas.push(op);
+      } else {
+        operadores.push(op);
+      }
+    });
+
+    return { operadoresEtapa: operadores, especialistasApoio: especialistas };
+  }, [filteredOperators]);
+
   // Se o colaborador selecionado não pertencer mais ao posto ativo, limpa a seleção
   useEffect(() => {
     if (selectedOperator && filteredOperators.length > 0) {
@@ -239,6 +287,95 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       }
     }
   }, [filteredOperators, selectedOperator, onSelectOperator]);
+
+  // Renderização do Card de Colaborador
+  const renderCard = (op: Operator, isSpecialist: boolean) => {
+    const isSelected = selectedOperator === op.name;
+
+    return (
+      <button
+        key={op.id}
+        type="button"
+        onClick={() => {
+          playClick();
+          onSelectOperator(op.name);
+        }}
+        className={`py-1.5 px-2 min-w-[70px] rounded-xl border text-center transition-all flex flex-col items-center justify-between kiosk-btn cursor-pointer select-none active:scale-95 ${
+          isSelected
+            ? isSpecialist
+              ? 'bg-gradient-to-b from-amber-950/80 via-[#251846]/90 to-[#1C2F8A]/90 border-amber-400 ring-2 ring-amber-400 shadow-[0_0_15px_rgba(251,191,36,0.45)] scale-[1.02] text-white font-bold'
+              : 'bg-gradient-to-b from-cyan-950/70 to-[#1C2F8A]/90 border-cyan-400 ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.4)] scale-[1.02] text-white font-bold'
+            : isSpecialist
+            ? 'bg-[#101026] border-purple-900/60 hover:border-amber-400/60 hover:bg-purple-950/30 text-slate-200'
+            : 'bg-slate-900 border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 text-slate-200'
+        }`}
+      >
+        {/* Avatar */}
+        <div className="relative mb-0.5">
+          <div
+            className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-xs transition ${
+              isSelected
+                ? isSpecialist
+                  ? 'bg-amber-400 text-slate-950 border-2 border-amber-200 font-black shadow-[0_0_10px_rgba(251,191,36,0.6)]'
+                  : 'bg-cyan-500 text-slate-950 border-2 border-cyan-300 font-black shadow-[0_0_10px_rgba(34,211,238,0.6)]'
+                : isSpecialist
+                ? 'bg-gradient-to-br from-purple-900/90 to-amber-950/90 text-amber-300 border border-amber-500/40'
+                : 'bg-slate-800 text-slate-300 border border-slate-700'
+            }`}
+          >
+            {op.initials}
+          </div>
+
+          {isSelected && (
+            <div className={`absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full flex items-center justify-center font-bold shadow-md ${
+              isSpecialist ? 'bg-amber-400 text-slate-950' : 'bg-cyan-400 text-slate-950'
+            }`}>
+              <Check className="w-2.5 h-2.5 stroke-[3]" />
+            </div>
+          )}
+
+          {isSpecialist && !isSelected && (
+            <div
+              className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center font-bold text-[7px] shadow-sm"
+              title="Especialista / Suporte Técnico"
+            >
+              ★
+            </div>
+          )}
+        </div>
+
+        {/* Nome e Badge */}
+        <div className="w-full">
+          <div className={`font-bold text-xs leading-none mt-1 truncate max-w-full ${
+            isSelected
+              ? isSpecialist ? 'text-amber-200 font-extrabold' : 'text-cyan-200 font-extrabold'
+              : isSpecialist ? 'text-amber-100 font-semibold' : 'text-white'
+          }`}>
+            {op.name.split(' ').length > 1
+              ? `${op.name.split(' ')[0]} ${op.name.split(' ')[1][0]}.`
+              : op.name}
+          </div>
+          <div className="mt-1 flex items-center justify-center">
+            {isSpecialist ? (
+              <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold leading-tight border truncate max-w-full ${
+                isSelected
+                  ? 'bg-amber-400/20 text-amber-200 border-amber-400/40'
+                  : 'bg-purple-950/70 text-amber-300/90 border-amber-500/30'
+              }`}>
+                {op.badge || 'ESP'}
+              </span>
+            ) : (
+              <span className={`text-[10px] opacity-75 font-mono truncate leading-none ${
+                isSelected ? 'text-cyan-300 font-bold' : 'text-slate-400'
+              }`}>
+                {op.badge || op.role}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+    );
+  };
 
   return (
     <div className="w-full bg-[#0e131f] border border-slate-700/80 rounded-xl p-2.5 shadow-md shrink-0">
@@ -277,66 +414,42 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
           </p>
         </div>
       ) : (
-        <div className="w-full">
-          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5 sm:gap-2">
-            {filteredOperators.map((op: Operator) => {
-              const isSelected = selectedOperator === op.name;
+        <div className="w-full space-y-3">
+          {/* A) OPERADORES DA ETAPA */}
+          {operadoresEtapa.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shrink-0" />
+                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider font-mono">
+                  OPERADORES DA ETAPA
+                </span>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.2 rounded border border-slate-800">
+                  {operadoresEtapa.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5 sm:gap-2">
+                {operadoresEtapa.map((op) => renderCard(op, false))}
+              </div>
+            </div>
+          )}
 
-              return (
-                <button
-                  key={op.id}
-                  onClick={() => {
-                    playClick();
-                    onSelectOperator(op.name);
-                  }}
-                  className={`py-1 px-2 min-w-[70px] rounded-xl border text-center transition-all flex flex-col items-center justify-between kiosk-btn cursor-pointer ${
-                    isSelected
-                      ? 'bg-gradient-to-b from-cyan-950/70 to-[#1C2F8A]/90 border-cyan-400 ring-2 ring-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.4)] scale-[1.02] text-white font-bold'
-                      : 'bg-slate-900 border-slate-800 hover:border-cyan-500/50 hover:bg-slate-850 text-slate-200'
-                  }`}
-                >
-                  {/* Avatar do Operador */}
-                  <div className="relative mb-0.5">
-                    <div
-                      className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-xs transition ${
-                        isSelected
-                          ? 'bg-cyan-500 text-slate-950 border-2 border-cyan-300 font-black shadow-[0_0_10px_rgba(34,211,238,0.6)]'
-                          : op.isRoaming
-                          ? 'bg-blue-950 text-blue-300 border border-blue-800'
-                          : 'bg-slate-800 text-slate-300 border border-slate-700'
-                      }`}
-                    >
-                      {op.initials}
-                    </div>
-                    {isSelected && (
-                      <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-cyan-400 text-slate-950 flex items-center justify-center font-bold shadow-[0_0_8px_rgba(34,211,238,0.8)]">
-                        <Check className="w-2 h-2 stroke-[3]" />
-                      </div>
-                    )}
-                    {(op.especialista || op.isRoaming) && !isSelected && (
-                      <div
-                        className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 text-black flex items-center justify-center font-bold text-[6px]"
-                        title="Especialista"
-                      >
-                        ★
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="w-full">
-                    <div className={`font-bold text-xs leading-none mt-1 truncate max-w-full ${isSelected ? 'text-cyan-200 font-extrabold' : 'text-white'}`}>
-                      {op.name.split(' ').length > 1
-                        ? `${op.name.split(' ')[0]} ${op.name.split(' ')[1][0]}.`
-                        : op.name}
-                    </div>
-                    <div className={`text-[10px] opacity-75 font-mono truncate leading-none mt-0.5 ${isSelected ? 'text-cyan-300 font-bold' : 'text-slate-400'}`}>
-                      {op.badge || op.role}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
+          {/* B) ESPECIALISTAS / SUPORTE TÉCNICO */}
+          {especialistasApoio.length > 0 && (
+            <div className={operadoresEtapa.length > 0 ? "pt-2.5 border-t border-slate-800/80" : ""}>
+              <div className="flex items-center gap-1.5 mb-1.5">
+                <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider font-mono">
+                  ESPECIALISTAS / SUPORTE TÉCNICO
+                </span>
+                <span className="text-[10px] font-mono text-amber-400/90 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
+                  {especialistasApoio.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5 sm:gap-2">
+                {especialistasApoio.map((op) => renderCard(op, true))}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
