@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
 import { updateProductionOrder, obterOcorrenciasDaOp, cleanOpId, getLocalSocket, purgeLocalAppointmentsForOp } from '../services/mesStorage';
@@ -35,37 +35,73 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   onCancelStart,
   isLoading = false
 }) => {
-  // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
-  const routeData = getRouteForOp(order);
-  const steps = routeData.steps;
+  // 1. Inicialização segura de estados no topo absoluto (elimina ReferenceError / TDZ)
+  const [resetTimestamp, setResetTimestamp] = useState<number>(() => {
+    return (order as any)?.resetTimestamp || (order as any)?.resetAt || 0;
+  });
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [refugoInput, setRefugoInput] = useState<number>(0);
+  const [pausaAtiva, setPausaAtiva] = useState<IntervaloProgramado | null>(() => getPausaAtual());
+  const [showOccurrenceModal, setShowOccurrenceModal] = useState<boolean>(false);
+  const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
 
-  const evaluation = getRouteEvaluation(order, apontamentos, steps);
+  // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
+  const routeData = useMemo(() => {
+    try {
+      return getRouteForOp(order);
+    } catch {
+      return { steps: [] };
+    }
+  }, [order]);
+  const steps = routeData.steps || [];
+
+  const evaluation = useMemo(() => {
+    try {
+      return getRouteEvaluation(order, Array.isArray(apontamentos) ? apontamentos : [], steps);
+    } catch {
+      return null;
+    }
+  }, [order, apontamentos, steps]);
 
   const matchedStep = selectedSector ? findStepForSector(selectedSector, steps) : null;
   const totalPhysicalUnits = obterQuantidadeTotal(order);
-
-  // Controle de Ocorrências / Motivo de Atraso
-  const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
-  const [showCancelModal, setShowCancelModal] = useState(false);
   const ocorrencias = obterOcorrenciasDaOp(order);
 
   // Identifica se a OP e o Setor utilizam Apontamento em Lote Completo ou Peça a Peça (Unitário)
   const isBatch = isBatchTracking(order, selectedSector);
 
   // Encontra apontamentos ativos neste setor/etapa com tolerância a formatação de OP e reset imediato
-  const orderClean = cleanOpId(order.op_numero || order.numero || (order as any).id || '');
-  const activeInSector = apontamentos.filter(a => {
-    const aOpClean = cleanOpId(a.op_numero || (a as any).opNumero || '');
-    if (aOpClean !== orderClean) return false;
-    if (a.status !== 'EM_ANDAMENTO') return false;
-    const match = a.setor === selectedSector || (matchedStep && a.etapa_rota === matchedStep);
-    if (!match) return false;
-    if (resetTimestamp > 0) {
-      const aStart = new Date(a.horaInicio || a.hora_inicio || 0).getTime();
-      if (aStart <= resetTimestamp) return false;
+  const orderClean = cleanOpId(order?.op_numero || order?.numero || (order as any)?.id || '');
+  const activeInSector = useMemo(() => {
+    try {
+      if (!Array.isArray(apontamentos) || !orderClean) return [];
+      const effectiveReset = Math.max(
+        resetTimestamp,
+        (order as any)?.resetTimestamp || (order as any)?.resetAt || 0
+      );
+
+      return apontamentos.filter(a => {
+        try {
+          if (!a) return false;
+          const aOpClean = cleanOpId(a.op_numero || (a as any).opNumero || '');
+          if (aOpClean !== orderClean) return false;
+          if (a.status !== 'EM_ANDAMENTO') return false;
+          const match = a.setor === selectedSector || (matchedStep && a.etapa_rota === matchedStep);
+          if (!match) return false;
+          if (effectiveReset > 0) {
+            const aStart = new Date(a.horaInicio || a.hora_inicio || 0).getTime();
+            if (aStart <= effectiveReset) return false;
+          }
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    } catch (err) {
+      console.warn('[ProductionAction] Erro defensivo ao filtrar activeInSector:', err);
+      return [];
     }
-    return true;
-  });
+  }, [apontamentos, orderClean, selectedSector, matchedStep, resetTimestamp, (order as any)?.resetTimestamp, (order as any)?.resetAt]);
 
   // Identifica se há lote ativo no setor (ou unidade ativa do operador no modo unitário)
   const activeBatch = activeInSector.find(a => a.is_lote || a.unidade_numero === 0) || activeInSector[0];
@@ -244,10 +280,6 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   }, [order.op_numero, order.numero]);
 
   // Timer para operação em andamento com desconto automático de pausas
-  const [resetTimestamp, setResetTimestamp] = useState<number>(0);
-  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [refugoInput, setRefugoInput] = useState<number>(0);
-  const [pausaAtiva, setPausaAtiva] = useState<IntervaloProgramado | null>(getPausaAtual());
 
   useEffect(() => {
     const checkPause = () => {

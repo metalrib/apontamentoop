@@ -775,24 +775,27 @@ app.put(['/api/ordens/:numero/reset-etapa', '/api/ordens/:numero/estorno'], (req
 });
 
 // 6. Rota para Toggle de Laser CNC
-app.post('/api/ordens/:identificador/laser', (req, res) => {
-  const { identificador } = req.params;
-  const { requerLaser, requer_laser } = req.body;
-  const laserBool = Boolean(requerLaser !== undefined ? requerLaser : requer_laser);
-  const valor = laserBool ? 1 : 0;
-  const cleanId = String(identificador || '').replace(/^(\s*OP\s*)+/i, '').trim();
+function executarAtualizarLaser(identificadorRaw, requerLaserRaw) {
+  if (!identificadorRaw) {
+    throw new Error('Identificador da OP (numero/id/opNumero) é obrigatório');
+  }
+  const cleanId = String(identificadorRaw || '').replace(/^(\s*OP\s*)+/i, '').trim();
   const formatId = `OP ${cleanId}`;
+  const laserBool = Boolean(requerLaserRaw);
+  const valor = laserBool ? 1 : 0;
 
   // Busca ordem atual para atualizar etapas no SQLite
-  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(identificador, cleanId, formatId, cleanId);
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+    .get(identificadorRaw, cleanId, formatId, cleanId);
+
   let novasEtapas = null;
   if (opRow) {
     try {
       const etapasAtuais = JSON.parse(opRow.etapas || '[]');
       if (Array.isArray(etapasAtuais)) {
         if (laserBool) {
-          if (!etapasAtuais.some(e => String(e).toLowerCase().includes('laser'))) {
-            const corteIdx = etapasAtuais.findIndex(e => String(e).toLowerCase().includes('corte'));
+          if (!etapasAtuais.some(e => String(typeof e === 'string' ? e : (e?.nome || '')).toLowerCase().includes('laser'))) {
+            const corteIdx = etapasAtuais.findIndex(e => String(typeof e === 'string' ? e : (e?.nome || '')).toLowerCase().includes('corte'));
             if (corteIdx >= 0) {
               etapasAtuais.splice(corteIdx + 1, 0, 'Laser');
             } else {
@@ -800,14 +803,16 @@ app.post('/api/ordens/:identificador/laser', (req, res) => {
             }
           }
         } else {
-          const laserIdx = etapasAtuais.findIndex(e => String(e).toLowerCase().includes('laser'));
+          const laserIdx = etapasAtuais.findIndex(e => String(typeof e === 'string' ? e : (e?.nome || '')).toLowerCase().includes('laser'));
           if (laserIdx >= 0) {
             etapasAtuais.splice(laserIdx, 1);
           }
         }
         novasEtapas = JSON.stringify(etapasAtuais);
       }
-    } catch {}
+    } catch (errJson) {
+      console.warn('[executarAtualizarLaser] Erro ao parsear etapas:', errJson);
+    }
   }
 
   const stmt = db.prepare(`
@@ -815,34 +820,54 @@ app.post('/api/ordens/:identificador/laser', (req, res) => {
     SET requer_laser = @valor, requerLaser = @valor, etapas = COALESCE(@novasEtapas, etapas), atualizadoEm = @atualizadoEm
     WHERE id = @identificador OR id = @cleanId OR numero = @identificador OR numero = @formatId OR numero = @cleanId
   `);
+
   stmt.run({
     valor,
     novasEtapas,
     atualizadoEm: Date.now(),
-    identificador,
+    identificador: identificadorRaw,
     cleanId,
     formatId
   });
 
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
-  return res.json({ success: true, requerLaser: laserBool });
+  return { success: true, requerLaser: laserBool, numero: formatId };
+}
+
+// Endpoint oficial /api/ordens/update-laser
+app.post(['/api/ordens/update-laser', '/api/ordens/laser'], (req, res) => {
+  try {
+    const numero = req.body.numero || req.body.id || req.body.opNumero || req.body.op_numero;
+    const requerLaser = req.body.requerLaser !== undefined ? req.body.requerLaser : req.body.requer_laser;
+    if (!numero) {
+      return res.status(200).json({ success: false, error: 'Campo "numero" ou "id" obrigatório no corpo da requisição' });
+    }
+    const result = executarAtualizarLaser(numero, requerLaser);
+    return res.json(result);
+  } catch (err) {
+    console.error('[update-laser] Erro ao atualizar status do laser:', err);
+    return res.status(200).json({ success: false, error: err.message || 'Erro interno ao atualizar laser' });
+  }
 });
 
-app.put('/api/ordens/:identificador/laser', (req, res, next) => {
-  app._router.handle({ ...req, method: 'POST' }, res, next);
-});
-app.patch('/api/ordens/:identificador/laser', (req, res, next) => {
-  app._router.handle({ ...req, method: 'POST' }, res, next);
+app.post('/api/ordens/:identificador/laser', (req, res) => {
+  try {
+    const identificador = req.params.identificador || req.body.numero || req.body.id || req.body.opNumero;
+    const requerLaser = req.body.requerLaser !== undefined ? req.body.requerLaser : req.body.requer_laser;
+    const result = executarAtualizarLaser(identificador, requerLaser);
+    return res.json(result);
+  } catch (err) {
+    console.error('[/api/ordens/:identificador/laser] Erro ao atualizar status do laser:', err);
+    return res.status(200).json({ success: false, error: err.message || 'Erro interno ao atualizar laser' });
+  }
 });
 
-// Fallback de compatibilidade
-app.post('/api/ordens/update-laser', (req, res) => {
-  const { id, opNumero, requerLaser, requer_laser } = req.body;
-  const targetId = id || opNumero;
-  if (!targetId) return res.status(400).json({ error: 'ID ou opNumero obrigatório' });
-  req.params.identificador = targetId;
-  app._router.handle({ ...req, url: `/api/ordens/${encodeURIComponent(targetId)}/laser` }, res);
+app.put(['/api/ordens/:identificador/laser', '/api/ordens/update-laser'], (req, res, next) => {
+  app._router.handle({ ...req, method: 'POST' }, res, next);
+});
+app.patch(['/api/ordens/:identificador/laser', '/api/ordens/update-laser'], (req, res, next) => {
+  app._router.handle({ ...req, method: 'POST' }, res, next);
 });
 
 // 7. Rota de Apontamentos (Lote / Unitário - Iniciar e Finalizar Etapa)
