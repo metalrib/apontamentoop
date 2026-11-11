@@ -651,12 +651,13 @@ export async function fetchLocalColaboradores(): Promise<Operator[]> {
   if (typeof window === 'undefined') return [];
   try {
     const localUrl = getLocalServerUrl();
-    const res = await fetch(`${localUrl}/api/colaboradores`);
+    const res = await fetch(`${localUrl}/api/colaboradores`, { cache: 'no-store' });
     if (!res.ok) return [];
     const colabs = await res.json();
     if (Array.isArray(colabs) && colabs.length > 0) {
       console.log('[MES Storage] Colaboradores oficiais sincronizados do servidor:', colabs.length);
       saveOperators(colabs);
+      localStorage.setItem('MES_COLABORADORES_OFICIAIS', JSON.stringify(colabs));
       window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
       return colabs;
     }
@@ -685,6 +686,7 @@ export function initLocalSocketListeners(): void {
       console.log('[Socket.io] Evento colaboradores_atualizados recebido do backend:', colabs?.length);
       if (Array.isArray(colabs) && colabs.length > 0) {
         saveOperators(colabs);
+        localStorage.setItem('MES_COLABORADORES_OFICIAIS', JSON.stringify(colabs));
         window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
       } else {
         fetchLocalColaboradores();
@@ -771,7 +773,7 @@ try {
 export function fetchOperators(): Operator[] {
   if (typeof window === 'undefined') return [...OPERATORS];
   ensureInitialData();
-  const raw = localStorage.getItem(STORAGE_OPERATORS_KEY);
+  const raw = localStorage.getItem('MES_COLABORADORES_OFICIAIS') || localStorage.getItem(STORAGE_OPERATORS_KEY);
   if (!raw) return [...OPERATORS];
   try {
     const list: Operator[] = JSON.parse(raw);
@@ -982,6 +984,7 @@ export function saveOperators(operators: Operator[]): void {
     };
   });
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(cleaned));
+  localStorage.setItem('MES_COLABORADORES_OFICIAIS', JSON.stringify(cleaned));
   broadcastUpdate();
   window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
 }
@@ -1037,8 +1040,25 @@ export async function updateColaboradorFirebase(id: string, dados: Partial<Opera
   }
 
   localStorage.setItem(STORAGE_OPERATORS_KEY, JSON.stringify(current));
+  localStorage.setItem('MES_COLABORADORES_OFICIAIS', JSON.stringify(current));
   broadcastUpdate();
   window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
+
+  // Sincronização remota via HTTP PUT/POST com o servidor local
+  try {
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/colaboradores/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    }).catch(() => {
+      fetch(`${localUrl}/api/colaboradores`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).catch(() => {});
+    });
+  } catch {}
 }
 
 export function addOperator(newOp: Omit<Operator, 'id'> & { id?: string }): Operator {
@@ -1146,6 +1166,12 @@ export function deleteOperator(id: string): void {
   const current = fetchOperators();
   const filtered = current.filter(o => o.id !== id);
   saveOperators(filtered);
+  try {
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/colaboradores/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    }).catch(() => {});
+  } catch {}
 }
 
 export function resetOperatorsToDefault(): Operator[] {

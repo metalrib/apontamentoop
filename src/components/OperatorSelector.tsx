@@ -193,6 +193,14 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       const targetNorm = normPosto(targetSector);
       const postoAtivoNormalizado = targetSector.trim().toLowerCase();
 
+      const sanitizar = (txt: string) =>
+        (txt || '')
+          .toLowerCase()
+          .trim()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+      const targetSanitizado = sanitizar(targetSector);
+
       // Normalizar a etapa/posto selecionado antes do loop para comparação segura
       const postoAlvoSimplificado = (targetSector || '')
         .toLowerCase()
@@ -235,13 +243,13 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         }
 
         // 3. SETORES AUTORIZADOS DO COLABORADOR:
-        const colabSetores: string[] = Array.isArray(colab.setores)
-          ? colab.setores
-          : Array.isArray(colab.sectors)
-          ? colab.sectors
-          : colab.setor
-          ? [colab.setor]
-          : [];
+        const colabSetoresRaw: string[] = [
+          ...(Array.isArray(colab.setores) ? colab.setores : []),
+          ...(Array.isArray(colab.sectors) ? colab.sectors : []),
+          ...(colab.setor ? [colab.setor] : []),
+          ...(Array.isArray(colab.setoresPorTerminal?.[termKey]) ? colab.setoresPorTerminal[termKey] : [])
+        ];
+        const colabSetores = Array.from(new Set(colabSetoresRaw.map((s) => String(s || '').trim()).filter(Boolean)));
 
         // a) Se for Especialista / Suporte Técnico:
         if (isEsp) {
@@ -259,9 +267,11 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         return colabSetores.some((s: string) => {
           if (!s) return false;
           const sNorm = s.trim().toLowerCase();
+          const sSanitizado = sanitizar(s);
           const sSimplificado = normPosto(s);
           return (
             sNorm === postoAtivoNormalizado ||
+            sSanitizado === targetSanitizado ||
             sSimplificado === postoAlvoSimplificado ||
             sSimplificado === postoAtivoSimplificado ||
             sSimplificado === targetNorm ||

@@ -88,6 +88,8 @@ db.exec(`
     nome TEXT NOT NULL,
     badge TEXT,
     codigo TEXT,
+    cracha TEXT,
+    funcao TEXT,
     terminais TEXT,
     setores TEXT,
     especialista INTEGER DEFAULT 0,
@@ -97,6 +99,8 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_colaboradores_nome ON colaboradores(nome);
 `);
+try { db.exec("ALTER TABLE colaboradores ADD COLUMN cracha TEXT;"); } catch {}
+try { db.exec("ALTER TABLE colaboradores ADD COLUMN funcao TEXT;"); } catch {}
 
 // Tabela de Terminais e Setores para sincronização em tempo real entre PCP e Totens
 db.exec(`
@@ -166,7 +170,7 @@ const COLABORADORES_PADRAO = [
   { id: 'nalysson', nome: 'Nalysson', badge: 'GIR-04', codigo: 'GIR-04', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
 
   // TERMINAL 5
-  { id: 'victor', nome: 'Victor', badge: 'ROU-01', codigo: 'ROU-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'vitor', nome: 'Vitor', badge: 'ROU-01', codigo: 'ROU-01', cracha: 'ROU-01', funcao: 'Operador Router', terminais: ['T5'], setores: ['Router', 'Corte Alumínio', 'Preparação Vai Vem', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
   { id: 'cristiane', nome: 'Cristiane', badge: 'ELE-01', codigo: 'ELE-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
   { id: 'marcio', nome: 'Marcio', badge: 'ELE-02', codigo: 'ELE-02', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
   { id: 'gabriele', nome: 'Gabriele', badge: 'COR-01', codigo: 'COR-01', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
@@ -216,7 +220,7 @@ try {
     seedTx(COLABORADORES_PADRAO);
     console.log('[SQLite] Colaboradores oficiais inicializados no banco:', COLABORADORES_PADRAO.length);
   } else {
-    // Saneamento compulsório de Eliel, Elionai e Leonardo Henrique no banco
+    // Saneamento compulsório de colaboradores no banco
     const sanitizarStmt = db.prepare(`
       UPDATE colaboradores 
       SET setores = @setores, atualizadoEm = @atualizadoEm
@@ -225,6 +229,30 @@ try {
     sanitizarStmt.run({ id: 'eliel', setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
     sanitizarStmt.run({ id: 'elionai', setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
     sanitizarStmt.run({ id: 'leonardo_h', setores: JSON.stringify(['Preparação de Folha']), atualizadoEm: Date.now() });
+
+    // Migração de Victor para Vitor com permissão de Router no Terminal 5
+    const victorRow = db.prepare("SELECT * FROM colaboradores WHERE id = 'victor' OR LOWER(nome) = 'victor'").get();
+    if (victorRow) {
+      let secs = [];
+      try { secs = JSON.parse(victorRow.setores || '[]'); } catch {}
+      if (!secs.includes('Router')) secs.unshift('Router');
+      db.prepare(`
+        UPDATE colaboradores 
+        SET id = 'vitor', nome = 'Vitor', badge = 'ROU-01', codigo = 'ROU-01', cracha = 'ROU-01', funcao = 'Operador Router', setores = ?, atualizadoEm = ?
+        WHERE id = ?
+      `).run(JSON.stringify(secs), Date.now(), victorRow.id);
+      console.log('[SQLite] Colaborador Victor atualizado para Vitor com setor Router');
+    }
+
+    const vitorRow = db.prepare("SELECT * FROM colaboradores WHERE id = 'vitor' OR LOWER(nome) = 'vitor'").get();
+    if (vitorRow) {
+      let secs = [];
+      try { secs = JSON.parse(vitorRow.setores || '[]'); } catch {}
+      if (!secs.includes('Router')) {
+        secs.unshift('Router');
+        db.prepare("UPDATE colaboradores SET setores = ?, atualizadoEm = ? WHERE id = 'vitor'").run(JSON.stringify(secs), Date.now());
+      }
+    }
   }
 } catch (e) {
   console.warn('[SQLite] Erro ao inicializar colaboradores padrão:', e);
@@ -411,19 +439,26 @@ function obterTodasOrdens() {
 
 // Helper para formatar colaboradores
 function obterColaboradores() {
-  const rows = db.prepare('SELECT * FROM colaboradores').all();
+  const rows = db.prepare('SELECT * FROM colaboradores WHERE ativo = 1 OR ativo IS NULL').all();
   if (rows.length === 0) {
     return COLABORADORES_PADRAO.map(c => {
       const p = (c.nome || '').trim().split(/\s+/).filter(Boolean);
       const inits = p.length === 1 ? p[0].slice(0, 2).toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase();
-      return { ...c, initials: inits, name: c.nome, sectors: c.setores };
+      return {
+        ...c,
+        initials: inits,
+        name: c.nome,
+        cracha: c.badge || c.codigo || '',
+        funcao: c.funcao || (c.especialista ? 'Especialista' : 'Operador'),
+        sectors: c.setores
+      };
     });
   }
   return rows.map(r => {
     let extra = {};
     try { extra = JSON.parse(r.dados || '{}'); } catch {}
-    const parsedTerminais = JSON.parse(r.terminais || '[]');
-    const parsedSetores = JSON.parse(r.setores || '[]');
+    const parsedTerminais = typeof r.terminais === 'string' ? JSON.parse(r.terminais || '[]') : (r.terminais || []);
+    const parsedSetores = typeof r.setores === 'string' ? JSON.parse(r.setores || '[]') : (r.setores || []);
     const partesNome = (r.nome || '').trim().split(/\s+/).filter(Boolean);
     const initials = (extra.initials && String(extra.initials).trim())
       ? String(extra.initials).trim().toUpperCase()
@@ -432,19 +467,28 @@ function obterColaboradores() {
         : partesNome.length >= 2
         ? (partesNome[0][0] + partesNome[partesNome.length - 1][0]).toUpperCase()
         : 'OP');
+    const badgeVal = r.badge || r.codigo || r.cracha || extra.badge || '';
+    const funcaoVal = r.funcao || extra.funcao || extra.role || (r.especialista ? 'Especialista' : 'Operador');
+
     return {
       ...extra,
       id: r.id,
       nome: r.nome,
       name: r.nome,
       initials,
-      badge: r.badge,
-      codigo: r.codigo,
+      badge: badgeVal,
+      codigo: badgeVal,
+      cracha: badgeVal,
+      funcao: funcaoVal,
+      role: funcaoVal,
       terminais: parsedTerminais,
       setores: parsedSetores,
       sectors: parsedSetores,
+      setoresPorTerminal: extra.setoresPorTerminal || undefined,
       especialista: Boolean(r.especialista),
-      ativo: Boolean(r.ativo)
+      especialistaVolante: Boolean(r.especialista),
+      isRoaming: Boolean(r.especialista || extra.isRoaming),
+      ativo: Boolean(r.ativo !== 0)
     };
   });
 }
@@ -489,46 +533,133 @@ app.get('/api/colaboradores', (req, res) => {
 });
 
 app.post('/api/colaboradores', (req, res) => {
-  const lista = Array.isArray(req.body) ? req.body : (Array.isArray(req.body.colaboradores) ? req.body.colaboradores : [req.body]);
-  const stmt = db.prepare(`
-    INSERT INTO colaboradores (id, nome, badge, codigo, terminais, setores, especialista, ativo, dados, atualizadoEm)
-    VALUES (@id, @nome, @badge, @codigo, @terminais, @setores, @especialista, @ativo, @dados, @atualizadoEm)
-    ON CONFLICT(id) DO UPDATE SET
-      nome = excluded.nome,
-      badge = excluded.badge,
-      codigo = excluded.codigo,
-      terminais = excluded.terminais,
-      setores = excluded.setores,
-      especialista = excluded.especialista,
-      ativo = excluded.ativo,
-      dados = excluded.dados,
-      atualizadoEm = excluded.atualizadoEm
-  `);
+  try {
+    console.log('[API] Colaborador atualizado e emitido via socket:', req.body);
+    const lista = Array.isArray(req.body)
+      ? req.body
+      : (Array.isArray(req.body?.colaboradores) ? req.body.colaboradores : [req.body]);
 
-  const tx = db.transaction((items) => {
-    for (const item of items) {
-      if (!item || (!item.id && !item.nome && !item.name)) continue;
-      const id = String(item.id || item.nome || item.name).toLowerCase().replace(/\s+/g, '_');
-      const nome = item.nome || item.name || '';
-      stmt.run({
-        id,
-        nome,
-        badge: item.badge || item.codigo || '',
-        codigo: item.codigo || item.badge || '',
-        terminais: JSON.stringify(item.terminais || []),
-        setores: JSON.stringify(item.setores || item.sectors || []),
-        especialista: (item.especialista || item.isRoaming || item.especialistaVolante) ? 1 : 0,
-        ativo: item.ativo !== false ? 1 : 0,
-        dados: JSON.stringify(item),
-        atualizadoEm: Date.now()
-      });
+    const stmt = db.prepare(`
+      INSERT INTO colaboradores (id, nome, badge, codigo, cracha, funcao, terminais, setores, especialista, ativo, dados, atualizadoEm)
+      VALUES (@id, @nome, @badge, @codigo, @cracha, @funcao, @terminais, @setores, @especialista, @ativo, @dados, @atualizadoEm)
+      ON CONFLICT(id) DO UPDATE SET
+        nome = excluded.nome,
+        badge = excluded.badge,
+        codigo = excluded.codigo,
+        cracha = excluded.cracha,
+        funcao = excluded.funcao,
+        terminais = excluded.terminais,
+        setores = excluded.setores,
+        especialista = excluded.especialista,
+        ativo = excluded.ativo,
+        dados = excluded.dados,
+        atualizadoEm = excluded.atualizadoEm
+    `);
+
+    const now = Date.now();
+    const tx = db.transaction((items) => {
+      for (const item of items) {
+        if (!item || (!item.id && !item.nome && !item.name)) continue;
+        const nome = String(item.nome || item.name || '').trim();
+        const id = String(item.id || nome).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '_').substring(0, 30);
+        const cracha = String(item.cracha || item.badge || item.codigo || '').trim();
+        const funcao = String(item.funcao || item.role || '').trim();
+        const terminaisJson = JSON.stringify(Array.isArray(item.terminais) ? item.terminais : []);
+        const setoresJson = JSON.stringify(Array.isArray(item.setores) ? item.setores : (Array.isArray(item.sectors) ? item.sectors : []));
+        const especialista = (item.especialista || item.isRoaming || item.especialistaVolante) ? 1 : 0;
+        const ativo = item.ativo !== false ? 1 : 0;
+
+        stmt.run({
+          id,
+          nome,
+          badge: cracha,
+          codigo: cracha,
+          cracha,
+          funcao,
+          terminais: terminaisJson,
+          setores: setoresJson,
+          especialista,
+          ativo,
+          dados: JSON.stringify(item),
+          atualizadoEm: now
+        });
+      }
+    });
+
+    tx(lista);
+    const todosColabs = obterColaboradores();
+    io.emit('colaboradores_atualizados', todosColabs);
+    res.json({ success: true, colaboradores: todosColabs, count: todosColabs.length });
+  } catch (err) {
+    console.error('[API] Erro ao cadastrar colaborador:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/colaboradores/:id', (req, res) => {
+  try {
+    const paramId = req.params.id;
+    const body = req.body || {};
+    console.log('[API] Colaborador atualizado e emitido via socket:', body);
+
+    const nome = String(body.nome || body.name || paramId).trim();
+    const targetId = String(body.id || paramId).trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '_').substring(0, 30);
+    const cracha = String(body.cracha || body.badge || body.codigo || '').trim();
+    const funcao = String(body.funcao || body.role || '').trim();
+    const terminaisJson = JSON.stringify(Array.isArray(body.terminais) ? body.terminais : []);
+    const setoresJson = JSON.stringify(Array.isArray(body.setores) ? body.setores : (Array.isArray(body.sectors) ? body.sectors : []));
+    const especialista = (body.especialista || body.isRoaming || body.especialistaVolante) ? 1 : 0;
+    const ativo = body.ativo !== false ? 1 : 0;
+    const dados = JSON.stringify(body);
+    const now = Date.now();
+
+    const existing = db.prepare('SELECT id FROM colaboradores WHERE id = ? OR LOWER(nome) = LOWER(?)').get(paramId, paramId);
+    if (existing) {
+      db.prepare(`
+        UPDATE colaboradores 
+        SET id = ?, nome = ?, badge = ?, codigo = ?, cracha = ?, funcao = ?, terminais = ?, setores = ?, especialista = ?, ativo = ?, dados = ?, atualizadoEm = ?
+        WHERE id = ?
+      `).run(targetId, nome, cracha, cracha, cracha, funcao, terminaisJson, setoresJson, especialista, ativo, dados, now, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO colaboradores (id, nome, badge, codigo, cracha, funcao, terminais, setores, especialista, ativo, dados, atualizadoEm)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          nome = excluded.nome,
+          badge = excluded.badge,
+          codigo = excluded.codigo,
+          cracha = excluded.cracha,
+          funcao = excluded.funcao,
+          terminais = excluded.terminais,
+          setores = excluded.setores,
+          especialista = excluded.especialista,
+          ativo = excluded.ativo,
+          dados = excluded.dados,
+          atualizadoEm = excluded.atualizadoEm
+      `).run(targetId, nome, cracha, cracha, cracha, funcao, terminaisJson, setoresJson, especialista, ativo, dados, now);
     }
-  });
 
-  tx(lista);
-  const todos = obterColaboradores();
-  io.emit('colaboradores_atualizados', todos);
-  res.json({ success: true, count: todos.length });
+    const todosColabs = obterColaboradores();
+    io.emit('colaboradores_atualizados', todosColabs);
+    res.json({ success: true, colaboradores: todosColabs });
+  } catch (err) {
+    console.error('[API] Erro ao atualizar colaborador:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/colaboradores/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+    console.log('[API] Colaborador removido e emitido via socket:', id);
+    db.prepare('DELETE FROM colaboradores WHERE id = ? OR LOWER(nome) = LOWER(?)').run(id, id);
+    const todosColabs = obterColaboradores();
+    io.emit('colaboradores_atualizados', todosColabs);
+    res.json({ success: true, colaboradores: todosColabs });
+  } catch (err) {
+    console.error('[API] Erro ao excluir colaborador:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 function obterTerminais() {

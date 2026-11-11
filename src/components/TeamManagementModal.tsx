@@ -9,6 +9,7 @@ import {
   resetOperatorsToDefault,
   updateColaboradorFirebase,
   fetchTerminalsConfig,
+  getLocalServerUrl,
   addSectorToTerminal,
   addSectorToTerminalAndSync,
   removeSectorFromTerminal,
@@ -574,8 +575,29 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         ativo: true
       };
 
-      // Atualiza estado e emite broadcast para totens
-      await updateColaboradorFirebase(targetId, payload);
+      // Requisição HTTP real ao backend para persistência garantida no SQLite
+      const localUrl = getLocalServerUrl();
+      const endpoint = editingId
+        ? `${localUrl}/api/colaboradores/${encodeURIComponent(editingId)}`
+        : `${localUrl}/api/colaboradores`;
+      const method = editingId ? 'PUT' : 'POST';
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) {
+        throw new Error(`Falha no servidor ao salvar colaborador (Status HTTP ${res.status})`);
+      }
+
+      const resData = await res.json();
+      if (resData.colaboradores && Array.isArray(resData.colaboradores)) {
+        saveOperators(resData.colaboradores);
+      } else {
+        await updateColaboradorFirebase(targetId, payload);
+      }
 
       playSuccessStart();
       showNotification(`Colaborador "${payload.nome}" salvo com sucesso!`);
@@ -590,12 +612,30 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     }
   };
 
-  // Exclusão de Operador com Modal In-App
+  // Exclusão de Operador com Modal In-App e sincronização HTTP com backend
   const confirmDeleteAction = async () => {
     if (!operatorToDelete) return;
     playClick();
     const id = operatorToDelete.id;
-    deleteOperator(id);
+    try {
+      const localUrl = getLocalServerUrl();
+      const res = await fetch(`${localUrl}/api/colaboradores/${encodeURIComponent(id)}`, {
+        method: 'DELETE'
+      });
+      if (res.ok) {
+        const resData = await res.json();
+        if (resData.colaboradores && Array.isArray(resData.colaboradores)) {
+          saveOperators(resData.colaboradores);
+        } else {
+          deleteOperator(id);
+        }
+      } else {
+        deleteOperator(id);
+      }
+    } catch {
+      deleteOperator(id);
+    }
+
     loadData();
     if (editingId === id) {
       resetForm();

@@ -42,7 +42,7 @@ export const colaboradores: ColaboradorRaw[] = [
   { id: 'nalysson', nome: 'Nalysson', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
 
   // TERMINAL 5
-  { id: 'victor', nome: 'Victor', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
+  { id: 'vitor', nome: 'Vitor', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
   { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
@@ -83,6 +83,7 @@ export const BADGES_MAP: Record<string, string> = {
   vinicius: 'GIR-03',
   nalysson: 'GIR-04',
   victor: 'ROU-01',
+  vitor: 'ROU-01',
   cristiane: 'ELE-01',
   marcio: 'ELE-02',
   gabriele: 'COR-01',
