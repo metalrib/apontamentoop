@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Operator, TerminalConfig, ProductionOrder } from '../types/mes';
-import { fetchOperators, subscribeToMesUpdates } from '../services/mesStorage';
+import { fetchOperators, subscribeToMesUpdates, getLocalSocket } from '../services/mesStorage';
 import { Check, User } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
@@ -43,8 +43,25 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     window.addEventListener('focus', handleLocalUpdate);
     document.addEventListener('visibilitychange', handleLocalUpdate);
 
+    let unsubSocket: (() => void) | undefined;
+    try {
+      const socket = getLocalSocket();
+      const onColabsUpdate = (novosColabs: any) => {
+        if (Array.isArray(novosColabs) && novosColabs.length > 0) {
+          setOperators(novosColabs);
+        } else {
+          loadOps();
+        }
+      };
+      socket.on('colaboradores_atualizados', onColabsUpdate);
+      unsubSocket = () => {
+        socket.off('colaboradores_atualizados', onColabsUpdate);
+      };
+    } catch {}
+
     return () => {
       unsubStorage();
+      if (unsubSocket) unsubSocket();
       window.removeEventListener('storage', handleLocalUpdate);
       window.removeEventListener('metalrib_data_updated', handleLocalUpdate);
       window.removeEventListener('metalrib_operators_updated', handleLocalUpdate);
@@ -53,111 +70,66 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     };
   }, [loadOps]);
 
-  // Função auxiliar para verificar exclusividade de tags específicas de setor
-  const isTagExclusivaDeOutroPosto = (badge: string, targetSector: string, role?: string): boolean => {
-    if (!targetSector) return false;
-    const b = (badge || '').trim().toUpperCase();
-    const r = (role || '').trim().toUpperCase();
-    const ts = targetSector.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Normalização padronizada do posto (singular/plural)
+  const normPosto = (str: string) =>
+    (str || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[-_\s]+/g, ' ')
+      .replace(/folha$/, 'folhas');
 
-    // DOB-xx ou cargo exclusivo de Dobra
-    if ((b.startsWith('DOB') || r.includes('DOBRA')) && !ts.includes('dobra')) {
-      return true;
-    }
-    // CORTE-xx ou cargo exclusivo de Corte
-    if ((b.startsWith('CORTE') || r.includes('CORTE')) && (!ts.includes('corte') || ts.includes('aluminio') || ts.includes('trilho'))) {
-      return true;
-    }
-    // LASER-xx ou cargo exclusivo de Laser
-    if ((b.startsWith('LASER') || r.includes('LASER')) && !ts.includes('laser')) {
-      return true;
-    }
-    // ROU-xx ou cargo de Router
-    if ((b.startsWith('ROU') || r.includes('ROUTER')) && !ts.includes('router')) {
-      return true;
-    }
-    // SOL-xx ou cargo de Solda
-    if ((b.startsWith('SOL') || r.includes('SOLDA')) && !ts.includes('solda')) {
-      return true;
-    }
-    return false;
-  };
+  // Função de match exato com suporte a normalização Folha/Folhas
+  const matchPosto = (postoColab: string, postoAtivo: string): boolean => {
+    if (!postoColab || !postoAtivo) return false;
+    const a = normPosto(postoColab);
+    const b = normPosto(postoAtivo);
+    if (a === b) return true;
+    if (a === 'todos') return true;
 
-  // Função auxiliar para verificar compatibilidade entre o setor cadastrado e o posto selecionado
-  const matchSectorToTarget = (colabSector: string, targetSector: string): boolean => {
-    if (!colabSector || !targetSector) return false;
-    const cs = colabSector.trim();
-    if (cs.toUpperCase() === 'TODOS') return true;
-
-    const cNorm = cs.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const tNorm = targetSector.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-
-    if (cNorm === tNorm) return true;
-
-    // Regras específicas de postos da Metalrib
-    if (tNorm.includes('corte') && !tNorm.includes('aluminio') && !tNorm.includes('trilho')) {
-      return cNorm.includes('corte') && !cNorm.includes('aluminio') && !cNorm.includes('trilho');
+    // Regras de correspondência industrial específicas
+    if (b.includes('corte') && !b.includes('aluminio') && !b.includes('trilho')) {
+      return a.includes('corte') && !a.includes('aluminio') && !a.includes('trilho');
     }
-    if (tNorm.includes('corte') && tNorm.includes('aluminio')) {
-      return cNorm.includes('corte') && cNorm.includes('aluminio');
+    if (b.includes('corte') && b.includes('aluminio')) {
+      return a.includes('corte') && a.includes('aluminio');
     }
-    if (tNorm.includes('corte') && tNorm.includes('trilho')) {
-      return cNorm.includes('trilho');
+    if (b.includes('corte') && b.includes('trilho')) {
+      return a.includes('trilho');
     }
-    if (tNorm.includes('dobra')) {
-      return cNorm.includes('dobra');
+    if (b.includes('dobra')) {
+      return a.includes('dobra');
     }
-    if (tNorm.includes('laser')) {
-      return cNorm.includes('laser');
+    if (b.includes('laser')) {
+      return a.includes('laser');
     }
-    if (tNorm.includes('router')) {
-      return cNorm.includes('router');
+    if (b.includes('preparacao') && b.includes('folha')) {
+      return a.includes('preparacao') && a.includes('folha');
     }
-    if (tNorm.includes('solda')) {
-      return cNorm.includes('solda');
+    if (b.includes('preparacao') && b.includes('batente')) {
+      return a.includes('preparacao') && a.includes('batente');
     }
-    if (tNorm.includes('preparacao') && tNorm.includes('folha')) {
-      return cNorm.includes('preparacao') && cNorm.includes('folha');
+    if (b.includes('preparacao') && b.includes('vai vem')) {
+      return a.includes('vai vem') && (a.includes('preparacao') || a.includes('pvv'));
     }
-    if (tNorm.includes('preparacao') && tNorm.includes('batente')) {
-      return cNorm.includes('preparacao') && cNorm.includes('batente');
+    if (b.includes('inje') && b.includes('batente')) {
+      return a.includes('batente') && (a.includes('inje') || a.includes('finalizacao'));
     }
-    if (tNorm.includes('preparacao') && tNorm.includes('vai vem')) {
-      return cNorm.includes('vai vem') && (cNorm.includes('preparacao') || cNorm.includes('pvv'));
+    if (b.includes('inje')) {
+      return a.includes('inje') && !a.includes('batente');
     }
-    if (tNorm.includes('inje') && tNorm.includes('batente')) {
-      return cNorm.includes('batente') && (cNorm.includes('inje') || cNorm.includes('finalizacao'));
-    }
-    if (tNorm.includes('inje')) {
-      return cNorm.includes('inje') && !cNorm.includes('batente');
-    }
-    if (tNorm.includes('gaxeta')) {
-      return cNorm.includes('gaxeta');
-    }
-    if (tNorm.includes('girat')) {
-      return cNorm.includes('girat');
-    }
-    if (tNorm.includes('correr')) {
-      return cNorm.includes('correr');
-    }
-    if (tNorm.includes('vai vem')) {
-      return cNorm.includes('vai vem');
-    }
-    if (tNorm.includes('office')) {
-      return cNorm.includes('office');
-    }
-    if (tNorm.includes('emenda')) {
-      return cNorm.includes('emenda');
-    }
-    if (tNorm.includes('estante')) {
-      return cNorm.includes('estante');
-    }
-    if (tNorm.includes('cortina')) {
-      return cNorm.includes('cortina');
-    }
-    if (tNorm.includes('eletrica')) {
-      return cNorm.includes('eletrica');
-    }
+    if (b.includes('gaxeta')) return a.includes('gaxeta');
+    if (b.includes('girat')) return a.includes('girat');
+    if (b.includes('correr')) return a.includes('correr');
+    if (b.includes('vai vem')) return a.includes('vai vem');
+    if (b.includes('office')) return a.includes('office');
+    if (b.includes('emenda')) return a.includes('emenda');
+    if (b.includes('estante')) return a.includes('estante');
+    if (b.includes('cortina')) return a.includes('cortina');
+    if (b.includes('eletrica')) return a.includes('eletrica');
+    if (b.includes('router')) return a.includes('router');
+    if (b.includes('solda')) return a.includes('solda');
 
     return false;
   };
@@ -171,26 +143,36 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
 
     const termId = currentTerminal?.id || 1;
     const termKey = `T${termId}`;
+    const targetSector = selectedSector.trim();
+    const targetNorm = normPosto(targetSector);
 
     return operators.filter((colab: Operator) => {
       // 1. Status ativo
       if (colab.ativo === false) return false;
 
-      // 2. Terminal ativo (ex: 'T1' ou 1)
+      // 2. Terminal ativo (ex: 'T1' ou 1) ou especialista roaming
       const colabTerminais = Array.isArray(colab.terminais) ? colab.terminais : [];
       const hasTerminal = colabTerminais.some(
         (t) => String(t).toUpperCase().trim() === termKey || String(t).replace(/[^\d]/g, '') === String(termId)
       );
-      if (!hasTerminal) return false;
 
-      // 3. Regra de exclusão por tag/código exclusivo de outro setor (ex: DOB-02 quando o posto é Corte)
-      const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
-      const role = (colab.role || (colab as any).funcao || (colab as any).cargo || '').trim().toUpperCase();
-      if (isTagExclusivaDeOutroPosto(badge, selectedSector, role)) {
-        return false;
+      const isEspecialista = Boolean(
+        colab.especialista ||
+        (colab as any).isEspecialista ||
+        (colab as any).isCuringa ||
+        colab.isRoaming ||
+        colab.especialistaVolante
+      );
+
+      // Se não pertence ao terminal e não é especialista volante, descarta
+      if (!hasTerminal && !isEspecialista) return false;
+
+      // a) Especialista / Curinga tem acesso livre
+      if (isEspecialista) {
+        return true;
       }
 
-      // 4. Coleta todos os setores do colaborador
+      // 3. Coleta todos os setores autorizados do colaborador
       const colabSetores: string[] = [
         ...(Array.isArray(colab.setores) ? colab.setores : []),
         ...(Array.isArray(colab.sectors) ? colab.sectors : []),
@@ -199,16 +181,38 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         ...(colab.setoresPorTerminal?.[termKey] || [])
       ];
 
-      const hasDirectSector = colabSetores.some((s) => matchSectorToTarget(s, selectedSector));
-
-      // Especialista só é exibido se estiver explicitamente habilitado para o posto ou tiver 'TODOS'
-      const isEspecialista = Boolean(colab.especialista || colab.isRoaming || colab.especialistaVolante);
-      if (isEspecialista) {
-        return hasDirectSector || colabSetores.some((s) => (s || '').toUpperCase().trim() === 'TODOS');
+      // b) Tenham o posto selecionado ativo em seus setores autorizados
+      const hasDirectSector = colabSetores.some((s) => matchPosto(s, targetSector));
+      if (hasDirectSector) {
+        // Se o posto selecionado for Corte da guilhotina, não exibir operadores de Dobra sem código/permissão de corte
+        const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+        if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho')) {
+          if (badge.startsWith('DOB')) {
+            return false;
+          }
+        }
+        return true;
       }
 
-      // Operador comum: deve estar habilitado para o posto
-      return hasDirectSector;
+      // c) Tenham o código/badge correspondente ao posto
+      const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+      if (targetNorm.includes('dobra') && badge.startsWith('DOB')) {
+        return true;
+      }
+      if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho') && badge.startsWith('CORTE')) {
+        return true;
+      }
+      if (targetNorm.includes('laser') && badge.startsWith('LASER')) {
+        return true;
+      }
+      if (targetNorm.includes('router') && badge.startsWith('ROU')) {
+        return true;
+      }
+      if (targetNorm.includes('solda') && badge.startsWith('SOL')) {
+        return true;
+      }
+
+      return false;
     });
   }, [operators, selectedSector, currentTerminal?.id]);
 

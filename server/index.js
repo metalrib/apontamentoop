@@ -74,6 +74,23 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_ocorrencias_op ON ocorrencias(op_numero);
 `);
 
+// Tabela de Colaboradores para sincronização entre terminais e web
+db.exec(`
+  CREATE TABLE IF NOT EXISTS colaboradores (
+    id TEXT PRIMARY KEY,
+    nome TEXT NOT NULL,
+    badge TEXT,
+    codigo TEXT,
+    terminais TEXT,
+    setores TEXT,
+    especialista INTEGER DEFAULT 0,
+    ativo INTEGER DEFAULT 1,
+    dados TEXT,
+    atualizadoEm INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_colaboradores_nome ON colaboradores(nome);
+`);
+
 // Limpeza preventiva de duplicações e padronização de IDs
 try {
   db.exec(`
@@ -104,9 +121,109 @@ function obterTodasOrdens() {
 
 // Rotas da API REST
 
+// Helper para formatar colaboradores
+function obterColaboradores() {
+  const rows = db.prepare('SELECT * FROM colaboradores').all();
+  if (rows.length === 0) return [];
+  return rows.map(r => {
+    let extra = {};
+    try { extra = JSON.parse(r.dados || '{}'); } catch {}
+    return {
+      ...extra,
+      id: r.id,
+      nome: r.nome,
+      name: r.nome,
+      badge: r.badge,
+      codigo: r.codigo,
+      terminais: JSON.parse(r.terminais || '[]'),
+      setores: JSON.parse(r.setores || '[]'),
+      sectors: JSON.parse(r.setores || '[]'),
+      especialista: Boolean(r.especialista),
+      ativo: Boolean(r.ativo)
+    };
+  });
+}
+
 // 1. Listagem de ordens
 app.get('/api/ordens', (req, res) => {
   res.json(obterTodasOrdens());
+});
+
+// 1.1 Status e cronômetro em tempo real de uma OP
+app.get('/api/ordens/:identificador/status', (req, res) => {
+  const { identificador } = req.params;
+  const cleanId = String(identificador || '').replace(/^(\s*OP\s*)+/i, '').trim();
+  const formatId = `OP ${cleanId}`;
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(identificador, cleanId, formatId, cleanId);
+  if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+  const apts = db.prepare(`
+    SELECT * FROM apontamentos 
+    WHERE op_numero = ? OR op_numero = ? OR op_numero = ?
+    ORDER BY criadoEm DESC
+  `).all(identificador, cleanId, formatId);
+
+  res.json({
+    id: opRow.id,
+    numero: opRow.numero,
+    status: opRow.status,
+    etapas: JSON.parse(opRow.etapas || '[]'),
+    requerLaser: Boolean(opRow.requerLaser || opRow.requer_laser),
+    requer_laser: Boolean(opRow.requerLaser || opRow.requer_laser),
+    quantidadeFisica: opRow.quantidadeFisica,
+    atualizadoEm: opRow.atualizadoEm,
+    apontamentos: apts,
+    serverTime: new Date().toISOString(),
+    serverTimestamp: Date.now()
+  });
+});
+
+// 1.2 Gestão e Sincronização de Colaboradores
+app.get('/api/colaboradores', (req, res) => {
+  res.json(obterColaboradores());
+});
+
+app.post('/api/colaboradores', (req, res) => {
+  const lista = Array.isArray(req.body) ? req.body : (Array.isArray(req.body.colaboradores) ? req.body.colaboradores : [req.body]);
+  const stmt = db.prepare(`
+    INSERT INTO colaboradores (id, nome, badge, codigo, terminais, setores, especialista, ativo, dados, atualizadoEm)
+    VALUES (@id, @nome, @badge, @codigo, @terminais, @setores, @especialista, @ativo, @dados, @atualizadoEm)
+    ON CONFLICT(id) DO UPDATE SET
+      nome = excluded.nome,
+      badge = excluded.badge,
+      codigo = excluded.codigo,
+      terminais = excluded.terminais,
+      setores = excluded.setores,
+      especialista = excluded.especialista,
+      ativo = excluded.ativo,
+      dados = excluded.dados,
+      atualizadoEm = excluded.atualizadoEm
+  `);
+
+  const tx = db.transaction((items) => {
+    for (const item of items) {
+      if (!item || (!item.id && !item.nome && !item.name)) continue;
+      const id = String(item.id || item.nome || item.name).toLowerCase().replace(/\s+/g, '_');
+      const nome = item.nome || item.name || '';
+      stmt.run({
+        id,
+        nome,
+        badge: item.badge || item.codigo || '',
+        codigo: item.codigo || item.badge || '',
+        terminais: JSON.stringify(item.terminais || []),
+        setores: JSON.stringify(item.setores || item.sectors || []),
+        especialista: (item.especialista || item.isRoaming || item.especialistaVolante) ? 1 : 0,
+        ativo: item.ativo !== false ? 1 : 0,
+        dados: JSON.stringify(item),
+        atualizadoEm: Date.now()
+      });
+    }
+  });
+
+  tx(lista);
+  const todos = obterColaboradores();
+  io.emit('colaboradores_atualizados', todos);
+  res.json({ success: true, count: todos.length });
 });
 
 // 2. Limpeza de duplicadas
@@ -404,6 +521,19 @@ app.post('/api/apontamentos', (req, res) => {
   const cleanOp = String(apt.op_numero || apt.op || '').replace(/^(\s*OP\s*)+/i, '').trim();
   const formatOp = `OP ${cleanOp}`;
 
+  const nowIso = new Date().toISOString();
+  const nowMs = Date.now();
+  const isFinalizado = apt.status === 'FINALIZADO';
+  const horaInicio = apt.hora_inicio || apt.horaInicio || nowIso;
+  const horaFim = isFinalizado ? (apt.hora_fim || apt.horaFim || nowIso) : null;
+  let duracaoMinutos = Number(apt.duracao_minutos || apt.duracao || 0);
+  let duracaoMs = Number(apt.duracaoMs || 0);
+
+  if (isFinalizado && (!duracaoMs || duracaoMs <= 0) && horaInicio && horaFim) {
+    duracaoMs = Math.max(0, new Date(horaFim).getTime() - new Date(horaInicio).getTime());
+    duracaoMinutos = Math.max(0.1, Number((duracaoMs / 60000).toFixed(1)));
+  }
+
   const stmt = db.prepare(`
     INSERT INTO apontamentos (
       id, op_numero, unidade_numero, unidade, modo, setor, setorFisico, etapa_rota,
@@ -439,21 +569,60 @@ app.post('/api/apontamentos', (req, res) => {
     terminal: apt.terminal || `T${apt.terminal_id || 1}`,
     operador: apt.operador || apt.colaborador || '',
     colaborador: apt.colaborador || apt.operador || '',
-    hora_inicio: apt.hora_inicio || apt.horaInicio || new Date().toISOString(),
-    hora_fim: apt.hora_fim || apt.horaFim || null,
-    duracao_minutos: Number(apt.duracao_minutos || apt.duracao || 0),
-    duracaoMs: Number(apt.duracaoMs || 0),
+    hora_inicio: horaInicio,
+    hora_fim: horaFim,
+    duracao_minutos: duracaoMinutos,
+    duracaoMs: duracaoMs,
     status: apt.status || 'EM_ANDAMENTO',
     observacao: apt.observacao || '',
     is_lote: apt.is_lote ? 1 : 0,
     quantidade_lote: Number(apt.quantidade_lote || 0),
     quantidade_refugo: Number(apt.quantidade_refugo || 0),
-    criadoEm: Date.now()
+    criadoEm: nowMs
   });
 
+  // Sincroniza status na ordem do SQLite
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(formatOp, cleanOp, formatOp, cleanOp);
+  if (opRow) {
+    let novoStatus = opRow.status;
+    if (apt.status === 'EM_ANDAMENTO') {
+      novoStatus = 'EM_PRODUCAO';
+    }
+    db.prepare(`
+      UPDATE ordens SET status = COALESCE(?, status), atualizadoEm = ?
+      WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+    `).run(novoStatus, nowMs, formatOp, cleanOp, formatOp, cleanOp);
+  }
+
+  const savedApt = {
+    ...apt,
+    id: String(apt.id),
+    op_numero: formatOp,
+    hora_inicio: horaInicio,
+    hora_fim: horaFim,
+    duracao_minutos: duracaoMinutos,
+    duracaoMs: duracaoMs,
+    criadoEm: nowMs
+  };
+
   const todosApts = db.prepare('SELECT * FROM apontamentos ORDER BY criadoEm DESC').all();
+  const todasOrdens = obterTodasOrdens();
+  const todosColabs = obterColaboradores();
+
+  io.emit('ordem_apontada', {
+    opNumero: formatOp,
+    id: cleanOp,
+    apontamento: savedApt,
+    status: apt.status,
+    serverTime: nowIso,
+    serverTimestamp: nowMs
+  });
+  io.emit('ordens_atualizadas', todasOrdens);
   io.emit('apontamentos_atualizados', todosApts);
-  res.json({ success: true, apontamento: apt });
+  if (todosColabs.length > 0) {
+    io.emit('colaboradores_atualizados', todosColabs);
+  }
+  res.json({ success: true, apontamento: savedApt, serverTime: nowIso });
 });
 
 app.delete('/api/apontamentos/:id', (req, res) => {

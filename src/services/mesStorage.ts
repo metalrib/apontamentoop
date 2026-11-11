@@ -280,7 +280,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       const novaRota = [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -395,7 +395,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       const novaRota = [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ];
@@ -669,14 +669,28 @@ export function fetchOperators(): Operator[] {
           }
         }
 
-        // Garante que Danielson (DOB-02) esteja estritamente alocado para Dobra (e nunca Corte)
+        // Padronização: qualquer "Preparação de Folha" no singular é migrada para "Preparação de Folhas"
+        for (let i = 0; i < uniqueSectors.length; i++) {
+          if (uniqueSectors[i].trim().toLowerCase() === 'preparação de folha' || uniqueSectors[i].trim().toLowerCase() === 'preparacao de folha') {
+            uniqueSectors[i] = 'Preparação de Folhas';
+          }
+        }
+
+        // Garante que Danielson (DOB-02) e Leonardo Constancio (DOB-01) estejam em Dobra e Preparação de Folhas (e nunca Corte)
         const isDanielson = op.id === 'danielson' || nome.toLowerCase().includes('danielson') || badge === 'DOB-02';
         if (isDanielson) {
           const idxCorte = uniqueSectors.findIndex((s) => s.toLowerCase() === 'corte');
           if (idxCorte >= 0) uniqueSectors.splice(idxCorte, 1);
-          if (!uniqueSectors.includes('Dobra')) {
-            uniqueSectors.push('Dobra');
-          }
+          if (!uniqueSectors.includes('Dobra')) uniqueSectors.push('Dobra');
+          if (!uniqueSectors.includes('Preparação de Folhas')) uniqueSectors.push('Preparação de Folhas');
+        }
+
+        const isLeonardoC = op.id === 'leonardo_c' || nome.toLowerCase().includes('leonardo constancio') || badge === 'DOB-01';
+        if (isLeonardoC) {
+          const idxCorte = uniqueSectors.findIndex((s) => s.toLowerCase() === 'corte');
+          if (idxCorte >= 0) uniqueSectors.splice(idxCorte, 1);
+          if (!uniqueSectors.includes('Dobra')) uniqueSectors.push('Dobra');
+          if (!uniqueSectors.includes('Preparação de Folhas')) uniqueSectors.push('Preparação de Folhas');
         }
 
         const setoresPorTerm = op.setoresPorTerminal ? { ...op.setoresPorTerminal } : undefined;
@@ -935,6 +949,14 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
     const hasLegacy = sectors.some((s) => s === 'Trilhos p/ Portas Correr' || s.trim().toUpperCase() === 'TRILHOS P/ PORTAS CORRER');
     if (hasLegacy) {
       sectors = sectors.filter((s) => s !== 'Trilhos p/ Portas Correr' && s.trim().toUpperCase() !== 'TRILHOS P/ PORTAS CORRER');
+      changed = true;
+    }
+
+    // Padronização compulsória de "Preparação de Folha" para "Preparação de Folhas"
+    const hasSingularFolha = sectors.some((s) => s.trim().toLowerCase() === 'preparação de folha' || s.trim().toLowerCase() === 'preparacao de folha');
+    if (hasSingularFolha) {
+      sectors = sectors.map((s) => (s.trim().toLowerCase() === 'preparação de folha' || s.trim().toLowerCase() === 'preparacao de folha') ? 'Preparação de Folhas' : s);
+      sectors = Array.from(new Set(sectors));
       changed = true;
     }
 
@@ -3134,7 +3156,7 @@ export async function saveMultipleOrders(
         etapasFinais = [
           'Corte',
           'Dobra',
-          'Preparação de Folha',
+          'Preparação de Folhas',
           'Injeção',
           'Instalação de Gaxeta',
           'Montagem de Portas Giratória Padrão e Especial'
@@ -3208,7 +3230,7 @@ export async function saveMultipleOrders(
         etapasFinais = [
           'Corte',
           'Dobra',
-          'Preparação de Folha',
+          'Preparação de Folhas',
           'Injeção',
           'Montagem Portas de Correr Padrão e Especial'
         ];

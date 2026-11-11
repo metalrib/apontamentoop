@@ -500,7 +500,7 @@ function resolveBaseRoute(
       const steps = [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -527,7 +527,7 @@ function resolveBaseRoute(
     norm.includes('PORTA ESPECIAL'));
 
   if (ehSuperCong) {
-    const steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', 'Montagem Portas de Correr Padrão e Especial'];
+    const steps = ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção', 'Montagem Portas de Correr Padrão e Especial'];
     const rule: RouteRule = {
       keyword: 'PT COR ESPECIAL',
       label: 'Rota 13/14 - Porta Especial de Correr Super Cong',
@@ -566,7 +566,7 @@ function resolveBaseRoute(
       const rule: RouteRule = {
         keyword: 'PT COR ESPECIAL',
         label: 'Rota 13/14 - Porta Especial de Correr e Emendadas',
-        steps: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção', montagemStep],
+        steps: ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção', montagemStep],
         badge: 'Especial Sob Medida (Fabricação Completa)',
         isStandardLine: false
       };

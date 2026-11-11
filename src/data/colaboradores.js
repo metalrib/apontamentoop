@@ -3,8 +3,8 @@ export const colaboradores = [
   { id: 'eliel', nome: 'Eliel', terminais: ['T1'], setores: ['Corte', 'Dobra'], especialista: false },
   { id: 'elionai', nome: 'Elionai', terminais: ['T1'], setores: ['Corte', 'Dobra'], especialista: false },
   { id: 'bruno_c', nome: 'Bruno Constancio', terminais: ['T1'], setores: ['Corte', 'Dobra', 'Laser'], especialista: true },
-  { id: 'leonardo_c', nome: 'Leonardo Constancio', terminais: ['T1'], setores: ['Dobra'], especialista: false },
-  { id: 'danielson', nome: 'Danielson', terminais: ['T1'], setores: ['Corte'], especialista: false },
+  { id: 'leonardo_c', nome: 'Leonardo Constancio', terminais: ['T1'], setores: ['Dobra', 'Preparação de Folhas'], especialista: false },
+  { id: 'danielson', nome: 'Danielson', terminais: ['T1'], setores: ['Dobra', 'Preparação de Folhas'], especialista: false },
   { id: 'leonardo_h', nome: 'Leonardo Henrique', terminais: ['T1', 'T2'], setores: ['Dobra', 'Preparação de Folhas'], especialista: false },
 
   // TERMINAL 2

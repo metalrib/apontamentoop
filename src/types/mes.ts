@@ -244,7 +244,7 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: [
       "Corte",
       "Dobra",
-      "Preparação de Folha",
+      "Preparação de Folhas",
       "Injeção",
       "Instalação de Gaxeta",
       "Montagem de Portas Giratória Padrão e Especial"
@@ -258,7 +258,7 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: [
       "Corte",
       "Dobra",
-      "Preparação de Folha",
+      "Preparação de Folhas",
       "Injeção",
       "Instalação de Gaxeta",
       "Montagem de Portas Giratória Padrão e Especial"
@@ -278,14 +278,14 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT COR",
     label: "Porta de Correr Especial",
-    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
   {
     keyword: "PT COR ESPECIAL",
     label: "Porta de Correr Especial",
-    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
@@ -293,7 +293,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT EMENDADA",
     label: "Porta Emendada (Correr/Giro)",
-    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Porta Emendada",
     isStandardLine: false
   },

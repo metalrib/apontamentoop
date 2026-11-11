@@ -220,8 +220,20 @@ export default function App() {
         loadData();
       };
 
+      const handleOrdemApontada = async (data: any) => {
+        const updatedApts = await fetchApontamentos();
+        setApontamentos(Array.isArray(updatedApts) ? updatedApts : []);
+        window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated', { detail: data }));
+      };
+
+      const handleColaboradoresAtualizados = (colabs: any) => {
+        window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
+      };
+
       socket.on('ordens_atualizadas', handleAtualizacao);
       socket.on('op_resetada', handleOpResetada);
+      socket.on('ordem_apontada', handleOrdemApontada);
+      socket.on('colaboradores_atualizados', handleColaboradoresAtualizados);
 
       // Listener para eventos locais disparados na mesma sessão
       const handleWindowReset = () => {
@@ -233,6 +245,8 @@ export default function App() {
       return () => {
         socket.off('ordens_atualizadas', handleAtualizacao);
         socket.off('op_resetada', handleOpResetada);
+        socket.off('ordem_apontada', handleOrdemApontada);
+        socket.off('colaboradores_atualizados', handleColaboradoresAtualizados);
         window.removeEventListener('metalrib_orders_updated', handleWindowReset);
         window.removeEventListener('metalrib_apontamentos_updated', handleWindowReset);
       };

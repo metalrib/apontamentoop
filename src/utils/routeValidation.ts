@@ -1007,7 +1007,7 @@ export function obterEtapasDaRota(op: any): string[] {
       steps = [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -1068,7 +1068,7 @@ export function obterEtapasDaRota(op: any): string[] {
       steps = [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ];
@@ -1217,7 +1217,7 @@ export function definirRotaProduto(op: {
       rota: [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -1277,7 +1277,7 @@ export function definirRotaProduto(op: {
       rota: [
         'Corte',
         'Dobra',
-        'Preparação de Folha',
+        'Preparação de Folhas',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ]
