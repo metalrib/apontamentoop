@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Operator, TerminalConfig, ProductionOrder } from '../types/mes';
-import { fetchOperators, subscribeToMesUpdates, getLocalSocket } from '../services/mesStorage';
+import { fetchOperators, saveOperators, fetchLocalColaboradores, subscribeToMesUpdates, getLocalSocket } from '../services/mesStorage';
 import { Check, User, Sparkles } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
@@ -63,14 +63,26 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       const socket = getLocalSocket();
       const onColabsUpdate = (novosColabs: any) => {
         if (Array.isArray(novosColabs) && novosColabs.length > 0) {
+          saveOperators(novosColabs);
           setOperators(novosColabs);
         } else {
           loadOps();
         }
       };
+      const onSocketConnect = () => {
+        fetchLocalColaboradores().then((res) => {
+          if (Array.isArray(res) && res.length > 0) {
+            setOperators(res);
+          }
+        });
+      };
+
       socket.on('colaboradores_atualizados', onColabsUpdate);
+      socket.on('connect', onSocketConnect);
+
       unsubSocket = () => {
         socket.off('colaboradores_atualizados', onColabsUpdate);
+        socket.off('connect', onSocketConnect);
       };
     } catch {}
 
@@ -192,105 +204,40 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         return false;
       }
 
-      // 3. FILTRO POR POSTO SELECIONADO:
-      // Coleta todos os setores autorizados do colaborador
-      const colabSetores: string[] = [
-        ...(Array.isArray(colab.setores) ? colab.setores : []),
-        ...(Array.isArray(colab.sectors) ? colab.sectors : []),
-        ...(colab.setor ? [colab.setor] : []),
-        ...(colab.postos ? colab.postos : []),
-        ...(colab.setoresPorTerminal?.[termKey] || [])
-      ];
+      // 3. SETORES AUTORIZADOS DO COLABORADOR:
+      const colabSetores: string[] = Array.isArray(colab.setores)
+        ? colab.setores
+        : Array.isArray(colab.sectors)
+        ? colab.sectors
+        : colab.setor
+        ? [colab.setor]
+        : [];
 
-      // a) Se for Especialista:
-      // Se tiver permissão no posto OU se for especialista designado para aquele terminal
+      // a) Se for Especialista / Suporte Técnico:
       if (isEsp) {
         const isDesignatedForThisTerm = isMultiTerminal || badge === `ESP-${termKey}` || hasTerminal;
         const hasPostoPermission = colabSetores.includes('TODOS') || colabSetores.some((s) => matchPosto(s, targetSector));
         if (isDesignatedForThisTerm || hasPostoPermission) {
           return true;
         }
-      }
-
-      // b) Se for Operador (não especialista):
-      // 1. Validações estritas de crachá exclusivo (impede que operadores de um posto vazem para outro)
-      if (badge.startsWith('CORTE') && !targetNorm.includes('corte')) {
-        return false;
-      }
-      if (badge.startsWith('DOB') && !targetNorm.includes('dobra') && !targetNorm.includes('folha')) {
-        return false;
-      }
-      if (badge.startsWith('LASER') && !targetNorm.includes('laser')) {
-        return false;
-      }
-      if (badge.startsWith('ROU') && !targetNorm.includes('router')) {
-        return false;
-      }
-      if (badge.startsWith('SOL') && !targetNorm.includes('solda')) {
-        return false;
-      }
-      if (badge.startsWith('INJ') && !targetNorm.includes('inje') && !targetNorm.includes('folha') && !targetNorm.includes('batente')) {
-        return false;
-      }
-      if (badge.startsWith('BAT') && !targetNorm.includes('batente') && !targetNorm.includes('emenda')) {
-        return false;
-      }
-      if (badge.startsWith('EME') && !targetNorm.includes('emenda')) {
         return false;
       }
 
-      // Se o posto selecionado for Corte da guilhotina, não exibir operadores com tag exclusiva de Dobra sem código de corte
-      if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho')) {
-        if (badge.startsWith('DOB')) {
-          return false;
-        }
-      }
-
-      // 2. Caso especial: Preparação de Folha (Leonardo C., Danielson e operadores habilitados)
-      const isTargetPrepFolha = targetNorm.includes('preparacao') && targetNorm.includes('folha');
-      if (isTargetPrepFolha) {
-        const hasPrepFolha = colabSetores.some((s) => {
-          const norm = (s || '').trim().toLowerCase();
-          return norm === 'preparação de folha' || norm === 'preparacao de folha' ||
-                 norm === 'preparação de folhas' || norm === 'preparacao de folhas' ||
-                 (norm.includes('preparacao') && norm.includes('folha'));
-        });
-        if (hasPrepFolha) {
-          return true;
-        }
-      }
-
-      // 3. Validação estrita por posto selecionado:
-      // O operador tem obrigatoriamente de conter a etapa selecionada no Passo 1 dentro da sua lista de setores autorizados
+      // b) Se for Operador da Etapa (não especialista):
+      // APLICAÇÃO DO FILTRO DINÂMICO DE SETOR NO PASSO 2 (SEM HARDCODE):
+      // O operador DEVE conter exatamente o setor selecionado no Passo 1 (ex: "Dobra")
       const postoAtivoNormalizado = targetSector.trim().toLowerCase();
-      const hasDirectSector = colabSetores.some((s) => {
+      const postoAtivoSimplificado = normPosto(targetSector);
+
+      return colabSetores.some((s: string) => {
         if (!s) return false;
-        const normS = s.trim().toLowerCase();
-        return normS === postoAtivoNormalizado || normPosto(s) === targetNorm || matchPosto(s, targetSector);
+        const sNorm = s.trim().toLowerCase();
+        return (
+          sNorm === postoAtivoNormalizado ||
+          normPosto(s) === postoAlvoSimplificado ||
+          matchPosto(s, targetSector)
+        );
       });
-
-      if (hasDirectSector) {
-        return true;
-      }
-
-      // 4. Código/badge correspondente ao posto
-      if (targetNorm.includes('dobra') && badge.startsWith('DOB')) {
-        return true;
-      }
-      if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho') && badge.startsWith('CORTE')) {
-        return true;
-      }
-      if (targetNorm.includes('laser') && badge.startsWith('LASER')) {
-        return true;
-      }
-      if (targetNorm.includes('router') && badge.startsWith('ROU')) {
-        return true;
-      }
-      if (targetNorm.includes('solda') && badge.startsWith('SOL')) {
-        return true;
-      }
-
-      return false;
     });
   }, [operators, selectedSector, currentTerminal?.id]);
 

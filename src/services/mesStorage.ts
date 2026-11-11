@@ -592,6 +592,25 @@ export async function fetchLocalOrdens(): Promise<boolean> {
   return false;
 }
 
+export async function fetchLocalColaboradores(): Promise<Operator[]> {
+  if (typeof window === 'undefined') return [];
+  try {
+    const localUrl = getLocalServerUrl();
+    const res = await fetch(`${localUrl}/api/colaboradores`);
+    if (!res.ok) return [];
+    const colabs = await res.json();
+    if (Array.isArray(colabs) && colabs.length > 0) {
+      console.log('[MES Storage] Colaboradores oficiais sincronizados do servidor:', colabs.length);
+      saveOperators(colabs);
+      window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
+      return colabs;
+    }
+  } catch (err) {
+    console.warn('[MES Storage] Erro ao buscar colaboradores da API:', err);
+  }
+  return [];
+}
+
 export function initLocalSocketListeners(): void {
   if (typeof window === 'undefined' || isLocalSocketInitialized) return;
   isLocalSocketInitialized = true;
@@ -604,6 +623,17 @@ export function initLocalSocketListeners(): void {
       console.log('[Socket.io] Conectado ao servidor local MES:', localUrl);
       isLocalApiActive = true;
       fetchLocalOrdens();
+      fetchLocalColaboradores();
+    });
+
+    socket.on('colaboradores_atualizados', (colabs: any[]) => {
+      console.log('[Socket.io] Evento colaboradores_atualizados recebido do backend:', colabs?.length);
+      if (Array.isArray(colabs) && colabs.length > 0) {
+        saveOperators(colabs);
+        window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
+      } else {
+        fetchLocalColaboradores();
+      }
     });
 
     socket.on('terminais_atualizados', (terms: any[]) => {
@@ -626,6 +656,7 @@ export function initLocalSocketListeners(): void {
       window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
       window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
       fetchLocalOrdens();
+      fetchLocalColaboradores();
     });
 
     socket.on('op_resetada', (data: any) => {
@@ -638,6 +669,7 @@ export function initLocalSocketListeners(): void {
       window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
       window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
       fetchLocalOrdens();
+      fetchLocalColaboradores();
     });
 
     socket.on('setores_atualizados', (terms: any[]) => {
@@ -673,6 +705,7 @@ export function initLocalSocketListeners(): void {
 try {
   ensureInitialData();
   initLocalSocketListeners();
+  fetchLocalColaboradores();
 } catch (err) {
   console.warn('[MES Storage] Erro na inicialização dos listeners:', err);
 }
@@ -746,6 +779,24 @@ export function fetchOperators(): Operator[] {
           primarySetor = 'Corte';
         }
 
+        // Garante que Elionai (T1-01) tenha unicamente o setor "Corte" no T1 (nunca Dobra)
+        const isElionai = op.id === 'elionai' || nome.toLowerCase().includes('elionai') || badge === 'T1-01';
+        if (isElionai) {
+          const idxDobra = uniqueSectors.findIndex((s) => s.toLowerCase().includes('dobra'));
+          if (idxDobra >= 0) uniqueSectors.splice(idxDobra, 1);
+          if (!uniqueSectors.includes('Corte')) uniqueSectors.push('Corte');
+          primarySetor = 'Corte';
+        }
+
+        // Garante que Leonardo Henrique (T1-T2) pertença a Preparação de Folha (e nunca Dobra)
+        const isLeonardoH = op.id === 'leonardo_h' || nome.toLowerCase().includes('leonardo henrique') || badge === 'T1-T2';
+        if (isLeonardoH) {
+          const idxDobra = uniqueSectors.findIndex((s) => s.toLowerCase().includes('dobra'));
+          if (idxDobra >= 0) uniqueSectors.splice(idxDobra, 1);
+          if (!uniqueSectors.includes('Preparação de Folha')) uniqueSectors.push('Preparação de Folha');
+          primarySetor = 'Preparação de Folha';
+        }
+
         // Garante terminais e badges corretos dos especialistas para que não vazem entre terminais
         const isSergio = op.id === 'sergio' || nome.toLowerCase().includes('sergio') || badge === 'ESP-T3';
         if (isSergio) {
@@ -771,6 +822,18 @@ export function fetchOperators(): Operator[] {
           setoresPorTerm.T1 = setoresPorTerm.T1.filter((s: string) => !s.toLowerCase().includes('dobra'));
           if (!setoresPorTerm.T1.includes('Corte')) {
             setoresPorTerm.T1.push('Corte');
+          }
+        }
+        if (isElionai && setoresPorTerm && setoresPorTerm.T1) {
+          setoresPorTerm.T1 = setoresPorTerm.T1.filter((s: string) => !s.toLowerCase().includes('dobra'));
+          if (!setoresPorTerm.T1.includes('Corte')) {
+            setoresPorTerm.T1.push('Corte');
+          }
+        }
+        if (isLeonardoH && setoresPorTerm && setoresPorTerm.T1) {
+          setoresPorTerm.T1 = setoresPorTerm.T1.filter((s: string) => !s.toLowerCase().includes('dobra'));
+          if (!setoresPorTerm.T1.includes('Preparação de Folha')) {
+            setoresPorTerm.T1.push('Preparação de Folha');
           }
         }
         if (isGabriele && setoresPorTerm) {

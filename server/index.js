@@ -129,6 +129,107 @@ try {
   console.warn('[SQLite] Erro ao inicializar terminais padrão:', e);
 }
 
+// Lista oficial e padronizada de Colaboradores da Fábrica Metalrib
+const COLABORADORES_PADRAO = [
+  // TERMINAL 1
+  { id: 'eliel', nome: 'Eliel', badge: 'CORTE-01', codigo: 'CORTE-01', terminais: ['T1'], setores: ['Corte'], especialista: 0, ativo: 1 },
+  { id: 'elionai', nome: 'Elionai', badge: 'T1-01', codigo: 'T1-01', terminais: ['T1'], setores: ['Corte'], especialista: 0, ativo: 1 },
+  { id: 'bruno_c', nome: 'Bruno Constancio', badge: 'ESP-T1', codigo: 'ESP-T1', terminais: ['T1'], setores: ['Corte', 'Dobra', 'Laser'], especialista: 1, ativo: 1 },
+  { id: 'leonardo_c', nome: 'Leonardo Constancio', badge: 'DOB-01', codigo: 'DOB-01', terminais: ['T1'], setores: ['Dobra', 'Preparação de Folha'], especialista: 0, ativo: 1 },
+  { id: 'danielson', nome: 'Danielson', badge: 'DOB-02', codigo: 'DOB-02', terminais: ['T1'], setores: ['Dobra', 'Preparação de Folha'], especialista: 0, ativo: 1 },
+  { id: 'leonardo_h', nome: 'Leonardo Henrique', badge: 'T1-T2', codigo: 'T1-T2', terminais: ['T1', 'T2'], setores: ['Preparação de Folha'], especialista: 0, ativo: 1 },
+
+  // TERMINAL 2
+  { id: 'magna', nome: 'Magna', badge: 'INJ-01', codigo: 'INJ-01', terminais: ['T2'], setores: ['Preparação de Folha', 'Injeção de Folhas'], especialista: 0, ativo: 1 },
+  { id: 'donizete', nome: 'Donizete', badge: 'INJ-02', codigo: 'INJ-02', terminais: ['T2'], setores: ['Preparação de Folha', 'Injeção de Folhas'], especialista: 0, ativo: 1 },
+
+  // TERMINAL 3
+  { id: 'aparecido', nome: 'Aparecido', badge: 'BAT-01', codigo: 'BAT-01', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
+  { id: 'antonio_m', nome: 'Antonio Massena', badge: 'BAT-02', codigo: 'BAT-02', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
+  { id: 'salatiel', nome: 'Salatiel', badge: 'BAT-03', codigo: 'BAT-03', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
+  { id: 'yuri', nome: 'Yuri', badge: 'BAT-04', codigo: 'BAT-04', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
+  { id: 'sergio', nome: 'Sergio', badge: 'ESP-T3', codigo: 'ESP-T3', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas'], especialista: 1, ativo: 1 },
+  { id: 'jose_lucas', nome: 'Jose Lucas', badge: 'OFF-01', codigo: 'OFF-01', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
+  { id: 'ademir', nome: 'Ademir', badge: 'EME-01', codigo: 'EME-01', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
+  { id: 'francisco_h', nome: 'Francisco Henrique', badge: 'EME-02', codigo: 'EME-02', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
+  { id: 'denis', nome: 'Denis', badge: 'EME-03', codigo: 'EME-03', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
+  { id: 'jonathan', nome: 'Jonathan', badge: 'EME-04', codigo: 'EME-04', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
+  { id: 'jose_aparecido', nome: 'José Aparecido', badge: 'T3-T4', codigo: 'T3-T4', terminais: ['T3', 'T4'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'deilson', nome: 'Deilson', badge: 'T3-T4B', codigo: 'T3-T4B', terminais: ['T3', 'T4'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
+
+  // TERMINAL 4
+  { id: 'joao_p', nome: 'João Paulo', badge: 'VV-01', codigo: 'VV-01', terminais: ['T4'], setores: ['Montagem Vai Vem'], especialista: 0, ativo: 1 },
+  { id: 'alessandra', nome: 'Alessandra', badge: 'VV-02', codigo: 'VV-02', terminais: ['T4'], setores: ['Montagem Vai Vem'], especialista: 0, ativo: 1 },
+  { id: 'gustavo_n', nome: 'Gustavo Naves', badge: 'GIR-01', codigo: 'GIR-01', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'fabiano', nome: 'Fabiano', badge: 'GIR-02', codigo: 'GIR-02', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'vinicius', nome: 'Vinicius', badge: 'GIR-03', codigo: 'GIR-03', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'nalysson', nome: 'Nalysson', badge: 'GIR-04', codigo: 'GIR-04', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
+
+  // TERMINAL 5
+  { id: 'victor', nome: 'Victor', badge: 'ROU-01', codigo: 'ROU-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'cristiane', nome: 'Cristiane', badge: 'ELE-01', codigo: 'ELE-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'marcio', nome: 'Marcio', badge: 'ELE-02', codigo: 'ELE-02', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'gabriele', nome: 'Gabriele', badge: 'COR-01', codigo: 'COR-01', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'yasmin', nome: 'Yasmin', badge: 'PVV-01', codigo: 'PVV-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'carol', nome: 'Carol', badge: 'T5-01', codigo: 'T5-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'nathan', nome: 'Nathan', badge: 'SOL-01', codigo: 'SOL-01', terminais: ['T5'], setores: ['Solda', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
+  { id: 'fabio', nome: 'Fabio', badge: 'ESP-T5', codigo: 'ESP-T5', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial', 'Solda'], especialista: 1, ativo: 1 },
+
+  // ESPECIALISTA MULTI-TERMINAL
+  { id: 'afonso', nome: 'Afonso', badge: 'ESP-MULTI', codigo: 'ESP-MULTI', terminais: ['T1', 'T3', 'T4', 'T5'], setores: ['TODOS'], especialista: 1, ativo: 1 }
+];
+
+// Inicialização e Saneamento Compulsório de Colaboradores no SQLite
+try {
+  const insertColab = db.prepare(`
+    INSERT INTO colaboradores (id, nome, badge, codigo, terminais, setores, especialista, ativo, dados, atualizadoEm)
+    VALUES (@id, @nome, @badge, @codigo, @terminais, @setores, @especialista, @ativo, @dados, @atualizadoEm)
+    ON CONFLICT(id) DO UPDATE SET
+      nome = excluded.nome,
+      badge = excluded.badge,
+      codigo = excluded.codigo,
+      terminais = excluded.terminais,
+      setores = excluded.setores,
+      especialista = excluded.especialista,
+      ativo = excluded.ativo,
+      atualizadoEm = excluded.atualizadoEm
+  `);
+
+  const countColabs = db.prepare('SELECT COUNT(*) as count FROM colaboradores').get();
+  if (!countColabs || countColabs.count === 0) {
+    const seedTx = db.transaction((list) => {
+      for (const c of list) {
+        insertColab.run({
+          id: c.id,
+          nome: c.nome,
+          badge: c.badge,
+          codigo: c.codigo,
+          terminais: JSON.stringify(c.terminais),
+          setores: JSON.stringify(c.setores),
+          especialista: c.especialista ? 1 : 0,
+          ativo: c.ativo ? 1 : 0,
+          dados: JSON.stringify({}),
+          atualizadoEm: Date.now()
+        });
+      }
+    });
+    seedTx(COLABORADORES_PADRAO);
+    console.log('[SQLite] Colaboradores oficiais inicializados no banco:', COLABORADORES_PADRAO.length);
+  } else {
+    // Saneamento compulsório de Eliel, Elionai e Leonardo Henrique no banco
+    const sanitizarStmt = db.prepare(`
+      UPDATE colaboradores 
+      SET setores = @setores, atualizadoEm = @atualizadoEm
+      WHERE id = @id
+    `);
+    sanitizarStmt.run({ id: 'eliel', setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'elionai', setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'leonardo_h', setores: JSON.stringify(['Preparação de Folha']), atualizadoEm: Date.now() });
+  }
+} catch (e) {
+  console.warn('[SQLite] Erro ao inicializar colaboradores padrão:', e);
+}
+
 // Limpeza preventiva de duplicações e padronização de IDs
 try {
   db.exec(`
@@ -162,10 +263,12 @@ function obterTodasOrdens() {
 // Helper para formatar colaboradores
 function obterColaboradores() {
   const rows = db.prepare('SELECT * FROM colaboradores').all();
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return COLABORADORES_PADRAO;
   return rows.map(r => {
     let extra = {};
     try { extra = JSON.parse(r.dados || '{}'); } catch {}
+    const parsedTerminais = JSON.parse(r.terminais || '[]');
+    const parsedSetores = JSON.parse(r.setores || '[]');
     return {
       ...extra,
       id: r.id,
@@ -173,9 +276,9 @@ function obterColaboradores() {
       name: r.nome,
       badge: r.badge,
       codigo: r.codigo,
-      terminais: JSON.parse(r.terminais || '[]'),
-      setores: JSON.parse(r.setores || '[]'),
-      sectors: JSON.parse(r.setores || '[]'),
+      terminais: parsedTerminais,
+      setores: parsedSetores,
+      sectors: parsedSetores,
       especialista: Boolean(r.especialista),
       ativo: Boolean(r.ativo)
     };
@@ -1107,6 +1210,16 @@ app.delete('/api/ordens', (req, res) => {
 
 io.on('connection', (socket) => {
   console.log('Cliente ligado via WebSocket:', socket.id);
+
+  // Sincronização imediata de colaboradores oficiais com o Totem/cliente conectado
+  try {
+    const colabs = obterColaboradores();
+    if (colabs && colabs.length > 0) {
+      socket.emit('colaboradores_atualizados', colabs);
+    }
+  } catch (err) {
+    console.warn('[Socket connection] Erro ao emitir colaboradores:', err);
+  }
 
   socket.on('resetar_etapa', (data) => {
     try {

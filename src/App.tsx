@@ -18,7 +18,9 @@ import {
   formatOpNumber,
   getLocalSocket,
   purgeLocalAppointmentsForOp,
-  isLocalApiActive
+  isLocalApiActive,
+  saveOperators,
+  fetchLocalColaboradores
 } from './services/mesStorage';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
@@ -295,6 +297,11 @@ export default function App() {
       };
 
       const handleColaboradoresAtualizados = (colabs: any) => {
+        if (Array.isArray(colabs) && colabs.length > 0) {
+          saveOperators(colabs);
+        } else {
+          fetchLocalColaboradores();
+        }
         window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
       };
 
