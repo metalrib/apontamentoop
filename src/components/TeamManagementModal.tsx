@@ -50,8 +50,8 @@ interface TeamManagementModalProps {
 const ALL_TERMINAIS = ['T1', 'T2', 'T3', 'T4', 'T5'] as const;
 
 const TERMINAL_DETAILS: Record<string, { label: string; desc: string }> = {
-  T1: { label: 'Terminal 1', desc: 'Corte, Dobra e Prep. Folhas' },
-  T2: { label: 'Terminal 2', desc: 'Preparação & Injeção Folhas' },
+  T1: { label: 'Terminal 1', desc: 'Corte, Dobra e Prep. Folha' },
+  T2: { label: 'Terminal 2', desc: 'Preparação & Injeção Folha' },
   T3: { label: 'Terminal 3', desc: 'Batentes, Portas & Trilhos' },
   T4: { label: 'Terminal 4', desc: 'Montagem Vai-Vem & Gaxeta' },
   T5: { label: 'Terminal 5', desc: 'Router, Elétrica, Solda & Acessórios' },
@@ -139,7 +139,13 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       const termId = parseInt(tKey.replace('T', ''), 10);
       const term = sourceList.find((t) => t.id === termId);
       if (term && Array.isArray(term.sectors)) {
-        map[tKey] = Array.from(new Set(term.sectors.map((s) => s.trim()).filter(Boolean)));
+        const cleaned = term.sectors.map((s) => {
+          const st = String(s || '').trim();
+          return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
+            ? 'Preparação de Folha'
+            : st;
+        }).filter(Boolean);
+        map[tKey] = Array.from(new Set(cleaned));
       } else {
         map[tKey] = [];
       }
@@ -232,11 +238,19 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       T5: []
     };
 
+    const normalizeSecName = (s: string) => {
+      const st = String(s || '').trim();
+      return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
+        ? 'Preparação de Folha'
+        : st;
+    };
+
     if (op.setoresPorTerminal && typeof op.setoresPorTerminal === 'object') {
       ALL_TERMINAIS.forEach((tKey) => {
         if (opTerminais.includes(tKey)) {
           const list = op.setoresPorTerminal?.[tKey];
-          newSetoresPorTerminal[tKey] = Array.isArray(list) ? [...list] : [];
+          const raw = Array.isArray(list) ? [...list] : [];
+          newSetoresPorTerminal[tKey] = Array.from(new Set(raw.map(normalizeSecName).filter(Boolean)));
         } else {
           newSetoresPorTerminal[tKey] = [];
         }
@@ -248,7 +262,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
         : Array.isArray(op.sectors) && op.sectors.length > 0
         ? op.sectors
         : op.setor ? [op.setor] : [];
-      const cleanSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
+      const cleanSectors = Array.from(new Set(rawSectors.map(normalizeSecName).filter(Boolean)));
 
       ALL_TERMINAIS.forEach((tKey) => {
         if (!opTerminais.includes(tKey)) {
@@ -262,6 +276,18 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
           );
         }
       });
+    }
+
+    // Garante que Danielson e Leonardo Constancio tenham explicitamente 'Preparação de Folha' e 'Dobra'
+    const isLeoOrDanielson =
+      op.id === 'leonardo_c' ||
+      op.id === 'danielson' ||
+      (op.nome && (op.nome.toLowerCase().includes('leonardo constancio') || op.nome.toLowerCase().includes('danielson'))) ||
+      op.badge === 'DOB-01' ||
+      op.badge === 'DOB-02';
+    if (isLeoOrDanielson && opTerminais.includes('T1')) {
+      if (!newSetoresPorTerminal.T1.includes('Dobra')) newSetoresPorTerminal.T1.push('Dobra');
+      if (!newSetoresPorTerminal.T1.includes('Preparação de Folha')) newSetoresPorTerminal.T1.push('Preparação de Folha');
     }
 
     setFormSetoresPorTerminal(newSetoresPorTerminal);
@@ -306,13 +332,18 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       return;
     }
     playClick();
-    const clean = sector.trim();
+    const clean = (sector.trim().toLowerCase() === 'preparação de folhas' || sector.trim().toLowerCase() === 'preparacao de folhas')
+      ? 'Preparação de Folha'
+      : sector.trim();
     setFormSetoresPorTerminal((prev) => {
       const currentList = prev[terminalKey] || [];
-      const exists = currentList.some((s) => s.trim().toLowerCase() === clean.toLowerCase());
+      const matchFolha = (s: string) =>
+        s.trim().toLowerCase() === clean.toLowerCase() ||
+        (clean === 'Preparação de Folha' && (s.trim().toLowerCase() === 'preparação de folhas' || s.trim().toLowerCase() === 'preparacao de folhas'));
+      const exists = currentList.some(matchFolha);
       const nextList = exists
-        ? currentList.filter((s) => s.trim().toLowerCase() !== clean.toLowerCase())
-        : [...currentList, clean];
+        ? currentList.filter((s) => !matchFolha(s))
+        : [...currentList.filter((s) => !matchFolha(s)), clean];
       return {
         ...prev,
         [terminalKey]: nextList
@@ -1090,9 +1121,13 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                                 const compositeKey = `${tKey}_${sectorName}`;
                                 const isChecked =
                                   isTerminalActive &&
-                                  selectedInThisTerm.some(
-                                    (s) => s.trim().toLowerCase() === sectorName.trim().toLowerCase()
-                                  );
+                                  selectedInThisTerm.some((s) => {
+                                    const a = s.trim().toLowerCase();
+                                    const b = sectorName.trim().toLowerCase();
+                                    return a === b ||
+                                      (b === 'preparação de folha' && (a === 'preparação de folhas' || a === 'preparacao de folhas')) ||
+                                      (b === 'preparação de folhas' && (a === 'preparação de folha' || a === 'preparacao de folha'));
+                                  });
 
                                 return (
                                   <button

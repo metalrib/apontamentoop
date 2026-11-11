@@ -3,10 +3,10 @@ export const POSTOS_POR_TERMINAL = {
     'Corte',
     'Dobra',
     'Laser',
-    'Preparação de Folhas'
+    'Preparação de Folha'
   ],
   T2: [
-    'Preparação de Folhas',
+    'Preparação de Folha',
     'Injeção de Folhas'
   ],
   T3: [

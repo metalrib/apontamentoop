@@ -644,6 +644,9 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                 const etapaStatus = String(etapaObj?.status || etapaObj || '').toUpperCase().trim();
                 const isStepActiveInEtapas = etapaStatus === 'EM_PRODUCAO' || etapaStatus === 'EM_ANDAMENTO' || etapaStatus === 'IN_PROGRESS';
                 const isActive = emAndamento > 0 || isStepActiveInEtapas || Boolean(activeStationName && (activeStationName.toLowerCase().trim() === step.toLowerCase().trim()));
+                const displayStep = (step.trim().toLowerCase() === 'preparação de folhas' || step.trim().toLowerCase() === 'preparacao de folhas')
+                  ? 'Preparação de Folha'
+                  : step;
 
                 return (
                   <div
@@ -652,7 +655,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                   >
                     <span className="text-slate-300 truncate font-medium">
                       <span className="text-slate-500 mr-1.5">{idx + 1}.</span>
-                      {step}
+                      {displayStep}
                     </span>
 
                     <div className="flex items-center gap-1.5 shrink-0">

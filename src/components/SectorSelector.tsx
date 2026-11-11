@@ -44,9 +44,15 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isTerminal5 = terminal.id === 5;
 
   const termKey = `T${terminal.id}` as keyof typeof POSTOS_POR_TERMINAL;
-  const rawTerminalSectors = Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
+  const rawTerminalSectors = (Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
     ? terminal.sectors
-    : (POSTOS_POR_TERMINAL[termKey] || []);
+    : (POSTOS_POR_TERMINAL[termKey] || [])
+  ).map((s: string) => {
+    const st = String(s || '').trim();
+    return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
+      ? 'Preparação de Folha'
+      : st;
+  });
   const availableSectors = Array.from(new Set(rawTerminalSectors));
 
   // 1. Extração robusta da rota da OP (op.rota, op.etapas ou steps calculados)

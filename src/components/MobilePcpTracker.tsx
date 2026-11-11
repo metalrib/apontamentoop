@@ -190,7 +190,7 @@ export function getShortStepName(stepName: string): string {
   if (upper.includes('SOLDA')) return 'Solda';
   if (upper.includes('ROUTER')) return 'Router';
   if (upper.includes('GAXETA')) return 'Gaxeta';
-  if (upper.includes('PREPARACAO') && upper.includes('FOLHA')) return 'Prep. Folhas';
+  if (upper.includes('PREPARACAO') && upper.includes('FOLHA')) return 'Prep. Folha';
   if (upper.includes('PREPARACAO') && upper.includes('BAT')) return 'Prep. Bat.';
   if (upper.includes('PREPARACAO') && upper.includes('VAI')) return 'Prep. Vai-Vem';
   if (upper.includes('PREPARACAO')) return 'Preparação';

@@ -244,7 +244,7 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: [
       "Corte",
       "Dobra",
-      "Preparação de Folhas",
+      "Preparação de Folha",
       "Injeção",
       "Instalação de Gaxeta",
       "Montagem de Portas Giratória Padrão e Especial"
@@ -258,7 +258,7 @@ export const ROUTE_RULES: RouteRule[] = [
     steps: [
       "Corte",
       "Dobra",
-      "Preparação de Folhas",
+      "Preparação de Folha",
       "Injeção",
       "Instalação de Gaxeta",
       "Montagem de Portas Giratória Padrão e Especial"
@@ -278,14 +278,14 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT COR",
     label: "Porta de Correr Especial",
-    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
   {
     keyword: "PT COR ESPECIAL",
     label: "Porta de Correr Especial",
-    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Especial Sob Medida (Fabricação Completa)",
     isStandardLine: false
   },
@@ -293,7 +293,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "PT EMENDADA",
     label: "Porta Emendada (Correr/Giro)",
-    steps: ["Corte", "Dobra", "Preparação de Folhas", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção", "Montagem Portas de Correr Padrão e Especial"],
     badge: "Porta Emendada",
     isStandardLine: false
   },
@@ -556,7 +556,7 @@ export { colaboradores };
 
 const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
   T1: ['Corte', 'Laser', 'Dobra'],
-  T2: ['Preparação de Folhas', 'Injeção'],
+  T2: ['Preparação de Folha', 'Injeção'],
   T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Portas Emendadas'],
   T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Porta Vai-Vem'],
   T5: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Solda e Montagem', 'Montagem Estante', 'Elétrica', 'Cortina']

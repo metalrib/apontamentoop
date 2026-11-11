@@ -109,7 +109,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       rota: [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -182,7 +182,7 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       rota: [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ],

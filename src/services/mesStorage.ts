@@ -280,7 +280,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       const novaRota = [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -395,7 +395,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       const novaRota = [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ];
@@ -669,20 +669,20 @@ export function fetchOperators(): Operator[] {
           }
         }
 
-        // Padronização: qualquer "Preparação de Folha" no singular é migrada para "Preparação de Folhas"
+        // Padronização compulsória: qualquer "Preparação de Folha" (com 's') é migrada para "Preparação de Folha" (no singular)
         for (let i = 0; i < uniqueSectors.length; i++) {
-          if (uniqueSectors[i].trim().toLowerCase() === 'preparação de folha' || uniqueSectors[i].trim().toLowerCase() === 'preparacao de folha') {
-            uniqueSectors[i] = 'Preparação de Folhas';
+          if (uniqueSectors[i].trim().toLowerCase() === 'preparação de folhas' || uniqueSectors[i].trim().toLowerCase() === 'preparacao de folhas') {
+            uniqueSectors[i] = 'Preparação de Folha';
           }
         }
 
-        // Garante que Danielson (DOB-02) e Leonardo Constancio (DOB-01) estejam em Dobra e Preparação de Folhas (e nunca Corte)
+        // Garante que Danielson (DOB-02) e Leonardo Constancio (DOB-01) estejam em Dobra e Preparação de Folha (e nunca Corte)
         const isDanielson = op.id === 'danielson' || nome.toLowerCase().includes('danielson') || badge === 'DOB-02';
         if (isDanielson) {
           const idxCorte = uniqueSectors.findIndex((s) => s.toLowerCase() === 'corte');
           if (idxCorte >= 0) uniqueSectors.splice(idxCorte, 1);
           if (!uniqueSectors.includes('Dobra')) uniqueSectors.push('Dobra');
-          if (!uniqueSectors.includes('Preparação de Folhas')) uniqueSectors.push('Preparação de Folhas');
+          if (!uniqueSectors.includes('Preparação de Folha')) uniqueSectors.push('Preparação de Folha');
         }
 
         const isLeonardoC = op.id === 'leonardo_c' || nome.toLowerCase().includes('leonardo constancio') || badge === 'DOB-01';
@@ -690,7 +690,7 @@ export function fetchOperators(): Operator[] {
           const idxCorte = uniqueSectors.findIndex((s) => s.toLowerCase() === 'corte');
           if (idxCorte >= 0) uniqueSectors.splice(idxCorte, 1);
           if (!uniqueSectors.includes('Dobra')) uniqueSectors.push('Dobra');
-          if (!uniqueSectors.includes('Preparação de Folhas')) uniqueSectors.push('Preparação de Folhas');
+          if (!uniqueSectors.includes('Preparação de Folha')) uniqueSectors.push('Preparação de Folha');
         }
 
         const setoresPorTerm = op.setoresPorTerminal ? { ...op.setoresPorTerminal } : undefined;
@@ -952,10 +952,10 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       changed = true;
     }
 
-    // Padronização compulsória de "Preparação de Folha" para "Preparação de Folhas"
-    const hasSingularFolha = sectors.some((s) => s.trim().toLowerCase() === 'preparação de folha' || s.trim().toLowerCase() === 'preparacao de folha');
-    if (hasSingularFolha) {
-      sectors = sectors.map((s) => (s.trim().toLowerCase() === 'preparação de folha' || s.trim().toLowerCase() === 'preparacao de folha') ? 'Preparação de Folhas' : s);
+    // Padronização compulsória de "Preparação de Folha" para "Preparação de Folha" (no singular)
+    const hasPluralFolhas = sectors.some((s) => s.trim().toLowerCase() === 'preparação de folhas' || s.trim().toLowerCase() === 'preparacao de folhas');
+    if (hasPluralFolhas) {
+      sectors = sectors.map((s) => (s.trim().toLowerCase() === 'preparação de folhas' || s.trim().toLowerCase() === 'preparacao de folhas') ? 'Preparação de Folha' : s);
       sectors = Array.from(new Set(sectors));
       changed = true;
     }
@@ -3156,7 +3156,7 @@ export async function saveMultipleOrders(
         etapasFinais = [
           'Corte',
           'Dobra',
-          'Preparação de Folhas',
+          'Preparação de Folha',
           'Injeção',
           'Instalação de Gaxeta',
           'Montagem de Portas Giratória Padrão e Especial'
@@ -3230,7 +3230,7 @@ export async function saveMultipleOrders(
         etapasFinais = [
           'Corte',
           'Dobra',
-          'Preparação de Folhas',
+          'Preparação de Folha',
           'Injeção',
           'Montagem Portas de Correr Padrão e Especial'
         ];

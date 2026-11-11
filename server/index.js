@@ -556,15 +556,17 @@ app.post('/api/apontamentos', (req, res) => {
       observacao = excluded.observacao
   `);
 
+  const sanitizeSetor = (s) => (s ? String(s).replace(/Preparação de Folhas/g, 'Preparação de Folha').replace(/preparacao de folhas/gi, 'Preparação de Folha') : '');
+
   stmt.run({
     id: String(apt.id),
     op_numero: formatOp,
     unidade_numero: Number(apt.unidade_numero || 0),
     unidade: apt.unidade || '',
     modo: apt.modo || 'LOTE',
-    setor: apt.setor || '',
-    setorFisico: apt.setorFisico || apt.setor || '',
-    etapa_rota: apt.etapa_rota || apt.etapaRota || '',
+    setor: sanitizeSetor(apt.setor),
+    setorFisico: sanitizeSetor(apt.setorFisico || apt.setor),
+    etapa_rota: sanitizeSetor(apt.etapa_rota || apt.etapaRota),
     terminal_id: Number(apt.terminal_id || 1),
     terminal: apt.terminal || `T${apt.terminal_id || 1}`,
     operador: apt.operador || apt.colaborador || '',

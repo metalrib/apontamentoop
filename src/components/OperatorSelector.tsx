@@ -70,7 +70,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
     };
   }, [loadOps]);
 
-  // Normalização padronizada do posto (singular/plural)
+  // Normalização padronizada do posto (unificado no singular 'folha')
   const normPosto = (str: string) =>
     (str || '')
       .trim()
@@ -78,9 +78,9 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/[-_\s]+/g, ' ')
-      .replace(/folha$/, 'folhas');
+      .replace(/folhas$/, 'folha');
 
-  // Função de match exato com suporte a normalização Folha/Folhas
+  // Função de match exato com suporte a normalização Folha/Folhas (padronizado no singular)
   const matchPosto = (postoColab: string, postoAtivo: string): boolean => {
     if (!postoColab || !postoAtivo) return false;
     const a = normPosto(postoColab);
@@ -180,6 +180,20 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         ...(colab.postos ? colab.postos : []),
         ...(colab.setoresPorTerminal?.[termKey] || [])
       ];
+
+      // Verificação direta para "Preparação de Folha" (Leonardo C., Danielson e operadores habilitados)
+      const isTargetPrepFolha = targetNorm.includes('preparacao') && targetNorm.includes('folha');
+      if (isTargetPrepFolha) {
+        const hasPrepFolha = colabSetores.some((s) => {
+          const norm = (s || '').trim().toLowerCase();
+          return norm === 'preparação de folha' || norm === 'preparacao de folha' ||
+                 norm === 'preparação de folhas' || norm === 'preparacao de folhas' ||
+                 (norm.includes('preparacao') && norm.includes('folha'));
+        });
+        if (hasPrepFolha) {
+          return true;
+        }
+      }
 
       // b) Tenham o posto selecionado ativo em seus setores autorizados
       const hasDirectSector = colabSetores.some((s) => matchPosto(s, targetSector));

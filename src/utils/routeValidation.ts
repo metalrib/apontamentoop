@@ -931,7 +931,7 @@ export function obterEtapasDaRota(op: any): string[] {
 
   // 3. FOLHAS AVULSAS (020.0009 a 020.0031 ou início FOLHA)
   else if ((cod >= '020.0009' && cod <= '020.0021') || (cod >= '020.0022' && cod <= '020.0031') || desc.startsWith('FOLHA ') || desc.startsWith('FOLHA')) {
-    steps = ['Corte', 'Dobra', 'Preparação de Folhas', 'Injeção de Folhas'];
+    steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
   }
 
   // 4. BATENTES AVULSOS (020.0032 a 020.0057 ou início BAT)
@@ -955,7 +955,7 @@ export function obterEtapasDaRota(op: any): string[] {
     steps = [
       'Corte',
       'Dobra',
-      'Preparação de Folhas',
+      'Preparação de Folha',
       'Injeção de Folhas',
       'Instalação de Gaxeta',
       'Montagem Office Door Giratória'
@@ -1007,7 +1007,7 @@ export function obterEtapasDaRota(op: any): string[] {
       steps = [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -1068,7 +1068,7 @@ export function obterEtapasDaRota(op: any): string[] {
       steps = [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ];
@@ -1217,7 +1217,7 @@ export function definirRotaProduto(op: {
       rota: [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Instalação de Gaxeta',
         'Montagem de Portas Giratória Padrão e Especial'
@@ -1277,7 +1277,7 @@ export function definirRotaProduto(op: {
       rota: [
         'Corte',
         'Dobra',
-        'Preparação de Folhas',
+        'Preparação de Folha',
         'Injeção',
         'Montagem Portas de Correr Padrão e Especial'
       ]
