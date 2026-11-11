@@ -57,6 +57,14 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
+  // Referências síncronas para validação em listeners do Socket.io (evita closures desatualizadas)
+  const selectedOpNumberRef = useRef<string | null>(selectedOpNumber);
+  selectedOpNumberRef.current = selectedOpNumber;
+  const selectedSectorRef = useRef<string | null>(selectedSector);
+  selectedSectorRef.current = selectedSector;
+  const selectedOperatorRef = useRef<string | null>(selectedOperator);
+  selectedOperatorRef.current = selectedOperator;
+
   // Auto-Limpeza de 3 Segundos
   const [toastData, setToastData] = useState<{ message: string; details?: string } | null>(null);
 
@@ -214,9 +222,68 @@ export default function App() {
         // Recarrega apontamentos atualizados (necessário quando uma OP foi resetada ou teve unidades concluídas/estornadas)
         const updatedApts = await fetchApontamentos();
         setApontamentos(Array.isArray(updatedApts) ? updatedApts : []);
+
+        // Se a OP aberta no Totem teve sua etapa cancelada ou retornada para PENDENTE no banco
+        const currentSelectedClean = cleanOpId(selectedOpNumberRef.current || '');
+        if (currentSelectedClean) {
+          const currentOrder = finalMap[currentSelectedClean];
+          const currentSector = selectedSectorRef.current;
+          if (currentOrder && currentSector) {
+            const stepData = currentOrder.etapas && typeof currentOrder.etapas === 'object'
+              ? (Array.isArray(currentOrder.etapas)
+                  ? currentOrder.etapas.find((e: any) => (typeof e === 'string' ? e : e.nome) === currentSector)
+                  : currentOrder.etapas[currentSector])
+              : null;
+
+            const hasActiveApt = Array.isArray(updatedApts) && updatedApts.some((a) => {
+              const aClean = cleanOpId(a.op_numero || (a as any).opNumero || '');
+              return aClean === currentSelectedClean && (a.status === 'EM_ANDAMENTO' || a.status === 'EM_PRODUCAO');
+            });
+
+            if (stepData && typeof stepData === 'object' && stepData.status === 'PENDENTE' && !stepData.inicio && !hasActiveApt && selectedOperatorRef.current) {
+              console.log('[Totem] Etapa cancelada remotamente. Retornando ao início...');
+              handleResetScreen();
+              setToastData({
+                message: '⚠️ Etapa cancelada pelo PCP',
+                details: `A etapa ${currentSector} da ${formatOpNumber(currentSelectedClean)} foi cancelada pelo PCP. Tela reiniciada.`
+              });
+            }
+          }
+        }
       };
 
-      const handleOpResetada = () => {
+      const handleOrdemResetada = (data: any) => {
+        const resetOpNum = cleanOpId(data?.numero || data?.opNumero || data?.id || '');
+        const currentSelectedClean = cleanOpId(selectedOpNumberRef.current || '');
+        const resetEtapa = String(data?.etapa || data?.setor || '').trim().toLowerCase();
+        const currentSector = String(selectedSectorRef.current || '').trim().toLowerCase();
+
+        // Se a OP resetada/cancelada pelo PCP estiver aberta na tela do Totem:
+        if (currentSelectedClean && resetOpNum && currentSelectedClean === resetOpNum) {
+          const isSameEtapa = !resetEtapa || !currentSector || resetEtapa === currentSector || currentSector.includes(resetEtapa) || resetEtapa.includes(currentSector);
+          if (isSameEtapa) {
+            handleResetScreen();
+            playBlockedError();
+            setToastData({
+              message: '⚠️ Etapa estornada pelo PCP',
+              details: `A etapa ${data?.etapa || ''} da ${formatOpNumber(resetOpNum)} foi cancelada pelo PCP. Tela reiniciada.`
+            });
+          }
+        }
+        loadData();
+      };
+
+      const handleOpResetada = (data: any) => {
+        const resetOpNum = cleanOpId(data?.numero || data?.opNumero || data?.id || '');
+        const currentSelectedClean = cleanOpId(selectedOpNumberRef.current || '');
+        if (currentSelectedClean && resetOpNum && currentSelectedClean === resetOpNum) {
+          handleResetScreen();
+          playBlockedError();
+          setToastData({
+            message: '⚠️ OP Resetada pelo PCP',
+            details: `A ordem ${formatOpNumber(resetOpNum)} foi resetada pelo PCP. Tela reiniciada.`
+          });
+        }
         loadData();
       };
 
@@ -232,6 +299,7 @@ export default function App() {
 
       socket.on('ordens_atualizadas', handleAtualizacao);
       socket.on('op_resetada', handleOpResetada);
+      socket.on('ordem_resetada', handleOrdemResetada);
       socket.on('ordem_apontada', handleOrdemApontada);
       socket.on('colaboradores_atualizados', handleColaboradoresAtualizados);
 
@@ -239,14 +307,22 @@ export default function App() {
       const handleWindowReset = () => {
         loadData();
       };
+      const handleWindowResetada = (e: any) => {
+        handleOrdemResetada(e.detail);
+      };
+      window.addEventListener('metalrib_ordem_resetada', handleWindowResetada);
+      window.addEventListener('metalrib_op_resetada', handleWindowResetada);
       window.addEventListener('metalrib_orders_updated', handleWindowReset);
       window.addEventListener('metalrib_apontamentos_updated', handleWindowReset);
 
       return () => {
         socket.off('ordens_atualizadas', handleAtualizacao);
         socket.off('op_resetada', handleOpResetada);
+        socket.off('ordem_resetada', handleOrdemResetada);
         socket.off('ordem_apontada', handleOrdemApontada);
         socket.off('colaboradores_atualizados', handleColaboradoresAtualizados);
+        window.removeEventListener('metalrib_ordem_resetada', handleWindowResetada);
+        window.removeEventListener('metalrib_op_resetada', handleWindowResetada);
         window.removeEventListener('metalrib_orders_updated', handleWindowReset);
         window.removeEventListener('metalrib_apontamentos_updated', handleWindowReset);
       };

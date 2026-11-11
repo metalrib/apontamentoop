@@ -616,6 +616,22 @@ export function initLocalSocketListeners(): void {
       }
     });
 
+    socket.on('ordem_resetada', (data: any) => {
+      console.log('[Socket.io] Evento ordem_resetada recebido:', data);
+      window.dispatchEvent(new CustomEvent('metalrib_ordem_resetada', { detail: data }));
+      window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
+      window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
+      fetchLocalOrdens();
+    });
+
+    socket.on('op_resetada', (data: any) => {
+      console.log('[Socket.io] Evento op_resetada recebido:', data);
+      window.dispatchEvent(new CustomEvent('metalrib_op_resetada', { detail: data }));
+      window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
+      window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
+      fetchLocalOrdens();
+    });
+
     socket.on('setores_atualizados', (terms: any[]) => {
       if (Array.isArray(terms) && terms.length > 0) {
         const { terminals: sanitized } = sanitizeTerminalSectors(terms);
@@ -2539,12 +2555,34 @@ export async function cancelarInicioEtapa(
 
     try {
       const localUrl = getLocalServerUrl();
-      fetch(`${localUrl}/api/ordens/${cleanOpId(matchedLocalKey)}`, {
-        method: 'PUT',
+      const numClean = cleanOpId(matchedLocalKey || opNumero);
+      
+      // Chamada oficial à rota de estorno/reset-etapa
+      await fetch(`${localUrl}/api/ordens/${numClean}/reset-etapa`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cleanUpdates)
-      }).catch(() => {});
-    } catch {}
+        body: JSON.stringify({
+          numero: numClean,
+          opNumero: formatOpNumber(numClean),
+          etapa: setorOuEtapa,
+          apontamentoId
+        })
+      }).catch((e) => {
+        console.warn('Falha no fetch reset-etapa:', e);
+      });
+
+      // Emite evento via socket local se conectado
+      const socket = getLocalSocket();
+      if (socket && socket.connected) {
+        socket.emit('resetar_etapa', {
+          numero: numClean,
+          opNumero: formatOpNumber(numClean),
+          etapa: setorOuEtapa
+        });
+      }
+    } catch (errSync) {
+      console.warn('Erro ao sincronizar estorno de etapa:', errSync);
+    }
 
     // Atualiza também no localStorage
     ordersMap[matchedLocalKey] = { ...targetOrder, ...cleanUpdates };

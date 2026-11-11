@@ -354,6 +354,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                 </div>
                 <button
                   type="button"
+                  disabled={isResetting}
                   onClick={(e) => {
                     e.stopPropagation();
                     playClick();
@@ -361,11 +362,13 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                       activeApt?.etapa_rota || activeApt?.setorFisico || activeApt?.setor || activeStationName
                     );
                   }}
-                  className="px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
+                  className={`px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 transition shrink-0 ${
+                    isResetting ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer active:scale-95'
+                  }`}
                   title="Resetar etapa em andamento (cancelar início acidental)"
                 >
-                  <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Resetar Etapa</span>
+                  <RotateCcw className={`w-3.5 h-3.5 text-rose-400 ${isResetting ? 'animate-spin' : ''}`} />
+                  <span>{isResetting ? 'Resetando...' : 'Resetar Etapa'}</span>
                 </button>
               </div>
             ) : nextWaitingStep ? (
@@ -609,17 +612,20 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                     </div>
                     <button
                       type="button"
+                      disabled={isResetting}
                       onClick={(e) => {
                         e.stopPropagation();
                         setStepToReset(
                           activeApt?.etapa_rota || activeApt?.setorFisico || activeApt?.setor || activeStationName
                         );
                       }}
-                      className="px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
+                      className={`px-2 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 transition shrink-0 ${
+                        isResetting ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer active:scale-95'
+                      }`}
                       title="Resetar etapa em andamento (cancelar início acidental)"
                     >
-                      <RotateCcw className="w-3 h-3 text-rose-400" />
-                      <span>Resetar Etapa</span>
+                      <RotateCcw className={`w-3 h-3 text-rose-400 ${isResetting ? 'animate-spin' : ''}`} />
+                      <span>{isResetting ? 'Resetando...' : 'Resetar Etapa'}</span>
                     </button>
                   </div>
                 ) : nextWaitingStep ? (
@@ -670,16 +676,19 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                           </span>
                           <button
                             type="button"
+                            disabled={isResetting}
                             onClick={(e) => {
                               e.stopPropagation();
                               playClick();
                               setStepToReset(step);
                             }}
-                            className="px-1.5 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer transition active:scale-95 shrink-0"
+                            className={`px-1.5 py-0.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded text-[10px] font-bold flex items-center gap-1 transition shrink-0 ${
+                              isResetting ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer active:scale-95'
+                            }`}
                             title={`Resetar etapa ${step} (cancelar início acidental)`}
                           >
-                            <RotateCcw className="w-3 h-3 text-rose-400" />
-                            <span>Resetar</span>
+                            <RotateCcw className={`w-3 h-3 text-rose-400 ${isResetting ? 'animate-spin' : ''}`} />
+                            <span>{isResetting ? '...' : 'Resetar'}</span>
                           </button>
                         </div>
                       ) : finalizadas > 0 ? (
@@ -761,11 +770,14 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             <div className="flex items-center gap-3">
               <button
                 type="button"
+                disabled={isResetting}
                 onClick={(e) => {
                   e.stopPropagation();
                   setStepToReset(null);
                 }}
-                className="flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition cursor-pointer"
+                className={`flex-1 py-2.5 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-xs rounded-xl transition ${
+                  isResetting ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer'
+                }`}
               >
                 Cancelar
               </button>
@@ -776,10 +788,15 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                   handleConfirmResetStep();
                 }}
                 disabled={isResetting}
-                className="flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 active:scale-[0.99] text-white font-bold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                className={`flex-1 py-2.5 px-4 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition shadow-lg flex items-center justify-center gap-2 uppercase tracking-wider ${
+                  isResetting ? 'opacity-60 cursor-not-allowed pointer-events-none' : 'active:scale-[0.99] cursor-pointer'
+                }`}
               >
                 {isResetting ? (
-                  <span className="animate-spin text-sm">↻</span>
+                  <>
+                    <RotateCcw className="w-4 h-4 animate-spin text-white" />
+                    <span>Resetando...</span>
+                  </>
                 ) : (
                   <>
                     <RotateCcw className="w-4 h-4" />

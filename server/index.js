@@ -1,3 +1,10 @@
+// Resiliência do processo Node.js contra encerramentos inesperados
+process.on('uncaughtException', (err) => {
+  console.error('[Server Error] Erro não tratado:', err);
+});
+process.on('unhandledRejection', (reason, p) => {
+  console.error('[Server Rejection] Promise rejeitada:', reason);
+});
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -558,6 +565,215 @@ app.put('/api/ordens/:identificador/reset', (req, res, next) => {
   app._router.handle({ ...req, method: 'POST' }, res, next);
 });
 
+// 5b. Função reutilizável e rota oficial de ESTORNO / RESET DE ETAPA de uma OP
+function executarResetEtapa(numeroRaw, etapaRaw) {
+  if (!numeroRaw) throw new Error('Número da OP é obrigatório');
+  const cleanNumero = String(numeroRaw).replace(/^(\s*OP\s*)+/i, '').trim();
+  const formatNumero = `OP ${cleanNumero}`;
+  const cleanEtapa = String(etapaRaw || '').trim();
+
+  // 1. Limpa apontamentos ativos/em andamento ou sem hora_fim desta etapa no SQLite
+  try {
+    if (cleanEtapa) {
+      db.prepare(`
+        DELETE FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?) 
+          AND (
+            LOWER(TRIM(COALESCE(setor, ''))) = LOWER(?) 
+            OR LOWER(TRIM(COALESCE(setorFisico, ''))) = LOWER(?) 
+            OR LOWER(TRIM(COALESCE(etapa_rota, ''))) = LOWER(?)
+            OR etapa_rota LIKE ? 
+            OR setor LIKE ?
+          )
+          AND (status = 'EM_ANDAMENTO' OR status = 'EM_PRODUCAO' OR hora_fim IS NULL OR hora_fim = '')
+      `).run(
+        formatNumero, cleanNumero, numeroRaw,
+        cleanEtapa, cleanEtapa, cleanEtapa,
+        `%${cleanEtapa}%`, `%${cleanEtapa}%`
+      );
+    } else {
+      db.prepare(`
+        DELETE FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?)
+          AND (status = 'EM_ANDAMENTO' OR status = 'EM_PRODUCAO' OR hora_fim IS NULL OR hora_fim = '')
+      `).run(formatNumero, cleanNumero, numeroRaw);
+    }
+  } catch (errDb) {
+    console.warn('[executarResetEtapa] Aviso ao remover apontamentos:', errDb);
+  }
+
+  // 2. Busca ordem atual no SQLite para resetar o status da etapa
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+    .get(numeroRaw, cleanNumero, formatNumero, cleanNumero);
+
+  let etapasSerialized = null;
+  let previousStatus = 'Aguardando Início';
+
+  if (opRow && opRow.etapas) {
+    try {
+      const parsed = JSON.parse(opRow.etapas);
+      if (Array.isArray(parsed)) {
+        const etapasArr = parsed.map((e) => {
+          const nome = typeof e === 'string' ? e : (e.nome || e.etapa || e.step);
+          const isMatch = cleanEtapa ? (
+            nome && (
+              nome.toLowerCase().trim() === cleanEtapa.toLowerCase().trim() ||
+              nome.toLowerCase().includes(cleanEtapa.toLowerCase()) ||
+              cleanEtapa.toLowerCase().includes(nome.toLowerCase())
+            )
+          ) : true;
+
+          if (isMatch) {
+            if (typeof e === 'string') return e;
+            return {
+              ...e,
+              status: 'PENDENTE',
+              emAndamento: 0,
+              inicio: null,
+              horaInicio: null,
+              hora_inicio: null,
+              fim: null,
+              operador: null,
+              operadorId: null,
+              operadorNome: null,
+              colaborador: null,
+              pecas: Array.isArray(e.pecas) ? e.pecas.map(p => ({
+                ...p,
+                status: 'PENDENTE',
+                inicio: null,
+                fim: null,
+                operadorId: null,
+                operadorNome: null
+              })) : undefined
+            };
+          }
+          return e;
+        });
+
+        const hasActive = etapasArr.some(e => typeof e === 'object' && (e.status === 'EM_ANDAMENTO' || e.status === 'EM_PRODUCAO'));
+        const hasCompleted = etapasArr.some(e => typeof e === 'object' && ((e.status === 'CONCLUIDO') || ((e.concluidas || 0) > 0)));
+        if (hasActive) {
+          previousStatus = 'EM_PRODUCAO';
+        } else if (hasCompleted) {
+          previousStatus = 'EM_PRODUCAO';
+        } else {
+          previousStatus = `Aguardando Início em: ${cleanEtapa || 'Corte'}`;
+        }
+        etapasSerialized = JSON.stringify(etapasArr);
+      } else if (parsed && typeof parsed === 'object') {
+        const etapasObj = { ...parsed };
+        for (const [k, v] of Object.entries(etapasObj)) {
+          const isMatch = cleanEtapa ? (
+            k.toLowerCase().trim() === cleanEtapa.toLowerCase().trim() ||
+            k.toLowerCase().includes(cleanEtapa.toLowerCase()) ||
+            cleanEtapa.toLowerCase().includes(k.toLowerCase())
+          ) : true;
+
+          if (isMatch && v && typeof v === 'object') {
+            etapasObj[k] = {
+              ...v,
+              status: 'PENDENTE',
+              emAndamento: 0,
+              inicio: null,
+              horaInicio: null,
+              hora_inicio: null,
+              fim: null,
+              operadorId: null,
+              operadorNome: null,
+              colaborador: null,
+              pecas: Array.isArray(v.pecas) ? v.pecas.map(p => ({
+                ...p,
+                status: 'PENDENTE',
+                inicio: null,
+                fim: null,
+                operadorId: null,
+                operadorNome: null
+              })) : undefined
+            };
+          }
+        }
+        const values = Object.values(etapasObj);
+        const hasActive = values.some(v => v && typeof v === 'object' && (v.status === 'EM_ANDAMENTO' || v.status === 'EM_PRODUCAO'));
+        const hasCompleted = values.some(v => v && typeof v === 'object' && ((v.status === 'CONCLUIDO') || ((v.concluidas || 0) > 0)));
+        if (hasActive) {
+          previousStatus = 'EM_PRODUCAO';
+        } else if (hasCompleted) {
+          previousStatus = 'EM_PRODUCAO';
+        } else {
+          previousStatus = `Aguardando Início em: ${cleanEtapa || 'Corte'}`;
+        }
+        etapasSerialized = JSON.stringify(etapasObj);
+      }
+    } catch (err) {
+      console.warn('[executarResetEtapa] Erro ao parsear etapas:', err);
+    }
+  }
+
+  // 3. Atualiza registro da OP no SQLite
+  try {
+    db.prepare(`
+      UPDATE ordens SET
+        status = COALESCE(?, status),
+        etapas = COALESCE(?, etapas),
+        atualizadoEm = ?
+      WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+    `).run(
+      previousStatus,
+      etapasSerialized,
+      Date.now(),
+      numeroRaw, cleanNumero, formatNumero, cleanNumero
+    );
+  } catch (errUp) {
+    console.warn('[executarResetEtapa] Erro ao atualizar tabela ordens:', errUp);
+  }
+
+  // 4. Busca listas sincronizadas para broadcast
+  const todas = obterTodasOrdens();
+  const todosApts = db.prepare('SELECT * FROM apontamentos ORDER BY criadoEm DESC').all();
+
+  // Emissões Socket.io para TODOS os clientes conectados
+  io.emit('ordens_atualizadas', todas);
+  io.emit('apontamentos_atualizados', todosApts);
+  io.emit('ordem_resetada', {
+    id: cleanNumero,
+    numero: formatNumero,
+    opNumero: formatNumero,
+    etapa: cleanEtapa,
+    status: previousStatus
+  });
+  io.emit('op_resetada', {
+    id: cleanNumero,
+    opNumero: formatNumero,
+    etapa: cleanEtapa,
+    status: previousStatus
+  });
+
+  return {
+    success: true,
+    message: `Etapa ${cleanEtapa} da OP ${formatNumero} estornada/resetada com sucesso`,
+    status: previousStatus,
+    numero: formatNumero,
+    etapa: cleanEtapa
+  };
+}
+
+// Rota oficial de estorno / reset de etapa específica de uma OP
+app.post(['/api/ordens/:numero/reset-etapa', '/api/ordens/:numero/estorno', '/api/ordens/reset-etapa', '/api/ordens/estorno'], (req, res) => {
+  try {
+    const numero = req.params.numero || req.body.numero || req.body.opNumero || req.body.id;
+    const etapa = req.body.etapa || req.body.setor || req.body.step || req.body.setorOuEtapa;
+    const result = executarResetEtapa(numero, etapa);
+    res.json(result);
+  } catch (err) {
+    console.error('[reset-etapa] Erro ao estornar etapa:', err);
+    res.status(500).json({ error: err.message || 'Erro ao estornar etapa' });
+  }
+});
+
+app.put(['/api/ordens/:numero/reset-etapa', '/api/ordens/:numero/estorno'], (req, res, next) => {
+  app._router.handle({ ...req, method: 'POST' }, res, next);
+});
+
 // 6. Rota para Toggle de Laser CNC
 app.post('/api/ordens/:identificador/laser', (req, res) => {
   const { identificador } = req.params;
@@ -866,6 +1082,18 @@ app.delete('/api/ordens', (req, res) => {
 
 io.on('connection', (socket) => {
   console.log('Cliente ligado via WebSocket:', socket.id);
+
+  socket.on('resetar_etapa', (data) => {
+    try {
+      if (!data) return;
+      const num = data.numero || data.opNumero || data.id;
+      const etapa = data.etapa || data.setor;
+      if (!num) return;
+      executarResetEtapa(num, etapa);
+    } catch (err) {
+      console.error('[Socket resetar_etapa] Erro:', err);
+    }
+  });
 
   socket.on('criar_setor', (data) => {
     if (!data) return;
