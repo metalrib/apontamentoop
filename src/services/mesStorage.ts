@@ -606,6 +606,26 @@ export function initLocalSocketListeners(): void {
       fetchLocalOrdens();
     });
 
+    socket.on('terminais_atualizados', (terms: any[]) => {
+      if (Array.isArray(terms) && terms.length > 0) {
+        const { terminals: sanitized } = sanitizeTerminalSectors(terms);
+        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+        const setoresMap = buildSetoresMap(sanitized);
+        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
+      }
+    });
+
+    socket.on('setores_atualizados', (terms: any[]) => {
+      if (Array.isArray(terms) && terms.length > 0) {
+        const { terminals: sanitized } = sanitizeTerminalSectors(terms);
+        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+        const setoresMap = buildSetoresMap(sanitized);
+        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
+      }
+    });
+
     socket.on('ordens_atualizadas', (ordens: any[]) => {
       console.log('[Socket.io] Evento ordens_atualizadas recebido do servidor local:', ordens?.length);
       if (Array.isArray(ordens)) {
@@ -1046,6 +1066,20 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
   localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
   broadcastUpdate();
   window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
+
+  // Sincronização em tempo real via API SQLite e WebSocket
+  try {
+    const socket = getLocalSocket();
+    if (socket && socket.connected) {
+      socket.emit('atualizar_terminais', cleaned);
+    }
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/terminais`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terminals: cleaned })
+    }).catch(() => {});
+  } catch {}
 }
 
 export function fetchAllSectors(): string[] {
@@ -1059,6 +1093,39 @@ export function fetchAllSectors(): string[] {
     }
   });
   return Array.from(set);
+}
+
+export async function addSectorToTerminalAndSync(terminalId: number | string, sectorName: string): Promise<boolean> {
+  const clean = sectorName.trim();
+  if (!clean) return false;
+  const termIdNum = typeof terminalId === 'string' ? parseInt(terminalId.replace(/\D/g, ''), 10) : terminalId;
+  const termIdStr = String(termIdNum || terminalId);
+  const terminals = fetchTerminalsConfig();
+  const term = terminals.find((t) => t.id === termIdNum || String(t.id) === termIdStr);
+  if (!term) return false;
+  if (!term.sectors) term.sectors = [];
+  if (term.sectors.some((s) => s.toLowerCase() === clean.toLowerCase())) {
+    return false;
+  }
+  term.sectors.push(clean);
+  (term as any).setores = [...term.sectors];
+  saveTerminalsConfig(terminals);
+
+  // Dispara sincronização remota com SQLite e WebSocket
+  try {
+    const localUrl = getLocalServerUrl();
+    const socket = getLocalSocket();
+    if (socket && socket.connected) {
+      socket.emit('criar_setor', { terminalId: termIdNum, sectorName: clean });
+    }
+    fetch(`${localUrl}/api/terminais/${termIdNum}/setores`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sectorName: clean })
+    }).catch(() => {});
+  } catch {}
+
+  return true;
 }
 
 export function addSectorToTerminal(terminalId: number | string, sectorName: string): boolean {

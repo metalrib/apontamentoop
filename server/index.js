@@ -91,6 +91,37 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_colaboradores_nome ON colaboradores(nome);
 `);
 
+// Tabela de Terminais e Setores para sincronização em tempo real entre PCP e Totens
+db.exec(`
+  CREATE TABLE IF NOT EXISTS terminais (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    label TEXT,
+    sectors TEXT,
+    atualizadoEm INTEGER
+  );
+`);
+
+// Inicialização com os 5 terminais oficiais caso esteja vazio
+try {
+  const countTerms = db.prepare('SELECT COUNT(*) as count FROM terminais').get();
+  if (!countTerms || countTerms.count === 0) {
+    const defaultTerms = [
+      { id: 1, name: 'Terminal 1', label: 'Corte, Dobra e Laser', sectors: JSON.stringify(['Corte', 'Laser', 'Dobra', 'Preparação de Folha']) },
+      { id: 2, name: 'Terminal 2', label: 'Preparação e Injetora de folhas', sectors: JSON.stringify(['Preparação de Folha', 'Preparação Office Door', 'Injeção', 'Injeção de Folhas']) },
+      { id: 3, name: 'Terminal 3', label: 'Batentes e Portas Office/Emendadas', sectors: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Montagem Portas de Correr Padrão e Especial', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Instalação de Gaxeta', 'Finalização Vai Vem', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
+      { id: 4, name: 'Terminal 4', label: 'Montagem Vai-Vem & Gaxeta', sectors: JSON.stringify(['Montagem Porta Vai-Vem', 'Montagem Portas Office Door', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
+      { id: 5, name: 'Terminal 5', label: 'Router, Solda e Especiais', sectors: JSON.stringify(['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Solda', 'Solda e Montagem', 'Montagem Estante', 'Elétrica', 'Cortina', 'Montagem Portas de Correr Padrão e Especial']) }
+    ];
+    const insertTerm = db.prepare('INSERT INTO terminais (id, name, label, sectors, atualizadoEm) VALUES (?, ?, ?, ?, ?)');
+    for (const dt of defaultTerms) {
+      insertTerm.run(dt.id, dt.name, dt.label, dt.sectors, Date.now());
+    }
+  }
+} catch (e) {
+  console.warn('[SQLite] Erro ao inicializar terminais padrão:', e);
+}
+
 // Limpeza preventiva de duplicações e padronização de IDs
 try {
   db.exec(`
@@ -224,6 +255,108 @@ app.post('/api/colaboradores', (req, res) => {
   const todos = obterColaboradores();
   io.emit('colaboradores_atualizados', todos);
   res.json({ success: true, count: todos.length });
+});
+
+function obterTerminais() {
+  const rows = db.prepare('SELECT * FROM terminais ORDER BY id ASC').all();
+  return rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    label: r.label,
+    sectors: JSON.parse(r.sectors || '[]'),
+    setores: JSON.parse(r.sectors || '[]'),
+    atualizadoEm: r.atualizadoEm
+  }));
+}
+
+app.get('/api/terminais', (req, res) => {
+  try {
+    const list = obterTerminais();
+    res.json(list);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/terminais', (req, res) => {
+  try {
+    const { terminals } = req.body;
+    if (!Array.isArray(terminals)) return res.status(400).json({ error: 'Terminais inválidos' });
+
+    const stmt = db.prepare(`
+      INSERT INTO terminais (id, name, label, sectors, atualizadoEm)
+      VALUES (@id, @name, @label, @sectors, @atualizadoEm)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        label = excluded.label,
+        sectors = excluded.sectors,
+        atualizadoEm = excluded.atualizadoEm
+    `);
+
+    const now = Date.now();
+    const tx = db.transaction((terms) => {
+      for (const t of terms) {
+        const secs = Array.isArray(t.sectors) ? t.sectors : (Array.isArray(t.setores) ? t.setores : []);
+        stmt.run({
+          id: Number(t.id),
+          name: String(t.name || `Terminal ${t.id}`),
+          label: String(t.label || ''),
+          sectors: JSON.stringify(secs),
+          atualizadoEm: now
+        });
+      }
+    });
+
+    tx(terminals);
+    const atualizados = obterTerminais();
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
+    res.json({ success: true, count: atualizados.length, terminals: atualizados });
+  } catch (err) {
+    console.error('Erro ao salvar terminais:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/terminais/:id/setores', (req, res) => {
+  try {
+    const termId = Number(req.params.id);
+    const { sectorName, setor } = req.body;
+    const clean = String(sectorName || setor || '').trim();
+    if (!clean) return res.status(400).json({ error: 'Nome do setor obrigatório' });
+
+    const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
+    let sectors = [];
+    if (row) {
+      sectors = JSON.parse(row.sectors || '[]');
+    }
+    if (!sectors.some(s => s.toLowerCase() === clean.toLowerCase())) {
+      sectors.push(clean);
+    }
+
+    const now = Date.now();
+    db.prepare(`
+      INSERT INTO terminais (id, name, label, sectors, atualizadoEm)
+      VALUES (@id, @name, @label, @sectors, @atualizadoEm)
+      ON CONFLICT(id) DO UPDATE SET
+        sectors = excluded.sectors,
+        atualizadoEm = excluded.atualizadoEm
+    `).run({
+      id: termId,
+      name: row ? row.name : `Terminal ${termId}`,
+      label: row ? row.label : '',
+      sectors: JSON.stringify(sectors),
+      atualizadoEm: now
+    });
+
+    const atualizados = obterTerminais();
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
+    res.json({ success: true, terminalId: termId, sector: clean, terminals: atualizados });
+  } catch (err) {
+    console.error('Erro ao adicionar setor ao terminal:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // 2. Limpeza de duplicadas
@@ -733,6 +866,56 @@ app.delete('/api/ordens', (req, res) => {
 
 io.on('connection', (socket) => {
   console.log('Cliente ligado via WebSocket:', socket.id);
+
+  socket.on('criar_setor', (data) => {
+    if (!data) return;
+    const termId = Number(data.terminalId || 1);
+    const clean = String(data.sectorName || data.setor || '').trim();
+    if (!clean) return;
+    const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
+    let sectors = [];
+    if (row) {
+      sectors = JSON.parse(row.sectors || '[]');
+    }
+    if (!sectors.some(s => s.toLowerCase() === clean.toLowerCase())) {
+      sectors.push(clean);
+      db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?')
+        .run(JSON.stringify(sectors), Date.now(), termId);
+      const atualizados = obterTerminais();
+      io.emit('terminais_atualizados', atualizados);
+      io.emit('setores_atualizados', atualizados);
+    }
+  });
+
+  socket.on('atualizar_terminais', (terms) => {
+    if (!Array.isArray(terms)) return;
+    const stmt = db.prepare(`
+      INSERT INTO terminais (id, name, label, sectors, atualizadoEm)
+      VALUES (@id, @name, @label, @sectors, @atualizadoEm)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        label = excluded.label,
+        sectors = excluded.sectors,
+        atualizadoEm = excluded.atualizadoEm
+    `);
+    const now = Date.now();
+    const tx = db.transaction((list) => {
+      for (const t of list) {
+        const secs = Array.isArray(t.sectors) ? t.sectors : (Array.isArray(t.setores) ? t.setores : []);
+        stmt.run({
+          id: Number(t.id),
+          name: String(t.name || `Terminal ${t.id}`),
+          label: String(t.label || ''),
+          sectors: JSON.stringify(secs),
+          atualizadoEm: now
+        });
+      }
+    });
+    tx(terms);
+    const atualizados = obterTerminais();
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
+  });
 });
 
 const PORT = process.env.PORT || 3001;

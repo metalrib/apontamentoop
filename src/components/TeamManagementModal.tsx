@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Operator, TerminalConfig, TERMINALS } from '../types/mes';
+import { Operator, TerminalConfig, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
 
 import {
@@ -10,6 +10,7 @@ import {
   updateColaboradorFirebase,
   fetchTerminalsConfig,
   addSectorToTerminal,
+  addSectorToTerminalAndSync,
   removeSectorFromTerminal,
   renameSectorGlobally,
   deleteSectorGlobally,
@@ -38,7 +39,8 @@ import {
   Layers,
   Download,
   Upload,
-  Loader2
+  Loader2,
+  ArrowLeft
 } from 'lucide-react';
 
 interface TeamManagementModalProps {
@@ -123,6 +125,9 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   const [newSectorName, setNewSectorName] = useState<string>('');
   const [newSectorTerminalId, setNewSectorTerminalId] = useState<number>(1);
   const [sectorError, setSectorError] = useState<string | null>(null);
+  // Estado para seleção híbrida de rota / texto livre (Aba 2)
+  const [isCustomNewSector, setIsCustomNewSector] = useState<boolean>(false);
+  const [selectedRouteOption, setSelectedRouteOption] = useState<string>('');
   const [renamingSector, setRenamingSector] = useState<{ oldName: string; newName: string } | null>(null);
   const [sectorToDelete, setSectorToDelete] = useState<{ terminalId: number | string; sectorName: string } | null>(null);
   const [showResetSectorsModal, setShowResetSectorsModal] = useState<boolean>(false);
@@ -154,6 +159,54 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
   }, [terminals]);
 
   // Lista dinâmica consolidada de setores de todos os terminais
+  // Lista de todas as rotas e postos existentes na fábrica para o select híbrido
+  const availableRoutesList = useMemo(() => {
+    const set = new Set<string>();
+
+    const normalize = (s: string) => {
+      const st = String(s || '').trim();
+      if (!st) return '';
+      return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
+        ? 'Preparação de Folha'
+        : st;
+    };
+
+    // 1. Setores dos terminais dinâmicos
+    terminals.forEach((t) => {
+      const secs = Array.isArray(t.sectors) ? t.sectors : ((t as any).setores || []);
+      if (Array.isArray(secs)) {
+        secs.forEach((s) => {
+          const n = normalize(s);
+          if (n) set.add(n);
+        });
+      }
+    });
+
+    // 2. Postos estáticos de POSTOS_POR_TERMINAL
+    Object.values(POSTOS_POR_TERMINAL).forEach((list) => {
+      if (Array.isArray(list)) {
+        list.forEach((s) => {
+          const n = normalize(s);
+          if (n) set.add(n);
+        });
+      }
+    });
+
+    // 3. Etapas de regras de produtos (ROUTE_RULES)
+    if (Array.isArray(ROUTE_RULES)) {
+      ROUTE_RULES.forEach((rule) => {
+        if (Array.isArray(rule.steps)) {
+          rule.steps.forEach((st) => {
+            const n = normalize(st);
+            if (n) set.add(n);
+          });
+        }
+      });
+    }
+
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+  }, [terminals]);
+
   const allFactorySectors = useMemo(() => {
     const set = new Set<string>();
     ALL_TERMINAIS.forEach((tKey) => {
@@ -563,17 +616,17 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     if (onOperatorsUpdated) onOperatorsUpdated();
   };
 
-  // Criação de Novo Setor (Aba 2)
-  const handleCreateSector = (e: React.FormEvent) => {
+  // Criação de Novo Setor (Aba 2) com sincronização SQLite e WebSocket em tempo real
+  const handleCreateSector = async (e: React.FormEvent) => {
     e.preventDefault();
     setSectorError(null);
     const clean = newSectorName.trim();
     if (!clean) {
-      setSectorError('Informe o nome do setor a ser criado.');
+      setSectorError(isCustomNewSector ? 'Informe o nome do setor a ser criado.' : 'Selecione uma rota existente ou digite um novo nome.');
       return;
     }
 
-    const added = addSectorToTerminal(newSectorTerminalId, clean);
+    const added = await addSectorToTerminalAndSync(newSectorTerminalId, clean);
     if (!added) {
       setSectorError(`O setor "${clean}" já existe neste terminal.`);
       return;
@@ -581,6 +634,8 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
     playSuccessStart();
     setNewSectorName('');
+    setSelectedRouteOption('');
+    setIsCustomNewSector(false);
     loadData();
     showNotification(`Setor "${clean}" adicionado ao Terminal ${newSectorTerminalId}!`);
     if (onOperatorsUpdated) onOperatorsUpdated();
@@ -1523,17 +1578,71 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                 <form onSubmit={handleCreateSector} className="space-y-4">
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div className="sm:col-span-2">
-                      <label className="text-[11px] font-mono text-slate-400 block mb-1">
-                        NOME DO NOVO SETOR *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={newSectorName}
-                        onChange={(e) => setNewSectorName(e.target.value)}
-                        placeholder="Ex: Embalagem / Expedição, Pintura, Controle de Qualidade..."
-                        className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-sans focus:outline-none focus:border-emerald-400"
-                      />
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-mono text-slate-400 block">
+                          NOME DO NOVO SETOR *
+                        </label>
+                        {isCustomNewSector && (
+                          <span className="text-[10px] font-mono text-emerald-400 font-semibold">
+                            (Digitação livre ativada)
+                          </span>
+                        )}
+                      </div>
+
+                      {isCustomNewSector ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            required
+                            autoFocus
+                            value={newSectorName}
+                            onChange={(e) => setNewSectorName(e.target.value)}
+                            placeholder="Digite o nome do novo setor..."
+                            className="flex-1 px-3 py-2 bg-slate-950 border border-emerald-500/50 rounded-xl text-white text-xs font-sans focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsCustomNewSector(false);
+                              setSelectedRouteOption('');
+                              setNewSectorName('');
+                              setSectorError(null);
+                            }}
+                            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-mono flex items-center gap-1.5 transition border border-slate-700 whitespace-nowrap cursor-pointer active:scale-95"
+                            title="Voltar para seleção de rotas existentes"
+                          >
+                            <ArrowLeft className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Voltar para lista</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <select
+                          value={selectedRouteOption}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '__NEW_CUSTOM_SECTOR__') {
+                              setIsCustomNewSector(true);
+                              setSelectedRouteOption('');
+                              setNewSectorName('');
+                            } else {
+                              setSelectedRouteOption(val);
+                              setNewSectorName(val);
+                            }
+                            setSectorError(null);
+                          }}
+                          className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-sans focus:outline-none focus:border-emerald-400 cursor-pointer"
+                        >
+                          <option value="">Selecione uma rota existente...</option>
+                          {availableRoutesList.map((route) => (
+                            <option key={route} value={route}>
+                              {route}
+                            </option>
+                          ))}
+                          <option value="__NEW_CUSTOM_SECTOR__" className="font-bold text-emerald-400 bg-slate-900">
+                            + Digitar outro setor/nome novo...
+                          </option>
+                        </select>
+                      )}
                     </div>
 
                     <div>
