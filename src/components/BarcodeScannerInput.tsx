@@ -62,8 +62,8 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
     inputRef.current?.focus();
   };
 
-  const terminalLabel = currentTerminal
-    ? `${currentTerminal.name} - ${currentTerminal.label}`
+  const terminalLabel = currentTerminal?.name
+    ? `${currentTerminal.name}${currentTerminal.label ? ` - ${currentTerminal.label}` : ''}`
     : 'Terminal 1 - Corte / Dobra';
 
   return (

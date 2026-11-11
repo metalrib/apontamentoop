@@ -74,10 +74,12 @@ export const Header: React.FC<HeaderProps> = ({
               <div>
                 <div className="text-xs text-slate-400 font-medium">TERMINAL ATIVO</div>
                 <div className="text-sm font-bold text-amber-400 flex items-center gap-2">
-                  <span>{currentTerminal.name}</span>
-                  <span className="hidden md:inline text-xs text-slate-400 font-normal">
-                    ({currentTerminal.label})
-                  </span>
+                  <span>{currentTerminal?.name || 'Terminal'}</span>
+                  {currentTerminal?.label && (
+                    <span className="hidden md:inline text-xs text-slate-400 font-normal">
+                      ({currentTerminal.label})
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

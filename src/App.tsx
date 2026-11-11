@@ -33,6 +33,7 @@ import { AutoCleanToast } from './components/AutoCleanToast';
 import { SupervisorDashboard } from './components/SupervisorDashboard';
 import { PcpPortal } from './components/PcpPortal';
 import { MobilePcpTracker } from './components/MobilePcpTracker';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { getRouteForOp, findStepForSector, isAncoraOrder, obterQuantidadeTotal, initOrSyncOrderEtapas } from './utils/routeEngine';
 import { playSuccessStart, playSuccessFinish, playBlockedError, playClick } from './utils/audio';
 import { Lock, Shield, KeyRound } from 'lucide-react';
@@ -716,21 +717,29 @@ export default function App() {
   // Se estiver no Modo Mobile (Consulta Rápida / Rastreio PCP)
   if (systemMode === 'mobile') {
     return (
-      <MobilePcpTracker
-        orders={orders}
-        apontamentos={apontamentos}
-        initialOpNumber={selectedOpNumber}
-        onRefresh={loadData}
-        onSwitchToTotem={() => {
-          playClick();
+      <ErrorBoundary
+        fallbackTitle="Falha na Interface Mobile"
+        fallbackMessage="Ocorreu um erro inesperado ao renderizar a consulta mobile. Toque abaixo para tentar novamente ou retornar ao Totem."
+        onReset={() => {
           setSystemMode('totem');
         }}
-        onSelectOpForTotem={(opNum) => {
-          handleSearchOp(opNum);
-          setSystemMode('totem');
-        }}
-        onOpenSupervisor={() => setShowSupervisor(true)}
-      />
+      >
+        <MobilePcpTracker
+          orders={orders || {}}
+          apontamentos={apontamentos || []}
+          initialOpNumber={selectedOpNumber}
+          onRefresh={loadData}
+          onSwitchToTotem={() => {
+            playClick();
+            setSystemMode('totem');
+          }}
+          onSelectOpForTotem={(opNum) => {
+            handleSearchOp(opNum);
+            setSystemMode('totem');
+          }}
+          onOpenSupervisor={() => setShowSupervisor(true)}
+        />
+      </ErrorBoundary>
     );
   }
 
