@@ -168,77 +168,93 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
       return [];
     }
 
-    const termId = currentTerminal?.id || 1;
-    const termKey = `T${termId}`;
-    const targetSector = selectedSector.trim();
-    const targetNorm = normPosto(targetSector);
-
-    return operators.filter((colab: Operator) => {
-      // 1. Status ativo
-      if (colab.ativo === false) return false;
-
-      // 2. FILTRO RIGOROSO DE TERMINAL ATIVO:
-      // O colaborador SÓ PODE APARECER se o terminal atual (ex: Terminal 1) estiver dentro do seu array de terminais autorizados,
-      // OU se ele for ESP-MULTI / tiver autorização explícita em todos os terminais.
-      // Sergio (T3) e Fabio (T5) NÃO devem aparecer no Terminal 1.
-      const colabTerminais = Array.isArray(colab.terminais) ? colab.terminais : [];
-      const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
-      const isEsp = checkIsEspecialista(colab);
-
-      const isMultiTerminal =
-        badge === 'ESP-MULTI' ||
-        badge.includes('MULTI') ||
-        colabTerminais.some((t) => {
-          const s = String(t).toUpperCase().trim();
-          return s === 'TODOS' || s === 'ALL' || s === 'MULTI';
-        }) ||
-        colabTerminais.length >= 5;
-
-      const hasTerminal = isMultiTerminal || colabTerminais.some((t) => {
-        const normT = String(t).toUpperCase().trim();
-        return normT === termKey || normT.replace(/[^\d]/g, '') === String(termId);
-      });
-
-      // Se NÃO pertence ao terminal atual, DESCARTA IMEDIATAMENTE (inclusive especialistas de outros terminais)
-      if (!hasTerminal) {
-        return false;
-      }
-
-      // 3. SETORES AUTORIZADOS DO COLABORADOR:
-      const colabSetores: string[] = Array.isArray(colab.setores)
-        ? colab.setores
-        : Array.isArray(colab.sectors)
-        ? colab.sectors
-        : colab.setor
-        ? [colab.setor]
-        : [];
-
-      // a) Se for Especialista / Suporte Técnico:
-      if (isEsp) {
-        const isDesignatedForThisTerm = isMultiTerminal || badge === `ESP-${termKey}` || hasTerminal;
-        const hasPostoPermission = colabSetores.includes('TODOS') || colabSetores.some((s) => matchPosto(s, targetSector));
-        if (isDesignatedForThisTerm || hasPostoPermission) {
-          return true;
-        }
-        return false;
-      }
-
-      // b) Se for Operador da Etapa (não especialista):
-      // APLICAÇÃO DO FILTRO DINÂMICO DE SETOR NO PASSO 2 (SEM HARDCODE):
-      // O operador DEVE conter exatamente o setor selecionado no Passo 1 (ex: "Dobra")
+    try {
+      const termId = currentTerminal?.id || 1;
+      const termKey = `T${termId}`;
+      const targetSector = selectedSector.trim();
+      const targetNorm = normPosto(targetSector);
       const postoAtivoNormalizado = targetSector.trim().toLowerCase();
-      const postoAtivoSimplificado = normPosto(targetSector);
 
-      return colabSetores.some((s: string) => {
-        if (!s) return false;
-        const sNorm = s.trim().toLowerCase();
-        return (
-          sNorm === postoAtivoNormalizado ||
-          normPosto(s) === postoAlvoSimplificado ||
-          matchPosto(s, targetSector)
-        );
+      // Normalizar a etapa/posto selecionado antes do loop para comparação segura
+      const postoAlvoSimplificado = (targetSector || '')
+        .toLowerCase()
+        .trim()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[-_\s]+/g, ' ')
+        .replace(/folhas$/, 'folha');
+      const postoAtivoSimplificado = postoAlvoSimplificado;
+
+      return operators.filter((colab: Operator) => {
+        // 1. Status ativo
+        if (colab.ativo === false) return false;
+
+        // 2. FILTRO RIGOROSO DE TERMINAL ATIVO:
+        // O colaborador SÓ PODE APARECER se o terminal atual (ex: Terminal 1) estiver dentro do seu array de terminais autorizados,
+        // OU se ele for ESP-MULTI / tiver autorização explícita em todos os terminais.
+        // Sergio (T3) e Fabio (T5) NÃO devem aparecer no Terminal 1.
+        const colabTerminais = Array.isArray(colab.terminais) ? colab.terminais : [];
+        const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+        const isEsp = checkIsEspecialista(colab);
+
+        const isMultiTerminal =
+          badge === 'ESP-MULTI' ||
+          badge.includes('MULTI') ||
+          colabTerminais.some((t) => {
+            const s = String(t).toUpperCase().trim();
+            return s === 'TODOS' || s === 'ALL' || s === 'MULTI';
+          }) ||
+          colabTerminais.length >= 5;
+
+        const hasTerminal = isMultiTerminal || colabTerminais.some((t) => {
+          const normT = String(t).toUpperCase().trim();
+          return normT === termKey || normT.replace(/[^\d]/g, '') === String(termId);
+        });
+
+        // Se NÃO pertence ao terminal atual, DESCARTA IMEDIATAMENTE (inclusive especialistas de outros terminais)
+        if (!hasTerminal) {
+          return false;
+        }
+
+        // 3. SETORES AUTORIZADOS DO COLABORADOR:
+        const colabSetores: string[] = Array.isArray(colab.setores)
+          ? colab.setores
+          : Array.isArray(colab.sectors)
+          ? colab.sectors
+          : colab.setor
+          ? [colab.setor]
+          : [];
+
+        // a) Se for Especialista / Suporte Técnico:
+        if (isEsp) {
+          const isDesignatedForThisTerm = isMultiTerminal || badge === `ESP-${termKey}` || hasTerminal;
+          const hasPostoPermission = colabSetores.includes('TODOS') || colabSetores.some((s) => matchPosto(s, targetSector));
+          if (isDesignatedForThisTerm || hasPostoPermission) {
+            return true;
+          }
+          return false;
+        }
+
+        // b) Se for Operador da Etapa (não especialista):
+        // APLICAÇÃO DO FILTRO DINÂMICO DE SETOR NO PASSO 2 (SEM HARDCODE):
+        // O operador DEVE conter exatamente o setor selecionado no Passo 1 (ex: "Dobra")
+        return colabSetores.some((s: string) => {
+          if (!s) return false;
+          const sNorm = s.trim().toLowerCase();
+          const sSimplificado = normPosto(s);
+          return (
+            sNorm === postoAtivoNormalizado ||
+            sSimplificado === postoAlvoSimplificado ||
+            sSimplificado === postoAtivoSimplificado ||
+            sSimplificado === targetNorm ||
+            matchPosto(s, targetSector)
+          );
+        });
       });
-    });
+    } catch (err) {
+      console.error('[OperatorSelector] Erro ao filtrar operadores:', err);
+      return [];
+    }
   }, [operators, selectedSector, currentTerminal?.id]);
 
   // 3. Divisão dos colaboradores em dois grupos claros:
