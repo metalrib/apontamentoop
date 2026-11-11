@@ -11,7 +11,10 @@ import {
   CODIGOS_PADRAO_CORRER,
   normalizarCodigo,
   OpOcorrencia,
-  isPortaCorrerPadrao
+  isPortaCorrerPadrao,
+  isRotaExclusivaLaser,
+  isRotaLaserDobra,
+  isRotaExclusivaRouter
 } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
@@ -177,10 +180,60 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
     }
   }
 
+  // A) ROTA EXCLUSIVA DE LASER (["Laser"]): Âncoras Rebite Rosca, Pendurais Inox e Âncora Vai-Vem Alvenaria
+  if (isRotaExclusivaLaser(op)) {
+    (op as any).requerLaser = true;
+    (op as any).requer_laser = true;
+    const semApontamentos = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+    if (semApontamentos && (!op.statusExecucao || op.statusExecucao === 'pendente' || String(op.status || '').includes('Aguardando Início'))) {
+      (op as any).etapas = ['Laser'];
+      (op as any).rota = ['Laser'];
+      (op as any).etapaAtual = 'Laser';
+      (op as any).statusEtapa = 'Aguardando Início em: Laser';
+      (op as any).statusAtual = 'AGUARDANDO INÍCIO EM: LASER';
+      (op as any).status = 'Aguardando Início em: Laser';
+    }
+    return op;
+  }
+
+  // B) ROTA LASER + DOBRA (["Laser", "Dobra"]): Trilhos Inox para Cortina
+  if (isRotaLaserDobra(op)) {
+    (op as any).requerLaser = true;
+    (op as any).requer_laser = true;
+    const semApontamentos = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+    if (semApontamentos && (!op.statusExecucao || op.statusExecucao === 'pendente' || String(op.status || '').includes('Aguardando Início'))) {
+      (op as any).etapas = ['Laser', 'Dobra'];
+      (op as any).rota = ['Laser', 'Dobra'];
+      (op as any).etapaAtual = 'Laser';
+      (op as any).statusEtapa = 'Aguardando Início em: Laser';
+      (op as any).statusAtual = 'AGUARDANDO INÍCIO EM: LASER';
+      (op as any).status = 'Aguardando Início em: Laser';
+    }
+    return op;
+  }
+
+  // C) ROTA EXCLUSIVA DE ROUTER (["Router"]): Visor de Policarbonato
+  if (isRotaExclusivaRouter(op)) {
+    (op as any).requerRouter = true;
+    (op as any).requer_router = true;
+    const semApontamentos = !op.apontamentos || Object.keys(op.apontamentos).length === 0;
+    if (semApontamentos && (!op.statusExecucao || op.statusExecucao === 'pendente' || String(op.status || '').includes('Aguardando Início'))) {
+      (op as any).etapas = ['Router'];
+      (op as any).rota = ['Router'];
+      (op as any).etapaAtual = 'Router';
+      (op as any).statusEtapa = 'Aguardando Início em: Router';
+      (op as any).statusAtual = 'AGUARDANDO INÍCIO EM: ROUTER';
+      (op as any).status = 'Aguardando Início em: Router';
+    }
+    return op;
+  }
+
   // Não intercepta subcomponentes (Batentes, Folhas avulsas, Trilhos, Âncoras, etc.)
   const ehSubcomponente =
     codNormalizado.startsWith('020') ||
     codNormalizado.startsWith('021') ||
+    codNormalizado.startsWith('024') ||
+    codNormalizado.startsWith('027') ||
     codNormalizado.startsWith('028') ||
     codNormalizado.startsWith('011') ||
     codNormalizado.startsWith('009') ||
@@ -190,6 +243,8 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
     desc.startsWith('FOLHA') ||
     desc.startsWith('TRILHO') ||
     desc.includes('ANCORA') ||
+    desc.includes('PENDURAL') ||
+    desc.includes('VISOR') ||
     desc.includes('VAI VEM') ||
     desc.includes('OFFICE DOOR');
 
@@ -3395,6 +3450,15 @@ export async function saveMultipleOrders(
         importadoEm: new Date().toISOString()
       };
 
+      if (isRotaExclusivaLaser(opImportada) || isRotaLaserDobra(opImportada)) {
+        cleanNewOp.requerLaser = true;
+        cleanNewOp.requer_laser = true;
+      }
+      if (isRotaExclusivaRouter(opImportada)) {
+        cleanNewOp.requerRouter = true;
+        cleanNewOp.requer_router = true;
+      }
+
       const serializableNew = JSON.parse(JSON.stringify(cleanNewOp));
       updates[`ordens_producao/${opKey}`] = serializableNew;
       if (existingOrderKey && existingOrderKey !== formattedDocId) {
@@ -3435,6 +3499,51 @@ export async function saveMultipleOrders(
       let etapasFinais = dadosAtuais.etapas || rotasCalculadas;
       let etapaAtualFinal = dadosAtuais.etapaAtual || etapaInicial;
       let statusEtapaFinal = dadosAtuais.statusEtapa || `Aguardando Início em: ${etapaAtualFinal}`;
+
+      // A) ROTA EXCLUSIVA DE LASER (["Laser"]): Âncoras Rebite Rosca, Pendurais Inox e Âncora Vai-Vem Alvenaria
+      if (isRotaExclusivaLaser(opImportada) && semApontamentos) {
+        etapasFinais = ['Laser'];
+        etapaAtualFinal = 'Laser';
+        statusEtapaFinal = 'Aguardando Início em: Laser';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Laser CNC';
+        metadadosParaAtualizar.tipoMontagem = 'Laser CNC Exclusivo';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: LASER';
+        metadadosParaAtualizar.requerLaser = true;
+        metadadosParaAtualizar.requer_laser = true;
+      } else if (isRotaLaserDobra(opImportada) && semApontamentos) {
+        etapasFinais = ['Laser', 'Dobra'];
+        etapaAtualFinal = 'Laser';
+        statusEtapaFinal = 'Aguardando Início em: Laser';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Laser e Dobra';
+        metadadosParaAtualizar.tipoMontagem = 'Laser e Dobra';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: LASER';
+        metadadosParaAtualizar.requerLaser = true;
+        metadadosParaAtualizar.requer_laser = true;
+      } else if (isRotaExclusivaRouter(opImportada) && semApontamentos) {
+        etapasFinais = ['Router'];
+        etapaAtualFinal = 'Router';
+        statusEtapaFinal = 'Aguardando Início em: Router';
+        metadadosParaAtualizar.etapas = etapasFinais;
+        metadadosParaAtualizar.etapaAtual = etapaAtualFinal;
+        metadadosParaAtualizar.statusEtapa = statusEtapaFinal;
+        metadadosParaAtualizar.status = statusEtapaFinal;
+        metadadosParaAtualizar.rota = etapasFinais;
+        metadadosParaAtualizar.familia = 'Router CNC';
+        metadadosParaAtualizar.tipoMontagem = 'Router CNC Exclusivo';
+        metadadosParaAtualizar.statusAtual = 'AGUARDANDO INÍCIO EM: ROUTER';
+        metadadosParaAtualizar.requerRouter = true;
+        metadadosParaAtualizar.requer_router = true;
+      }
 
       const codRawChecagem = String(opImportada.codigo || dadosAtuais.codigo || (opImportada as any).codigoProduto || (dadosAtuais as any).codigoProduto || '').trim();
       const codChecagem = codRawChecagem.replace(/[^0-9]/g, '');
@@ -3592,6 +3701,15 @@ export async function saveMultipleOrders(
         ultimo_aviso: dadosAtuais.ultimo_aviso,
         criadoEm: dadosAtuais.criadoEm || dadosAtuais.data_criacao
       };
+
+      if (isRotaExclusivaLaser(opPreservada) || isRotaLaserDobra(opPreservada)) {
+        opPreservada.requerLaser = true;
+        opPreservada.requer_laser = true;
+      }
+      if (isRotaExclusivaRouter(opPreservada)) {
+        opPreservada.requerRouter = true;
+        opPreservada.requer_router = true;
+      }
 
       const serializablePreserved = JSON.parse(JSON.stringify(opPreservada));
       updates[`ordens_producao/${opKey}`] = serializablePreserved;

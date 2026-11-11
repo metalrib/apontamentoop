@@ -225,8 +225,118 @@ export const CODIGOS_BATENTES_PADRAO = new Set([
 // Âncoras Padrão
 export const CODIGOS_ANCORAS_PADRAO = new Set([
   '021.0001', '021.0002', '021.0003', '021.0004', '021.0005',
-  '021.0006', '021.0007', '021.0008', '021.0009', '021.0010'
+  '021.0006', '021.0007', '021.0008', '021.0009', '021.0010',
+  '021.0037', '021.0038', '021.0049'
 ]);
+
+// -------------------------------------------------------------
+// MAPEAMENTO AUTOMÁTICO DE ROTAS POR CÓDIGO E DESCRIÇÃO NOMUS
+// -------------------------------------------------------------
+
+// A) ROTA EXCLUSIVA DE LASER (["Laser"]):
+// - 021.0037 - ANCORA REBITE ROSCA BAT GIRO 50X95
+// - 021.0038 - ANCORA REBITE ROSCA BAT CORRER 70X115
+// - 024.0321 - PENDURAL INOX P/ CORTINA 300MM (290 X 38)
+// - 024.0320 - PENDURAL INOX P/ CORTINA 300MM (290 X 19)
+// - 024.0020 - PENDURAL INOX P/ CORTINA 200MM (190 X 38)
+// - 024.0019 - PENDURAL INOX P/ CORTINA 200MM (190 X 19)
+// - 021.0049 - ANCORA VAI VEM ALVENARIA 200 X 100 X 2,65MM
+export const CODIGOS_ROTA_EXCLUSIVA_LASER = [
+  '021.0037',
+  '021.0038',
+  '024.0321',
+  '024.0320',
+  '024.0020',
+  '024.0019',
+  '021.0049'
+];
+
+// B) ROTA LASER + DOBRA (["Laser", "Dobra"]):
+// - 024.0022 - TRILHO INOX 1.200MM P/ CORTINA
+// - 024.0021 - TRILHO INOX 1.000MM P/ CORTINA
+export const CODIGOS_ROTA_LASER_DOBRA = [
+  '024.0022',
+  '024.0021'
+];
+
+// C) ROTA EXCLUSIVA DE ROUTER (["Router"]):
+// - 027.0006 - VISOR POLICARBONATO 500 X 340 X 3MM
+export const CODIGOS_ROTA_EXCLUSIVA_ROUTER = [
+  '027.0006'
+];
+
+// Sets de consulta rápida normalizados (com e sem pontuação)
+export const SET_CODIGOS_ROTA_EXCLUSIVA_LASER = new Set([
+  ...CODIGOS_ROTA_EXCLUSIVA_LASER,
+  ...CODIGOS_ROTA_EXCLUSIVA_LASER.map(c => c.replace(/\D/g, ''))
+]);
+
+export const SET_CODIGOS_ROTA_LASER_DOBRA = new Set([
+  ...CODIGOS_ROTA_LASER_DOBRA,
+  ...CODIGOS_ROTA_LASER_DOBRA.map(c => c.replace(/\D/g, ''))
+]);
+
+export const SET_CODIGOS_ROTA_EXCLUSIVA_ROUTER = new Set([
+  ...CODIGOS_ROTA_EXCLUSIVA_ROUTER,
+  ...CODIGOS_ROTA_EXCLUSIVA_ROUTER.map(c => c.replace(/\D/g, ''))
+]);
+
+/**
+ * Identifica se a ordem de produção pertence à rota exclusiva de Laser (["Laser"])
+ */
+export function isRotaExclusivaLaser(op: any): boolean {
+  if (!op) return false;
+  const codRaw = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const codLimpo = codRaw.replace(/\D/g, '');
+  if (codRaw && (SET_CODIGOS_ROTA_EXCLUSIVA_LASER.has(codRaw) || SET_CODIGOS_ROTA_EXCLUSIVA_LASER.has(codLimpo))) {
+    return true;
+  }
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (desc.includes('ANCORA REBITE ROSCA') || desc.includes('ANCORA VAI VEM ALVENARIA')) {
+    return true;
+  }
+  if (desc.includes('PENDURAL') && (desc.includes('INOX') || desc.includes('CORTINA'))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Identifica se a ordem de produção pertence à rota Laser + Dobra (["Laser", "Dobra"])
+ */
+export function isRotaLaserDobra(op: any): boolean {
+  if (!op) return false;
+  const codRaw = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const codLimpo = codRaw.replace(/\D/g, '');
+  if (codRaw && (SET_CODIGOS_ROTA_LASER_DOBRA.has(codRaw) || SET_CODIGOS_ROTA_LASER_DOBRA.has(codLimpo))) {
+    return true;
+  }
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (desc.includes('TRILHO INOX') && desc.includes('CORTINA')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Identifica se a ordem de produção pertence à rota exclusiva de Router (["Router"])
+ */
+export function isRotaExclusivaRouter(op: any): boolean {
+  if (!op) return false;
+  const codRaw = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const codLimpo = codRaw.replace(/\D/g, '');
+  if (codRaw && (SET_CODIGOS_ROTA_EXCLUSIVA_ROUTER.has(codRaw) || SET_CODIGOS_ROTA_EXCLUSIVA_ROUTER.has(codLimpo))) {
+    return true;
+  }
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (desc.includes('VISOR POLICARBONATO') || desc.includes('VISOR DE POLICARBONATO')) {
+    return true;
+  }
+  return false;
+}
 
 export const ROUTE_RULES: RouteRule[] = [
   // Rota 15 - Porta Giratória Padrão (Whitelist Exclusiva - Terminal 4: Montagem Direta)

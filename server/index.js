@@ -247,6 +247,155 @@ try {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ordens_numero ON ordens(numero);`);
 } catch (e) {}
 
+// -------------------------------------------------------------
+// SANEAMENTO E MAPEAMENTO DE ROTAS OFICIAIS NOMUS NO SQLITE
+// -------------------------------------------------------------
+const CODIGOS_ROTA_EXCLUSIVA_LASER = [
+  '021.0037', '021.0038', '024.0321', '024.0320', '024.0020', '024.0019', '021.0049'
+];
+
+const CODIGOS_ROTA_LASER_DOBRA = [
+  '024.0022', '024.0021'
+];
+
+const CODIGOS_ROTA_EXCLUSIVA_ROUTER = [
+  '027.0006'
+];
+
+function normalizarCodSql(c) {
+  return String(c || '').replace(/\D/g, '');
+}
+
+function normalizarTextoSql(t) {
+  return String(t || '').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function isLaserExclusivoSql(codigo, descricao) {
+  const cRaw = String(codigo || '').trim();
+  const cNorm = normalizarCodSql(cRaw);
+  if (CODIGOS_ROTA_EXCLUSIVA_LASER.some(code => cRaw === code || cNorm === normalizarCodSql(code))) {
+    return true;
+  }
+  const desc = normalizarTextoSql(descricao);
+  if (desc.includes('ANCORA REBITE ROSCA') || desc.includes('ANCORA VAI VEM ALVENARIA')) {
+    return true;
+  }
+  if (desc.includes('PENDURAL') && (desc.includes('INOX') || desc.includes('CORTINA'))) {
+    return true;
+  }
+  return false;
+}
+
+function isLaserDobraSql(codigo, descricao) {
+  const cRaw = String(codigo || '').trim();
+  const cNorm = normalizarCodSql(cRaw);
+  if (CODIGOS_ROTA_LASER_DOBRA.some(code => cRaw === code || cNorm === normalizarCodSql(code))) {
+    return true;
+  }
+  const desc = normalizarTextoSql(descricao);
+  if (desc.includes('TRILHO INOX') && desc.includes('CORTINA')) {
+    return true;
+  }
+  return false;
+}
+
+function isRouterExclusivoSql(codigo, descricao) {
+  const cRaw = String(codigo || '').trim();
+  const cNorm = normalizarCodSql(cRaw);
+  if (CODIGOS_ROTA_EXCLUSIVA_ROUTER.some(code => cRaw === code || cNorm === normalizarCodSql(code))) {
+    return true;
+  }
+  const desc = normalizarTextoSql(descricao);
+  if (desc.includes('VISOR POLICARBONATO') || desc.includes('VISOR DE POLICARBONATO')) {
+    return true;
+  }
+  return false;
+}
+
+// Varredura retroativa nas ordens existentes
+try {
+  const todasOrdens = db.prepare('SELECT * FROM ordens').all();
+  let ordensAtualizadasCount = 0;
+
+  const updateStmt = db.prepare(`
+    UPDATE ordens 
+    SET etapas = @etapas,
+        requerLaser = @requerLaser,
+        requer_laser = @requer_laser,
+        status = @status,
+        atualizadoEm = @atualizadoEm
+    WHERE id = @id
+  `);
+
+  for (const o of todasOrdens) {
+    const rawNum = o.numero || o.id;
+    const isSpecific024644 = String(rawNum).includes('024644-01');
+    const isLaserExc = isLaserExclusivoSql(o.codigo, o.descricao) || isSpecific024644;
+    const isLaserDob = !isLaserExc && isLaserDobraSql(o.codigo, o.descricao);
+    const isRouterExc = !isLaserExc && !isLaserDob && isRouterExclusivoSql(o.codigo, o.descricao);
+
+    // Checar se a OP ainda está pendente ou não iniciada (ou se é a OP 024644-01)
+    const semApontamento = !db.prepare('SELECT 1 FROM apontamentos WHERE op_numero = ? OR op_numero = ? LIMIT 1').get(o.id, o.numero);
+    const podeAtualizar = semApontamento || isSpecific024644;
+
+    if (isLaserExc && podeAtualizar) {
+      let etapas = [];
+      try { etapas = JSON.parse(o.etapas || '[]'); } catch {}
+      const precisaAtualizar = !Array.isArray(etapas) || etapas.length !== 1 || etapas[0] !== 'Laser' || !o.requerLaser || String(o.status || '').includes('Corte');
+      if (precisaAtualizar) {
+        updateStmt.run({
+          id: o.id,
+          etapas: JSON.stringify(['Laser']),
+          requerLaser: 1,
+          requer_laser: 1,
+          status: 'Aguardando Início em: Laser',
+          atualizadoEm: Date.now()
+        });
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) atualizada para Rota Exclusiva Laser`);
+      }
+    } else if (isLaserDob && podeAtualizar) {
+      let etapas = [];
+      try { etapas = JSON.parse(o.etapas || '[]'); } catch {}
+      const precisaAtualizar = !Array.isArray(etapas) || JSON.stringify(etapas) !== JSON.stringify(['Laser', 'Dobra']) || !o.requerLaser;
+      if (precisaAtualizar) {
+        updateStmt.run({
+          id: o.id,
+          etapas: JSON.stringify(['Laser', 'Dobra']),
+          requerLaser: 1,
+          requer_laser: 1,
+          status: 'Aguardando Início em: Laser',
+          atualizadoEm: Date.now()
+        });
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) atualizada para Laser + Dobra`);
+      }
+    } else if (isRouterExc && podeAtualizar) {
+      let etapas = [];
+      try { etapas = JSON.parse(o.etapas || '[]'); } catch {}
+      const precisaAtualizar = !Array.isArray(etapas) || etapas.length !== 1 || etapas[0] !== 'Router' || !String(o.status || '').includes('Router');
+      if (precisaAtualizar) {
+        updateStmt.run({
+          id: o.id,
+          etapas: JSON.stringify(['Router']),
+          requerLaser: 0,
+          requer_laser: 0,
+          status: 'Aguardando Início em: Router',
+          atualizadoEm: Date.now()
+        });
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) atualizada para Rota Exclusiva Router`);
+      }
+    }
+  }
+
+  if (ordensAtualizadasCount > 0) {
+    console.log(`[SQLite Migration] Total de ordens saneadas para novas rotas Nomus: ${ordensAtualizadasCount}`);
+  }
+} catch (e) {
+  console.warn('[SQLite Migration] Erro na varredura retroativa de rotas:', e);
+}
+
 // Helper para formatar ordens
 function obterTodasOrdens() {
   return db.prepare('SELECT * FROM ordens').all().map(r => ({
@@ -555,7 +704,31 @@ app.post('/api/ordens', (req, res) => {
       const rawNum = String(item.numero || item.id || '').replace(/^(\s*OP\s*)+/i, '').trim();
       if (!rawNum) continue;
       const formattedNum = `OP ${rawNum}`;
-      const laserVal = Boolean(item.requerLaser || item.requer_laser) ? 1 : 0;
+      let laserVal = Boolean(item.requerLaser || item.requer_laser) ? 1 : 0;
+      let etapasVal = item.etapas || [];
+      let statusVal = item.status || 'pendente';
+
+      const codItem = item.codigo || item.codigoProduto || '';
+      const descItem = item.descricao || item.produto || '';
+
+      if (isLaserExclusivoSql(codItem, descItem) || formattedNum.includes('024644-01')) {
+        etapasVal = ['Laser'];
+        laserVal = 1;
+        if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
+          statusVal = 'Aguardando Início em: Laser';
+        }
+      } else if (isLaserDobraSql(codItem, descItem)) {
+        etapasVal = ['Laser', 'Dobra'];
+        laserVal = 1;
+        if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
+          statusVal = 'Aguardando Início em: Laser';
+        }
+      } else if (isRouterExclusivoSql(codItem, descItem)) {
+        etapasVal = ['Router'];
+        if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
+          statusVal = 'Aguardando Início em: Router';
+        }
+      }
 
       stmt.run({
         id: formattedNum,
@@ -564,8 +737,8 @@ app.post('/api/ordens', (req, res) => {
         descricao: item.descricao || item.produto || '',
         cliente: item.cliente || '',
         tipoOrdem: item.tipoOrdem || 'Padrão',
-        status: item.status || 'pendente',
-        etapas: JSON.stringify(item.etapas || []),
+        status: statusVal,
+        etapas: JSON.stringify(etapasVal),
         quantidadeFisica: Number(item.quantidadeFisica || item.quantidade_total || item.quantidade || 1),
         requerLaser: laserVal,
         requer_laser: laserVal,
@@ -1226,7 +1399,7 @@ app.delete('/api/ordens', (req, res) => {
 io.on('connection', (socket) => {
   console.log('Cliente ligado via WebSocket:', socket.id);
 
-  // Sincronização imediata de colaboradores oficiais com o Totem/cliente conectado
+  // Sincronização imediata de colaboradores e ordens com o Totem/cliente conectado
   try {
     const colabs = obterColaboradores();
     if (colabs && colabs.length > 0) {
@@ -1234,6 +1407,15 @@ io.on('connection', (socket) => {
     }
   } catch (err) {
     console.warn('[Socket connection] Erro ao emitir colaboradores:', err);
+  }
+
+  try {
+    const ordens = obterTodasOrdens();
+    if (ordens && ordens.length > 0) {
+      socket.emit('ordens_atualizadas', ordens);
+    }
+  } catch (err) {
+    console.warn('[Socket connection] Erro ao emitir ordens:', err);
   }
 
   socket.on('resetar_etapa', (data) => {

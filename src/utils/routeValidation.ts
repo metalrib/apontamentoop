@@ -90,10 +90,26 @@ import {
   CODIGOS_FOLHAS_PADRAO,
   CODIGOS_BATENTES_PADRAO,
   normalizarCodigo,
-  isPortaCorrerPadrao
+  isPortaCorrerPadrao,
+  CODIGOS_ROTA_EXCLUSIVA_LASER,
+  CODIGOS_ROTA_LASER_DOBRA,
+  CODIGOS_ROTA_EXCLUSIVA_ROUTER,
+  isRotaExclusivaLaser,
+  isRotaLaserDobra,
+  isRotaExclusivaRouter
 } from '../types/mes';
 
-export { isPortaCorrerPadrao, CODIGOS_CORRER_PADRAO, classificarPortaCorrer };
+export {
+  isPortaCorrerPadrao,
+  CODIGOS_CORRER_PADRAO,
+  classificarPortaCorrer,
+  CODIGOS_ROTA_EXCLUSIVA_LASER,
+  CODIGOS_ROTA_LASER_DOBRA,
+  CODIGOS_ROTA_EXCLUSIVA_ROUTER,
+  isRotaExclusivaLaser,
+  isRotaLaserDobra,
+  isRotaExclusivaRouter
+};
 
 export function normalizeValidationText(text: string): string {
   return (text || '')
@@ -919,6 +935,21 @@ export function obterEtapasDaRota(op: any): string[] {
 
   let steps: string[] = [];
 
+  // A) ROTA EXCLUSIVA DE LASER (["Laser"]): Âncoras Rebite Rosca, Pendurais Inox e Âncora Vai-Vem Alvenaria
+  if (isRotaExclusivaLaser(op)) {
+    return ['Laser'];
+  }
+
+  // B) ROTA LASER + DOBRA (["Laser", "Dobra"]): Trilhos Inox para Cortina
+  if (isRotaLaserDobra(op)) {
+    return ['Laser', 'Dobra'];
+  }
+
+  // C) ROTA EXCLUSIVA DE ROUTER (["Router"]): Visor de Policarbonato
+  if (isRotaExclusivaRouter(op)) {
+    return ['Router'];
+  }
+
   // 1. ÂNCORAS DE FIXAÇÃO (021.xxxx ou descrição ANCORA) -> Terminal 1 (Corte/Dobra)
   if (cod.startsWith('021.') || desc.startsWith('ANCORA') || desc.includes('ANCORA')) {
     steps = ['Corte', 'Dobra'];
@@ -1144,6 +1175,9 @@ export function definirRotaProduto(op: {
 
   // Subcomponentes delegam diretamente para obterEtapasDaRota
   const ehSubcomponenteOuOutro =
+    isRotaExclusivaLaser(op) ||
+    isRotaLaserDobra(op) ||
+    isRotaExclusivaRouter(op) ||
     codLimpo.startsWith('020') ||
     codLimpo.startsWith('021') ||
     codLimpo.startsWith('028') ||
@@ -1153,12 +1187,16 @@ export function definirRotaProduto(op: {
     codLimpo.startsWith('014') ||
     codLimpo.startsWith('015') ||
     codLimpo.startsWith('022') ||
+    codLimpo.startsWith('024') ||
+    codLimpo.startsWith('027') ||
     codLimpo.startsWith('090') ||
     desc.startsWith('BAT') ||
     desc.startsWith('BATENTE') ||
     desc.startsWith('FOLHA') ||
     desc.startsWith('TRILHO') ||
     desc.includes('ANCORA') ||
+    desc.includes('PENDURAL') ||
+    desc.includes('VISOR') ||
     desc.includes('VAI VEM') ||
     desc.includes('OFFICE DOOR') ||
     desc.includes('ABRIGO DOCA') ||
@@ -1167,7 +1205,10 @@ export function definirRotaProduto(op: {
 
   if (ehSubcomponenteOuOutro) {
     let familia = 'Geral';
-    if (codLimpo.startsWith('020') || desc.startsWith('BAT') || desc.startsWith('BATENTE')) familia = 'Batente';
+    if (isRotaExclusivaLaser(op)) familia = 'Laser CNC';
+    else if (isRotaLaserDobra(op)) familia = 'Laser e Dobra';
+    else if (isRotaExclusivaRouter(op)) familia = 'Router CNC';
+    else if (codLimpo.startsWith('020') || desc.startsWith('BAT') || desc.startsWith('BATENTE')) familia = 'Batente';
     else if (codLimpo.startsWith('028') || desc.startsWith('TRILHO')) familia = 'Trilho';
     else if (desc.startsWith('FOLHA')) familia = 'Folha Avulsa';
     else if (codLimpo.startsWith('021') || desc.includes('ANCORA')) familia = 'Âncora';

@@ -17,10 +17,26 @@ import {
   OpEtapaState,
   isPortaCorrerPadrao,
   CODIGOS_CORRER_PADRAO,
-  classificarPortaCorrer
+  classificarPortaCorrer,
+  CODIGOS_ROTA_EXCLUSIVA_LASER,
+  CODIGOS_ROTA_LASER_DOBRA,
+  CODIGOS_ROTA_EXCLUSIVA_ROUTER,
+  isRotaExclusivaLaser,
+  isRotaLaserDobra,
+  isRotaExclusivaRouter
 } from '../types/mes';
 
-export { isPortaCorrerPadrao, CODIGOS_CORRER_PADRAO, classificarPortaCorrer };
+export {
+  isPortaCorrerPadrao,
+  CODIGOS_CORRER_PADRAO,
+  classificarPortaCorrer,
+  CODIGOS_ROTA_EXCLUSIVA_LASER,
+  CODIGOS_ROTA_LASER_DOBRA,
+  CODIGOS_ROTA_EXCLUSIVA_ROUTER,
+  isRotaExclusivaLaser,
+  isRotaLaserDobra,
+  isRotaExclusivaRouter
+};
 import {
   verificarSeExigeEmenda,
   definirRotaProduto,
@@ -279,6 +295,42 @@ function resolveBaseRoute(
   const opObj = typeof input === 'object' && input !== null ? input : { descricao: desc, codigo: code };
 
   // MATRIZ OFICIAL DE ROTEAMENTO INDUSTRIAL ESPECIAL:
+
+  // A) ROTA EXCLUSIVA DE LASER (["Laser"]): Âncoras Rebite Rosca, Pendurais Inox e Âncora Vai-Vem Alvenaria
+  if (isRotaExclusivaLaser(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'LASER EXCLUSIVO',
+      label: 'Corte Laser CNC (Exclusivo)',
+      steps: ['Laser'],
+      badge: 'Laser CNC Exclusivo',
+      isStandardLine: true
+    };
+    return { rule, steps: ['Laser'], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // B) ROTA LASER + DOBRA (["Laser", "Dobra"]): Trilhos Inox para Cortina
+  if (isRotaLaserDobra(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'LASER E DOBRA',
+      label: 'Laser CNC e Dobra',
+      steps: ['Laser', 'Dobra'],
+      badge: 'Laser + Dobra',
+      isStandardLine: true
+    };
+    return { rule, steps: ['Laser', 'Dobra'], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // C) ROTA EXCLUSIVA DE ROUTER (["Router"]): Visor de Policarbonato
+  if (isRotaExclusivaRouter(opObj)) {
+    const rule: RouteRule = {
+      keyword: 'ROUTER EXCLUSIVO',
+      label: 'Router CNC (Exclusivo)',
+      steps: ['Router'],
+      badge: 'Router CNC Exclusivo',
+      isStandardLine: true
+    };
+    return { rule, steps: ['Router'], badge: rule.badge!, isStandardLine: true };
+  }
 
   // 0. Office Door de Correr (código 010.xxxx, 010.0008 ou descrição com OFFICE DOOR COR)
   const isOfficeDoorCor =
@@ -622,6 +674,31 @@ export function getRouteForOp(
   explicitCodigo?: string
 ): { rule: RouteRule; steps: string[]; badge: string; isStandardLine: boolean } {
   const resolved = resolveBaseRoute(input, explicitCodigo);
+
+  // A) ROTA EXCLUSIVA DE LASER (["Laser"]): strictly 1 step without Corte or Dobra
+  if (isRotaExclusivaLaser(input)) {
+    return {
+      ...resolved,
+      steps: ['Laser']
+    };
+  }
+
+  // B) ROTA LASER + DOBRA (["Laser", "Dobra"]): starts at Laser, ends at Dobra
+  if (isRotaLaserDobra(input)) {
+    return {
+      ...resolved,
+      steps: ['Laser', 'Dobra']
+    };
+  }
+
+  // C) ROTA EXCLUSIVA DE ROUTER (["Router"]): strictly 1 step Router
+  if (isRotaExclusivaRouter(input)) {
+    return {
+      ...resolved,
+      steps: ['Router']
+    };
+  }
+
   const requerLaser = typeof input === 'object' && input !== null && Boolean((input as any).requer_laser || (input as any).requerLaser);
 
   // Define as etapas oficiais dinâmicas a partir do gerador centralizado por produto (Matriz Oficial Metalrib)
@@ -1042,6 +1119,31 @@ export function initOrSyncOrderEtapas(
   let etapaAtual = order.etapaAtual;
   let statusEtapa = order.statusEtapa;
   let status = order.status;
+
+  // Alinhamento mandatório de flags de processo para rotas especiais Nomus
+  if (isRotaExclusivaLaser(order) || isRotaLaserDobra(order)) {
+    (order as any).requerLaser = true;
+    (order as any).requer_laser = true;
+  }
+  if (isRotaExclusivaRouter(order)) {
+    (order as any).requerRouter = true;
+    (order as any).requer_router = true;
+  }
+
+  // Auto-correção caso uma OP sem apontamentos esteja com etapa inicial desalinhada (ex: Laser, Router ou Corte)
+  if (
+    steps.length > 0 &&
+    safeApontamentos.length === 0 &&
+    (!order.statusExecucao || order.statusExecucao === 'pendente' || String(status || '').includes('Aguardando Início') || !status)
+  ) {
+    if (steps[0] === 'Laser' || steps[0] === 'Router' || steps[0] === 'Corte') {
+      etapaAtual = steps[0];
+      statusEtapa = `Aguardando Início em: ${steps[0]}`;
+      if (!status || status.includes('Aguardando Início') || status === 'pendente') {
+        status = `Aguardando Início em: ${steps[0]}`;
+      }
+    }
+  }
 
   // Auto-correção caso uma porta especial estava com etapa inicial incorreta em Gaxeta/Montagem sem apontamento
   if (

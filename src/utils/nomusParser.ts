@@ -5,7 +5,10 @@ import {
   CODIGOS_PORTAS_CORRER_PADRAO,
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_CORRER,
-  isPortaCorrerPadrao
+  isPortaCorrerPadrao,
+  isRotaExclusivaLaser,
+  isRotaLaserDobra,
+  isRotaExclusivaRouter
 } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
@@ -29,10 +32,42 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     }
   }
 
+  // A) ROTA EXCLUSIVA DE LASER (["Laser"]): Âncoras Rebite Rosca, Pendurais Inox e Âncora Vai-Vem Alvenaria
+  if (isRotaExclusivaLaser(op)) {
+    return {
+      familia: 'Laser CNC',
+      tipoMontagem: 'Laser CNC Exclusivo',
+      rota: ['Laser'],
+      statusAtual: 'AGUARDANDO INÍCIO EM: LASER'
+    };
+  }
+
+  // B) ROTA LASER + DOBRA (["Laser", "Dobra"]): Trilhos Inox para Cortina
+  if (isRotaLaserDobra(op)) {
+    return {
+      familia: 'Laser e Dobra',
+      tipoMontagem: 'Laser e Dobra',
+      rota: ['Laser', 'Dobra'],
+      statusAtual: 'AGUARDANDO INÍCIO EM: LASER'
+    };
+  }
+
+  // C) ROTA EXCLUSIVA DE ROUTER (["Router"]): Visor de Policarbonato
+  if (isRotaExclusivaRouter(op)) {
+    return {
+      familia: 'Router CNC',
+      tipoMontagem: 'Router CNC Exclusivo',
+      rota: ['Router'],
+      statusAtual: 'AGUARDANDO INÍCIO EM: ROUTER'
+    };
+  }
+
   // Se for subcomponente (Batente, Folha, Trilho, Âncora, Vai-Vem, Office Door, etc.), delega para obterEtapasDaRota
   const ehSubcomponenteOuOutro =
     codNormalizado.startsWith('020') ||
     codNormalizado.startsWith('021') ||
+    codNormalizado.startsWith('024') ||
+    codNormalizado.startsWith('027') ||
     codNormalizado.startsWith('028') ||
     codNormalizado.startsWith('011') ||
     codNormalizado.startsWith('009') ||
@@ -46,6 +81,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     desc.startsWith('FOLHA') ||
     desc.startsWith('TRILHO') ||
     desc.includes('ANCORA') ||
+    desc.includes('PENDURAL') ||
+    desc.includes('VISOR') ||
     desc.includes('VAI VEM') ||
     desc.includes('OFFICE DOOR') ||
     desc.includes('ABRIGO DOCA') ||
@@ -61,6 +98,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     else if (codNormalizado.startsWith('021') || desc.includes('ANCORA')) familia = 'Âncora';
     else if (codNormalizado.startsWith('011') || desc.includes('VAI VEM')) familia = 'Porta Vai e Vem';
     else if (codNormalizado.startsWith('009') || codNormalizado.startsWith('010') || desc.includes('OFFICE DOOR')) familia = 'Office Door';
+    else if (codNormalizado.startsWith('024') || desc.includes('PENDURAL')) familia = 'Cortina / Pendural';
+    else if (codNormalizado.startsWith('027') || desc.includes('VISOR')) familia = 'Visor';
 
     return {
       familia,
@@ -825,6 +864,14 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     novaOp.etapaAtual = rotaInfo.rota[0] || 'Corte';
     novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
     novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
+    if (isRotaExclusivaLaser(novaOp) || isRotaLaserDobra(novaOp)) {
+      novaOp.requerLaser = true;
+      novaOp.requer_laser = true;
+    }
+    if (isRotaExclusivaRouter(novaOp)) {
+      novaOp.requerRouter = true;
+      novaOp.requer_router = true;
+    }
 
     console.log('OP importada:', novaOp.numero, 'Código:', novaOp.codigo, 'Rota definida:', novaOp.rota);
 
@@ -850,6 +897,14 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
     op.etapaAtual = rotaInfo.rota[0] || 'Corte';
     op.statusEtapa = `Aguardando Início em: ${op.etapaAtual}`;
     op.status = `Aguardando Início em: ${op.etapaAtual}`;
+    if (isRotaExclusivaLaser(op) || isRotaLaserDobra(op)) {
+      op.requerLaser = true;
+      op.requer_laser = true;
+    }
+    if (isRotaExclusivaRouter(op)) {
+      op.requerRouter = true;
+      op.requer_router = true;
+    }
     console.log('OP importada:', op.numero, 'Código:', op.codigo, 'Rota definida:', op.rota);
   });
 
