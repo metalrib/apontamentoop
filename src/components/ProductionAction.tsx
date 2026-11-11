@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
-import { updateProductionOrder, obterOcorrenciasDaOp } from '../services/mesStorage';
+import { updateProductionOrder, obterOcorrenciasDaOp, cleanOpId, getLocalSocket, purgeLocalAppointmentsForOp } from '../services/mesStorage';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 import { calcularDuracaoLiquidaMs, getPausaAtual, IntervaloProgramado } from '../utils/workShiftUtils';
@@ -52,12 +52,20 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   // Identifica se a OP e o Setor utilizam Apontamento em Lote Completo ou Peça a Peça (Unitário)
   const isBatch = isBatchTracking(order, selectedSector);
 
-  // Encontra apontamentos ativos neste setor/etapa
-  const activeInSector = apontamentos.filter(a => 
-    a.op_numero === order.op_numero &&
-    (a.setor === selectedSector || (matchedStep && a.etapa_rota === matchedStep)) &&
-    a.status === 'EM_ANDAMENTO'
-  );
+  // Encontra apontamentos ativos neste setor/etapa com tolerância a formatação de OP e reset imediato
+  const orderClean = cleanOpId(order.op_numero || order.numero || (order as any).id || '');
+  const activeInSector = apontamentos.filter(a => {
+    const aOpClean = cleanOpId(a.op_numero || (a as any).opNumero || '');
+    if (aOpClean !== orderClean) return false;
+    if (a.status !== 'EM_ANDAMENTO') return false;
+    const match = a.setor === selectedSector || (matchedStep && a.etapa_rota === matchedStep);
+    if (!match) return false;
+    if (resetTimestamp > 0) {
+      const aStart = new Date(a.horaInicio || a.hora_inicio || 0).getTime();
+      if (aStart <= resetTimestamp) return false;
+    }
+    return true;
+  });
 
   // Identifica se há lote ativo no setor (ou unidade ativa do operador no modo unitário)
   const activeBatch = activeInSector.find(a => a.is_lote || a.unidade_numero === 0) || activeInSector[0];
@@ -198,7 +206,45 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
     handleAlterarQuantidadeFisica({ preventDefault: () => {}, stopPropagation: () => {} } as any, order, delta);
   };
 
+  // Escuta direta de eventos de reset do WebSocket para zerar imediatamente o cronômetro e lote na tela
+  useEffect(() => {
+    const handleReset = (data: any) => {
+      const resetOpNum = cleanOpId(data?.numero || data?.opId || data?.opNumero || data?.id || '');
+      const currentOpClean = cleanOpId(order.op_numero || order.numero || (order as any).id || '');
+      if (resetOpNum && currentOpClean && resetOpNum === currentOpClean) {
+        console.log('[ProductionAction] Reset detectado para OP atual. Zerando cronômetro e lote ativo...');
+        setElapsedSeconds(0);
+        setRefugoInput(0);
+        setResetTimestamp(Date.now());
+        purgeLocalAppointmentsForOp(currentOpClean, data?.etapa);
+      }
+    };
+
+    const handleCustomReset = ((e: CustomEvent) => handleReset(e.detail)) as EventListener;
+    window.addEventListener('metalrib_ordem_resetada', handleCustomReset);
+    window.addEventListener('metalrib_op_resetada', handleCustomReset);
+
+    let socket: any = null;
+    try {
+      socket = getLocalSocket();
+      if (socket) {
+        socket.on('ordem_resetada', handleReset);
+        socket.on('op_resetada', handleReset);
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener('metalrib_ordem_resetada', handleCustomReset);
+      window.removeEventListener('metalrib_op_resetada', handleCustomReset);
+      if (socket) {
+        socket.off('ordem_resetada', handleReset);
+        socket.off('op_resetada', handleReset);
+      }
+    };
+  }, [order.op_numero, order.numero]);
+
   // Timer para operação em andamento com desconto automático de pausas
+  const [resetTimestamp, setResetTimestamp] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [refugoInput, setRefugoInput] = useState<number>(0);
   const [pausaAtiva, setPausaAtiva] = useState<IntervaloProgramado | null>(getPausaAtual());

@@ -618,6 +618,10 @@ export function initLocalSocketListeners(): void {
 
     socket.on('ordem_resetada', (data: any) => {
       console.log('[Socket.io] Evento ordem_resetada recebido:', data);
+      const opAfetada = cleanOpId(data?.numero || data?.opId || data?.opNumero || data?.id || '');
+      if (opAfetada) {
+        purgeLocalAppointmentsForOp(opAfetada, data?.etapa);
+      }
       window.dispatchEvent(new CustomEvent('metalrib_ordem_resetada', { detail: data }));
       window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
       window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
@@ -626,6 +630,10 @@ export function initLocalSocketListeners(): void {
 
     socket.on('op_resetada', (data: any) => {
       console.log('[Socket.io] Evento op_resetada recebido:', data);
+      const opAfetada = cleanOpId(data?.numero || data?.opId || data?.opNumero || data?.id || '');
+      if (opAfetada) {
+        purgeLocalAppointmentsForOp(opAfetada);
+      }
       window.dispatchEvent(new CustomEvent('metalrib_op_resetada', { detail: data }));
       window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
       window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
@@ -1422,6 +1430,79 @@ export async function findOrder(opNumber: string): Promise<ProductionOrder | nul
  * Retorna todos os apontamentos salvos no sistema
  * Sincronizado automaticamente com Firebase historico_apontamentos
  */
+/**
+ * Remove qualquer resíduo local de apontamentos, lotes ativos e timers de uma OP
+ * Garante que lotes cancelados/resetados não sejam restaurados pelo localStorage
+ */
+export function purgeLocalAppointmentsForOp(opNumero: string, etapa?: string): void {
+  const numClean = cleanOpId(opNumero);
+  if (!numClean) return;
+  const cleanNoSpecial = numClean.replace(/[-_\s]/g, '').toUpperCase();
+  const rawApts = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
+  if (rawApts) {
+    try {
+      const tree = JSON.parse(rawApts);
+      let changed = false;
+      for (const treeKey of Object.keys(tree)) {
+        const treeClean = cleanOpId(treeKey);
+        const treeNoSpecial = treeClean.replace(/[-_\s]/g, '').toUpperCase();
+        if (treeClean === numClean || treeNoSpecial === cleanNoSpecial) {
+          if (!etapa) {
+            delete tree[treeKey];
+            changed = true;
+          } else {
+            const opTree = tree[treeKey] || {};
+            const cleanEtapa = etapa.trim().toLowerCase();
+            for (const [id, a] of Object.entries(opTree)) {
+              const aSetor = (a.setor || '').trim().toLowerCase();
+              const aEtapa = (a.etapa_rota || a.etapaRota || '').trim().toLowerCase();
+              const aSetorFisico = (a.setorFisico || '').trim().toLowerCase();
+              if (
+                aSetor === cleanEtapa ||
+                aEtapa === cleanEtapa ||
+                aSetorFisico === cleanEtapa ||
+                aSetor.includes(cleanEtapa) ||
+                aEtapa.includes(cleanEtapa) ||
+                cleanEtapa.includes(aSetor) ||
+                cleanEtapa.includes(aEtapa)
+              ) {
+                delete opTree[id];
+                changed = true;
+              }
+            }
+            tree[treeKey] = opTree;
+          }
+        }
+      }
+      if (changed) {
+        localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(tree));
+      }
+    } catch {}
+  }
+
+  // Remove qualquer chave temporária de lote_ativo ou timer persistido
+  try {
+    const keysToRemove = [
+      `lote_ativo_${numClean}`,
+      `lote_ativo_OP_${numClean}`,
+      `lote_ativo_${opNumero}`,
+      `active_batch_${numClean}`,
+      `active_batch_OP_${numClean}`,
+      `active_batch_${opNumero}`,
+      `timer_${numClean}`,
+      `timer_${opNumero}`
+    ];
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.includes(numClean) && (k.includes('lote') || k.includes('timer') || k.includes('batch') || k.includes('producao'))) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {}
+}
+
 export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[]> {
   ensureInitialData();
 
@@ -1430,18 +1511,22 @@ export async function fetchApontamentos(opNumero?: string): Promise<Apontamento[
     const res = await fetch(`${localUrl}/api/apontamentos`, { signal: AbortSignal.timeout(2000) });
     if (res.ok) {
       const dbApts = await res.json();
-      if (Array.isArray(dbApts) && dbApts.length > 0) {
-        const rawStorage = localStorage.getItem(STORAGE_APONTAMENTOS_KEY);
-        let treeStorage = {};
-        if (rawStorage) {
-          try { treeStorage = JSON.parse(rawStorage); } catch { treeStorage = {}; }
-        }
+      if (Array.isArray(dbApts)) {
+        // SQLite é a autoridade máxima: substitui o mapa local para não manter apontamentos apagados/resetados
+        const treeStorage: Record<string, Record<string, Apontamento>> = {};
         dbApts.forEach((apt) => {
           const clean = (apt.op_numero || apt.op || "").trim().toUpperCase();
           if (!treeStorage[clean]) treeStorage[clean] = {};
           treeStorage[clean][apt.id] = apt;
         });
         localStorage.setItem(STORAGE_APONTAMENTOS_KEY, JSON.stringify(treeStorage));
+
+        const list = opNumero
+          ? (treeStorage[opNumero.trim().toUpperCase()] ? Object.values(treeStorage[opNumero.trim().toUpperCase()]) : [])
+          : dbApts;
+
+        list.sort((a, b) => new Date(b.hora_inicio || b.horaInicio || 0).getTime() - new Date(a.hora_inicio || a.horaInicio || 0).getTime());
+        return list;
       }
     }
   } catch {}

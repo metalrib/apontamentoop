@@ -17,6 +17,7 @@ import {
   cleanOpId,
   formatOpNumber,
   getLocalSocket,
+  purgeLocalAppointmentsForOp,
   isLocalApiActive
 } from './services/mesStorage';
 import { Header } from './components/Header';
