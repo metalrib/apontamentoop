@@ -697,7 +697,7 @@ export function fetchOperators(): Operator[] {
 
         const uniqueSectors = Array.from(new Set(rawSectors.map((s) => s.trim()).filter(Boolean)));
         const badge = (op.badge || op.codigo || '').trim().toUpperCase();
-        const primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
+        let primarySetor = (op.setor && uniqueSectors.includes(op.setor)) ? op.setor : (uniqueSectors[0] || '');
         const nome = op.nome || op.name || '';
         const especialista = Boolean(op.especialista ?? op.especialistaVolante ?? op.isRoaming);
         const terminais = Array.isArray(op.terminais) ? [...op.terminais] : [];
@@ -737,6 +737,15 @@ export function fetchOperators(): Operator[] {
           if (!uniqueSectors.includes('Preparação de Folha')) uniqueSectors.push('Preparação de Folha');
         }
 
+        // Garante que Eliel (CORTE-01) tenha unicamente o setor "Corte" atribuído em seu cadastro base e saneamento local
+        const isEliel = op.id === 'eliel' || nome.toLowerCase().includes('eliel') || badge === 'CORTE-01';
+        if (isEliel) {
+          const idxDobra = uniqueSectors.findIndex((s) => s.toLowerCase().includes('dobra'));
+          if (idxDobra >= 0) uniqueSectors.splice(idxDobra, 1);
+          if (!uniqueSectors.includes('Corte')) uniqueSectors.push('Corte');
+          primarySetor = 'Corte';
+        }
+
         // Garante terminais e badges corretos dos especialistas para que não vazem entre terminais
         const isSergio = op.id === 'sergio' || nome.toLowerCase().includes('sergio') || badge === 'ESP-T3';
         if (isSergio) {
@@ -758,6 +767,12 @@ export function fetchOperators(): Operator[] {
         }
 
         const setoresPorTerm = op.setoresPorTerminal ? { ...op.setoresPorTerminal } : undefined;
+        if (isEliel && setoresPorTerm && setoresPorTerm.T1) {
+          setoresPorTerm.T1 = setoresPorTerm.T1.filter((s: string) => !s.toLowerCase().includes('dobra'));
+          if (!setoresPorTerm.T1.includes('Corte')) {
+            setoresPorTerm.T1.push('Corte');
+          }
+        }
         if (isGabriele && setoresPorTerm) {
           if (!setoresPorTerm.T5) {
             setoresPorTerm.T5 = [];

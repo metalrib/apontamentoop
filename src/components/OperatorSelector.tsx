@@ -212,8 +212,41 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         }
       }
 
-      // b) Se for Operador:
-      // Caso especial: Preparação de Folha (Leonardo C., Danielson e operadores habilitados)
+      // b) Se for Operador (não especialista):
+      // 1. Validações estritas de crachá exclusivo (impede que operadores de um posto vazem para outro)
+      if (badge.startsWith('CORTE') && !targetNorm.includes('corte')) {
+        return false;
+      }
+      if (badge.startsWith('DOB') && !targetNorm.includes('dobra') && !targetNorm.includes('folha')) {
+        return false;
+      }
+      if (badge.startsWith('LASER') && !targetNorm.includes('laser')) {
+        return false;
+      }
+      if (badge.startsWith('ROU') && !targetNorm.includes('router')) {
+        return false;
+      }
+      if (badge.startsWith('SOL') && !targetNorm.includes('solda')) {
+        return false;
+      }
+      if (badge.startsWith('INJ') && !targetNorm.includes('inje') && !targetNorm.includes('folha') && !targetNorm.includes('batente')) {
+        return false;
+      }
+      if (badge.startsWith('BAT') && !targetNorm.includes('batente') && !targetNorm.includes('emenda')) {
+        return false;
+      }
+      if (badge.startsWith('EME') && !targetNorm.includes('emenda')) {
+        return false;
+      }
+
+      // Se o posto selecionado for Corte da guilhotina, não exibir operadores com tag exclusiva de Dobra sem código de corte
+      if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho')) {
+        if (badge.startsWith('DOB')) {
+          return false;
+        }
+      }
+
+      // 2. Caso especial: Preparação de Folha (Leonardo C., Danielson e operadores habilitados)
       const isTargetPrepFolha = targetNorm.includes('preparacao') && targetNorm.includes('folha');
       if (isTargetPrepFolha) {
         const hasPrepFolha = colabSetores.some((s) => {
@@ -227,19 +260,20 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         }
       }
 
-      // Atuação no setor selecionado via matchPosto
-      const hasDirectSector = colabSetores.some((s) => matchPosto(s, targetSector));
+      // 3. Validação estrita por posto selecionado:
+      // O operador tem obrigatoriamente de conter a etapa selecionada no Passo 1 dentro da sua lista de setores autorizados
+      const postoAtivoNormalizado = targetSector.trim().toLowerCase();
+      const hasDirectSector = colabSetores.some((s) => {
+        if (!s) return false;
+        const normS = s.trim().toLowerCase();
+        return normS === postoAtivoNormalizado || normPosto(s) === targetNorm || matchPosto(s, targetSector);
+      });
+
       if (hasDirectSector) {
-        // Se o posto selecionado for Corte da guilhotina, não exibir operadores com tag exclusiva de Dobra sem código de corte
-        if (targetNorm.includes('corte') && !targetNorm.includes('aluminio') && !targetNorm.includes('trilho')) {
-          if (badge.startsWith('DOB')) {
-            return false;
-          }
-        }
         return true;
       }
 
-      // Código/badge correspondente ao posto
+      // 4. Código/badge correspondente ao posto
       if (targetNorm.includes('dobra') && badge.startsWith('DOB')) {
         return true;
       }
