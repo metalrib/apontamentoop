@@ -27,6 +27,24 @@ const checkIsEspecialista = (colab: Operator): boolean => {
   );
 };
 
+// Gerador padrão seguro de iniciais para os avatares dos colaboradores
+export const extrairIniciais = (nome: string, cracha?: string): string => {
+  const nomeLimpo = (nome || '').trim();
+  if (!nomeLimpo && !cracha) return 'OP';
+  const partes = nomeLimpo.split(/\s+/).filter(Boolean);
+  if (partes.length === 1) {
+    return partes[0].slice(0, 2).toUpperCase();
+  }
+  if (partes.length >= 2) {
+    return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+  }
+  if (cracha) {
+    const limpo = cracha.replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase();
+    if (limpo) return limpo;
+  }
+  return 'OP';
+};
+
 export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
   selectedOperator,
   selectedSector,
@@ -287,7 +305,19 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
 
   // Renderização do Card de Colaborador
   const renderCard = (op: Operator, isSpecialist: boolean) => {
-    const isSelected = selectedOperator === op.name;
+    const nomeColab = op.name || op.nome || '';
+    const badgeColab = op.badge || op.codigo || '';
+    const isSelected = selectedOperator === nomeColab;
+
+    // Garante extração segura e confiável das iniciais para o avatar
+    const iniciais = (op.initials && op.initials.trim())
+      ? op.initials.trim().toUpperCase()
+      : extrairIniciais(nomeColab, badgeColab);
+
+    const partesNome = nomeColab.split(/\s+/).filter(Boolean);
+    const nomeExibicao = partesNome.length > 1
+      ? `${partesNome[0]} ${partesNome[1][0]}.`
+      : nomeColab || 'Operador';
 
     return (
       <button
@@ -295,7 +325,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         type="button"
         onClick={() => {
           playClick();
-          onSelectOperator(op.name);
+          onSelectOperator(nomeColab);
         }}
         className={`py-1.5 px-2 min-w-[70px] rounded-xl border text-center transition-all flex flex-col items-center justify-between kiosk-btn cursor-pointer select-none active:scale-95 ${
           isSelected
@@ -308,19 +338,19 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         }`}
       >
         {/* Avatar */}
-        <div className="relative mb-0.5">
+        <div className="relative mb-1">
           <div
-            className={`w-7 h-7 rounded-full flex items-center justify-center font-black text-xs transition ${
+            className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs transition shadow-sm select-none ${
               isSelected
                 ? isSpecialist
-                  ? 'bg-amber-400 text-slate-950 border-2 border-amber-200 font-black shadow-[0_0_10px_rgba(251,191,36,0.6)]'
-                  : 'bg-cyan-500 text-slate-950 border-2 border-cyan-300 font-black shadow-[0_0_10px_rgba(34,211,238,0.6)]'
+                  ? 'bg-amber-400 text-slate-950 border-2 border-amber-200 font-black shadow-[0_0_12px_rgba(251,191,36,0.6)]'
+                  : 'bg-cyan-500 text-slate-950 border-2 border-cyan-300 font-black shadow-[0_0_12px_rgba(34,211,238,0.6)]'
                 : isSpecialist
-                ? 'bg-gradient-to-br from-purple-900/90 to-amber-950/90 text-amber-300 border border-amber-500/40'
-                : 'bg-slate-800 text-slate-300 border border-slate-700'
+                ? 'bg-gradient-to-br from-purple-900/90 to-amber-950/90 text-amber-300 border border-amber-500/50 shadow-[0_0_8px_rgba(251,191,36,0.25)]'
+                : 'bg-slate-800 text-slate-200 border border-slate-700'
             }`}
           >
-            {op.initials}
+            {iniciais}
           </div>
 
           {isSelected && (
@@ -333,7 +363,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
 
           {isSpecialist && !isSelected && (
             <div
-              className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center font-bold text-[7px] shadow-sm"
+              className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center font-bold text-[8px] shadow-sm"
               title="Especialista / Suporte Técnico"
             >
               ★
@@ -348,9 +378,7 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
               ? isSpecialist ? 'text-amber-200 font-extrabold' : 'text-cyan-200 font-extrabold'
               : isSpecialist ? 'text-amber-100 font-semibold' : 'text-white'
           }`}>
-            {op.name.split(' ').length > 1
-              ? `${op.name.split(' ')[0]} ${op.name.split(' ')[1][0]}.`
-              : op.name}
+            {nomeExibicao}
           </div>
           <div className="mt-1 flex items-center justify-center">
             {isSpecialist ? (
@@ -359,13 +387,13 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
                   ? 'bg-amber-400/20 text-amber-200 border-amber-400/40'
                   : 'bg-purple-950/70 text-amber-300/90 border-amber-500/30'
               }`}>
-                {op.badge || 'ESP'}
+                {badgeColab || 'ESP'}
               </span>
             ) : (
               <span className={`text-[10px] opacity-75 font-mono truncate leading-none ${
                 isSelected ? 'text-cyan-300 font-bold' : 'text-slate-400'
               }`}>
-                {op.badge || op.role}
+                {badgeColab || op.role}
               </span>
             )}
           </div>

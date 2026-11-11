@@ -263,17 +263,32 @@ function obterTodasOrdens() {
 // Helper para formatar colaboradores
 function obterColaboradores() {
   const rows = db.prepare('SELECT * FROM colaboradores').all();
-  if (rows.length === 0) return COLABORADORES_PADRAO;
+  if (rows.length === 0) {
+    return COLABORADORES_PADRAO.map(c => {
+      const p = (c.nome || '').trim().split(/\s+/).filter(Boolean);
+      const inits = p.length === 1 ? p[0].slice(0, 2).toUpperCase() : (p[0][0] + p[p.length - 1][0]).toUpperCase();
+      return { ...c, initials: inits, name: c.nome, sectors: c.setores };
+    });
+  }
   return rows.map(r => {
     let extra = {};
     try { extra = JSON.parse(r.dados || '{}'); } catch {}
     const parsedTerminais = JSON.parse(r.terminais || '[]');
     const parsedSetores = JSON.parse(r.setores || '[]');
+    const partesNome = (r.nome || '').trim().split(/\s+/).filter(Boolean);
+    const initials = (extra.initials && String(extra.initials).trim())
+      ? String(extra.initials).trim().toUpperCase()
+      : (partesNome.length === 1
+        ? partesNome[0].slice(0, 2).toUpperCase()
+        : partesNome.length >= 2
+        ? (partesNome[0][0] + partesNome[partesNome.length - 1][0]).toUpperCase()
+        : 'OP');
     return {
       ...extra,
       id: r.id,
       nome: r.nome,
       name: r.nome,
+      initials,
       badge: r.badge,
       codigo: r.codigo,
       terminais: parsedTerminais,

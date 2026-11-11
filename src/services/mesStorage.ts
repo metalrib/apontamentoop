@@ -845,10 +845,20 @@ export function fetchOperators(): Operator[] {
           }
         }
 
+        const partesNome = (nome || '').trim().split(/\s+/).filter(Boolean);
+        const initials = (op.initials && String(op.initials).trim())
+          ? String(op.initials).trim().toUpperCase()
+          : (partesNome.length === 1
+            ? partesNome[0].slice(0, 2).toUpperCase()
+            : partesNome.length >= 2
+            ? (partesNome[0][0] + partesNome[partesNome.length - 1][0]).toUpperCase()
+            : 'OP');
+
         return {
           ...op,
           nome,
           name: nome,
+          initials,
           badge,
           codigo: badge,
           setor: primarySetor,
@@ -887,10 +897,20 @@ export function saveOperators(operators: Operator[]): void {
     const postos = Array.isArray(op.postos) ? op.postos : [];
     const familias = Array.isArray(op.familias) ? op.familias : ['TODAS'];
 
-    return {
-      ...op,
-      nome,
-      name: nome,
+    const partesNome = (nome || '').trim().split(/\s+/).filter(Boolean);
+        const initials = (op.initials && String(op.initials).trim())
+          ? String(op.initials).trim().toUpperCase()
+          : (partesNome.length === 1
+            ? partesNome[0].slice(0, 2).toUpperCase()
+            : partesNome.length >= 2
+            ? (partesNome[0][0] + partesNome[partesNome.length - 1][0]).toUpperCase()
+            : 'OP');
+
+        return {
+          ...op,
+          nome,
+          name: nome,
+          initials,
       badge,
       codigo: badge,
       setor: primarySetor,
