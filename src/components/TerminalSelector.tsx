@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { TerminalConfig } from '../types/mes';
 import { fetchTerminalsConfig } from '../services/mesStorage';
 import { Check, Factory, ChevronRight } from 'lucide-react';
@@ -18,7 +18,17 @@ export const TerminalSelector: React.FC<TerminalSelectorProps> = ({
   onCancel,
   isModal = false
 }) => {
-  const terminals = useMemo(() => fetchTerminalsConfig(), []);
+  const [terminals, setTerminals] = useState<TerminalConfig[]>(() => fetchTerminalsConfig());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setTerminals(fetchTerminalsConfig());
+    };
+    window.addEventListener('metalrib_sectors_updated', handleUpdate);
+    return () => {
+      window.removeEventListener('metalrib_sectors_updated', handleUpdate);
+    };
+  }, []);
 
   return (
     <div

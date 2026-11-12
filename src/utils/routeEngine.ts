@@ -23,7 +23,8 @@ import {
   CODIGOS_ROTA_EXCLUSIVA_ROUTER,
   isRotaExclusivaLaser,
   isRotaLaserDobra,
-  isRotaExclusivaRouter
+  isRotaExclusivaRouter,
+  isOfficeDoorGiro
 } from '../types/mes';
 
 export {
@@ -35,7 +36,8 @@ export {
   CODIGOS_ROTA_EXCLUSIVA_ROUTER,
   isRotaExclusivaLaser,
   isRotaLaserDobra,
-  isRotaExclusivaRouter
+  isRotaExclusivaRouter,
+  isOfficeDoorGiro
 };
 import {
   verificarSeExigeEmenda,
@@ -333,28 +335,45 @@ function resolveBaseRoute(
   }
 
   // 0. Office Door de Correr (código 010.xxxx, 010.0008 ou descrição com OFFICE DOOR COR)
-  const isOfficeDoorCor =
-    (code && (code.startsWith('010.') || code.startsWith('010') || code === '010.0008')) ||
-    norm.includes('OFFICE DOOR COR') ||
-    norm.includes('OFFICE-DOOR COR') ||
-    (norm.includes('OFFICE DOOR') && (norm.includes('CORRER') || norm.includes('COR ')));
-
-  if (isOfficeDoorCor) {
+  if (isOfficeDoorCorrer(opObj || { codigo: code, descricao: desc, tipoOrdem: desc })) {
+    const temRouter = Boolean(
+      opObj?.requerRouter || opObj?.requer_router || opObj?.encaminhar_router ||
+      (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Router')) ||
+      (opObj?.etapas && typeof opObj.etapas === 'object' && 'Router' in opObj.etapas) ||
+      opObj?.etapaAtual === 'Router'
+    );
+    const steps = temRouter
+      ? ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Router', 'Montagem Office de Correr']
+      : ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Montagem Office de Correr'];
     const rule: RouteRule = {
       keyword: 'OFFICE DOOR COR',
       label: 'Porta Office Door de Correr',
-      steps: [
-        'Corte',
-        'Corte Alumínio',
-        'Preparação Office Door',
-        'Injeção',
-        'Router',
-        'Montagem Office Door Correr'
-      ],
+      steps,
       badge: 'Office Door Correr',
       isStandardLine: false
     };
-    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
+    return { rule, steps, badge: rule.badge!, isStandardLine: false };
+  }
+
+  // 0.1 Office Door de Giro (código 009.xxxx ou descrição com OFFICE DOOR GIR / OFFICE DOOR)
+  if (isOfficeDoorGiro(opObj || { codigo: code, descricao: desc, tipoOrdem: desc })) {
+    const temRouter = Boolean(
+      opObj?.requerRouter || opObj?.requer_router || opObj?.encaminhar_router ||
+      (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Router')) ||
+      (opObj?.etapas && typeof opObj.etapas === 'object' && 'Router' in opObj.etapas) ||
+      opObj?.etapaAtual === 'Router'
+    );
+    const steps = temRouter
+      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Router', 'Instalação de Gaxeta', 'Montagem de Office Door Giro']
+      : ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+    const rule: RouteRule = {
+      keyword: 'OFFICE DOOR GIR',
+      label: 'Porta Office Door de Giro',
+      steps,
+      badge: 'Office Door Giro',
+      isStandardLine: false
+    };
+    return { rule, steps, badge: rule.badge!, isStandardLine: false };
   }
 
   // 1. Estantes Walk-in: Estante Completa (família 015.xxxx ou ESTANTE WALK-IN sem QUADRO)
@@ -837,6 +856,10 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
 
   // Preparação Office Door
   if (normStep.includes('PREPARACAO') && normStep.includes('OFFICE DOOR')) {
+    const isStepCorrer = normStep.includes('CORRER') || normStep.includes('COR ');
+    const isSectorCorrer = normSector.includes('CORRER') || normSector.includes('COR ');
+    if (isStepCorrer && !isSectorCorrer && (normSector.includes('GIRO') || normSector.includes('GIRAT'))) return false;
+    if (!isStepCorrer && isSectorCorrer) return false;
     if (normSector.includes('PREPARACAO') && normSector.includes('OFFICE DOOR')) return true;
     if (normSector.includes('PREPARACAO') && !normSector.includes('DOBRA') && !normSector.includes('BATENTE') && !normSector.includes('VAI VEM')) return true;
     return false;
@@ -864,9 +887,19 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return normSector.includes('MONTAGEM') && !normSector.includes('ESTANTE') && !normSector.includes('TRILHO') && !normSector.includes('ABRIGO');
   }
 
-  if (normStep.includes('MONTAGEM') && normStep.includes('OFFICE DOOR')) {
-    if (normSector.includes('MONTAGEM') && normSector.includes('OFFICE DOOR')) return true;
-    if (normSector.includes('OFFICE DOOR')) return true;
+  if (normStep.includes('MONTAGEM') && (normStep.includes('OFFICE DOOR') || normStep.includes('OFFICE'))) {
+    const isStepCorrer = normStep.includes('CORRER') || normStep.includes('COR ');
+    const isSectorCorrer = normSector.includes('CORRER') || normSector.includes('COR ');
+    const isStepGiro = normStep.includes('GIRO') || normStep.includes('GIRAT');
+    const isSectorGiro = normSector.includes('GIRO') || normSector.includes('GIRAT');
+
+    // NUNCA casar Giro com Correr
+    if (isStepCorrer && (isSectorGiro || normSector.includes('GIRO') || normSector.includes('GIRAT'))) return false;
+    if (isStepGiro && (isSectorCorrer || normSector.includes('CORRER') || normSector.includes('COR '))) return false;
+
+    if (isStepCorrer && isSectorCorrer && normSector.includes('MONTAGEM')) return true;
+    if (isStepGiro && (isSectorGiro || normSector.includes('OFFICE DOOR') || normSector.includes('OFFICE')) && !isSectorCorrer && normSector.includes('MONTAGEM')) return true;
+    if (normSector.includes('MONTAGEM') && normSector.includes('OFFICE DOOR') && !isSectorCorrer && !isStepCorrer) return true;
     return false;
   }
 
@@ -1002,6 +1035,13 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
 
   // Office Door
   if (normA.includes('OFFICE DOOR') && normB.includes('OFFICE DOOR')) {
+    const aCorrer = normA.includes('CORRER') || normA.includes('COR ');
+    const bCorrer = normB.includes('CORRER') || normB.includes('COR ');
+    const aGiro = normA.includes('GIRO') || normA.includes('GIRAT');
+    const bGiro = normB.includes('GIRO') || normB.includes('GIRAT');
+    if ((aCorrer && bGiro) || (aGiro && bCorrer)) {
+      return false; // NUNCA casar Giro com Correr!
+    }
     if (normA.includes('PREPARACAO') || normB.includes('PREPARACAO')) {
       return normA.includes('PREPARACAO') && normB.includes('PREPARACAO');
     }

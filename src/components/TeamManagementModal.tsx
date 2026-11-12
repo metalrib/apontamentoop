@@ -9,6 +9,7 @@ import {
   resetOperatorsToDefault,
   updateColaboradorFirebase,
   fetchTerminalsConfig,
+  fetchLocalTerminais,
   getLocalServerUrl,
   addSectorToTerminal,
   addSectorToTerminalAndSync,
@@ -225,6 +226,11 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     setOperators(listOps);
     const listTerms = fetchTerminalsConfig();
     setTerminals(listTerms);
+    fetchLocalTerminais().then((updatedTerms) => {
+      if (updatedTerms && updatedTerms.length > 0) {
+        setTerminals(updatedTerms);
+      }
+    }).catch(() => {});
   };
 
   useEffect(() => {

@@ -702,6 +702,28 @@ export async function fetchLocalColaboradores(): Promise<Operator[]> {
   return [];
 }
 
+export async function fetchLocalTerminais(): Promise<TerminalConfig[]> {
+  if (typeof window === 'undefined') return [];
+  try {
+    const localUrl = getLocalServerUrl();
+    const res = await fetch(`${localUrl}/api/terminais`, { cache: 'no-store' });
+    if (!res.ok) return fetchTerminalsConfig();
+    const terms = await res.json();
+    if (Array.isArray(terms) && terms.length > 0) {
+      const { terminals: sanitized } = sanitizeTerminalSectors(terms);
+      localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+      const setoresMap = buildSetoresMap(sanitized);
+      localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+      window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+      console.log('[MES Storage] Configuração de 5 terminais e setores sincronizada do SQLite:', sanitized.length);
+      return sanitized;
+    }
+  } catch (err) {
+    console.warn('[MES Storage] Erro ao sincronizar terminais do SQLite:', err);
+  }
+  return fetchTerminalsConfig();
+}
+
 export function initLocalSocketListeners(): void {
   if (typeof window === 'undefined' || isLocalSocketInitialized) return;
   isLocalSocketInitialized = true;
@@ -710,11 +732,15 @@ export function initLocalSocketListeners(): void {
     const localUrl = getLocalServerUrl();
     const socket = getLocalSocket();
 
+    // Sincronização inicial no bootstrap
+    fetchLocalTerminais();
+
     socket.on('connect', () => {
       console.log('[Socket.io] Conectado ao servidor local MES:', localUrl);
       isLocalApiActive = true;
       fetchLocalOrdens();
       fetchLocalColaboradores();
+      fetchLocalTerminais();
     });
 
     socket.on('colaboradores_atualizados', (colabs: any[]) => {
@@ -729,12 +755,24 @@ export function initLocalSocketListeners(): void {
     });
 
     socket.on('terminais_atualizados', (terms: any[]) => {
+      console.log('[Socket.io] Evento terminais_atualizados recebido do backend:', terms?.length);
       if (Array.isArray(terms) && terms.length > 0) {
         const { terminals: sanitized } = sanitizeTerminalSectors(terms);
         localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
         const setoresMap = buildSetoresMap(sanitized);
         localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
+        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+      }
+    });
+
+    socket.on('setores_atualizados', (terms: any[]) => {
+      console.log('[Socket.io] Evento setores_atualizados recebido do backend:', terms?.length);
+      if (Array.isArray(terms) && terms.length > 0) {
+        const { terminals: sanitized } = sanitizeTerminalSectors(terms);
+        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+        const setoresMap = buildSetoresMap(sanitized);
+        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
       }
     });
 
@@ -1342,7 +1380,28 @@ export function saveTerminalsConfig(terminals: TerminalConfig[]): void {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ terminals: cleaned })
     }).catch(() => {});
+    fetch(`${localUrl}/api/configuracoes/terminais`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terminals: cleaned })
+    }).catch(() => {});
   } catch {}
+}
+
+export async function saveTerminalsConfigAsync(terminals: TerminalConfig[]): Promise<boolean> {
+  saveTerminalsConfig(terminals);
+  try {
+    const localUrl = getLocalServerUrl();
+    const { terminals: sanitized } = sanitizeTerminalSectors(terminals);
+    const res = await fetch(`${localUrl}/api/terminais`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ terminals: sanitized })
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 export function fetchAllSectors(): string[] {
@@ -1422,8 +1481,16 @@ export async function removeSectorFromTerminal(terminalId: number | string, sect
   term.sectors = (term.sectors || []).filter((s) => s.trim().toLowerCase() !== clean.toLowerCase());
   (term as any).setores = [...term.sectors];
 
-  // Salva nos armazenamentos locais
+  // Salva nos armazenamentos locais e emite via WebSocket / API SQLite
   saveTerminalsConfig(terminals);
+  try {
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/terminais/${termIdNum}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(term)
+    }).catch(() => {});
+  } catch {}
 
   // 4. Percorre a lista de colaboradores salvos e remove o setor dos colaboradores vinculados
   const termKey = `T${termIdStr}`.replace('TT', 'T');

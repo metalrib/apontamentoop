@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TerminalConfig, ProductionOrder, Apontamento } from '../types/mes';
+import { TerminalConfig, ProductionOrder, Apontamento, isOfficeDoorCorrer, isOfficeDoorGiro } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
 import {
   findStepForSector,
@@ -101,7 +101,41 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   // FILTRAR O PASSO 1 PARA MOSTRAR APENAS SETORES DA OP ATUAL (LIMPEZA VISUAL)
   // Setores que NÃO pertencem à rota da OP NÃO devem ser renderizados (nem mesmo com cadeado).
   // Nota: Montagem Porta Vai-Vem permanece visível no Terminal 5 (para Fábio/Nathan) e Terminal 4.
+  const isOdCorrer = isOfficeDoorCorrer(order);
+  const isOdGiro = isOfficeDoorGiro(order);
+
   const postosExibiveis = sectorsToProcess.filter((setorTerminal) => {
+    const setorNorm = normalizar(setorTerminal);
+
+    // ISOLAMENTO ESTRITO ENTRE OFFICE DOOR GIRO E CORRER
+    if (isOdGiro) {
+      if (
+        setorNorm.includes('correr') ||
+        setorNorm.includes('corte aluminio') ||
+        setorNorm.includes('corte de aluminio') ||
+        setorNorm.includes('preparacao office door correr') ||
+        setorNorm.includes('montagem office de correr') ||
+        setorNorm.includes('montagem office door correr')
+      ) {
+        return false;
+      }
+    }
+
+    if (isOdCorrer) {
+      if (
+        setorNorm.includes('giro') ||
+        setorNorm.includes('girat') ||
+        setorNorm.includes('dobra') ||
+        setorNorm.includes('laser') ||
+        setorNorm.includes('gaxeta') ||
+        setorNorm.includes('montagem de office door giro') ||
+        setorNorm.includes('montagem office door giratoria') ||
+        setorNorm.includes('montagem portas office door')
+      ) {
+        return false;
+      }
+    }
+
     // Caso especial: Solda sob demanda para âncoras no Terminal 5
     if (isAncora && isTerminal5 && setorTerminal.includes('Solda')) return true;
 
@@ -112,8 +146,6 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     // 1. Funções técnicas oficiais de correspondência de etapa
     if (etapaPertenceARota(setorTerminal, rotaOp)) return true;
     if (findStepForSector(setorTerminal, rotaOp) !== null) return true;
-
-    const setorNorm = normalizar(setorTerminal);
 
     // 2. Verifica se o setor do terminal existe dentro da rota cadastrada para esta OP
     return rotaOp.some((etapaRota) => {

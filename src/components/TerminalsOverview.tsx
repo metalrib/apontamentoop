@@ -171,9 +171,11 @@ export const TerminalsOverview: React.FC<TerminalsOverviewProps> = ({
       };
       window.addEventListener('storage', handleSync);
       window.addEventListener('metalrib_terminals_updated', handleSync);
+      window.addEventListener('metalrib_sectors_updated', handleSync);
       return () => {
         window.removeEventListener('storage', handleSync);
         window.removeEventListener('metalrib_terminals_updated', handleSync);
+        window.removeEventListener('metalrib_sectors_updated', handleSync);
       };
     }
   }, [terminals]);

@@ -128,16 +128,35 @@ try {
   if (!countTerms || countTerms.count === 0) {
     const defaultTerms = [
       { id: 1, name: 'Terminal 1', label: 'Corte, Dobra e Laser', sectors: JSON.stringify(['Corte', 'Laser', 'Dobra', 'Preparação de Folha']) },
-      { id: 2, name: 'Terminal 2', label: 'Preparação e Injetora de folhas', sectors: JSON.stringify(['Preparação de Folha', 'Preparação Office Door', 'Injeção', 'Injeção de Folhas']) },
-      { id: 3, name: 'Terminal 3', label: 'Batentes e Portas Office/Emendadas', sectors: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Montagem Portas de Correr Padrão e Especial', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Instalação de Gaxeta', 'Finalização Vai Vem', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
-      { id: 4, name: 'Terminal 4', label: 'Montagem Vai-Vem & Gaxeta', sectors: JSON.stringify(['Montagem Porta Vai-Vem', 'Montagem Portas Office Door', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
-      { id: 5, name: 'Terminal 5', label: 'Router, Solda e Especiais', sectors: JSON.stringify(['Corte Alumínio', 'Preparação Vai Vem', 'Preparação Office Door', 'Router', 'Corte', 'Solda', 'Solda e Montagem', 'Montagem Estante', 'Montagem Abrigo Doca', 'Cortina', 'Elétrica']) }
+      { id: 2, name: 'Terminal 2', label: 'Preparação e Injetora de folhas', sectors: JSON.stringify(['Preparação de Folha', 'Preparação Office Door', 'Preparação Office Door Correr', 'Injeção', 'Injeção de Folhas']) },
+      { id: 3, name: 'Terminal 3', label: 'Batentes e Portas Office/Emendadas', sectors: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem de Office Door Giro', 'Montagem Office de Correr', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Montagem Portas de Correr Padrão e Especial', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Instalação de Gaxeta', 'Finalização Vai Vem', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
+      { id: 4, name: 'Terminal 4', label: 'Montagem Vai-Vem & Gaxeta', sectors: JSON.stringify(['Montagem Porta Vai-Vem', 'Montagem de Office Door Giro', 'Montagem Office de Correr', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Portas Emendadas', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
+      { id: 5, name: 'Terminal 5', label: 'Router, Solda e Especiais', sectors: JSON.stringify(['Corte Alumínio', 'Preparação Vai Vem', 'Preparação Office Door', 'Preparação Office Door Correr', 'Router', 'Corte', 'Solda', 'Solda e Montagem', 'Montagem Estante', 'Montagem Abrigo Doca', 'Cortina', 'Elétrica']) }
     ];
     const insertTerm = db.prepare('INSERT INTO terminais (id, name, label, sectors, atualizadoEm) VALUES (?, ?, ?, ?, ?)');
     for (const dt of defaultTerms) {
       insertTerm.run(dt.id, dt.name, dt.label, dt.sectors, Date.now());
     }
   } else {
+    // Saneamento e inclusão dos postos oficiais Office Door nos terminais existentes
+    const ensureSectorInTerminal = (termId, sectorName) => {
+      const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
+      if (row) {
+        let secs = JSON.parse(row.sectors || '[]');
+        if (!secs.some(s => s.toLowerCase() === sectorName.toLowerCase())) {
+          secs.push(sectorName);
+          db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?').run(JSON.stringify(secs), Date.now(), termId);
+        }
+      }
+    };
+
+    ensureSectorInTerminal(2, 'Preparação Office Door Correr');
+    ensureSectorInTerminal(3, 'Montagem de Office Door Giro');
+    ensureSectorInTerminal(3, 'Montagem Office de Correr');
+    ensureSectorInTerminal(4, 'Montagem de Office Door Giro');
+    ensureSectorInTerminal(4, 'Montagem Office de Correr');
+    ensureSectorInTerminal(5, 'Preparação Office Door Correr');
+
     // Saneamento de Terminal 5 para expurgar setores de montagem indevidos
     const t5Row = db.prepare('SELECT * FROM terminais WHERE id = 5').get();
     if (t5Row) {
@@ -149,7 +168,9 @@ try {
         'montagem portas emendadas',
         'montagem porta vai-vem',
         'corte de trilho p/ porta correr',
-        'montagem de trilho p/ porta correr'
+        'montagem de trilho p/ porta correr',
+        'montagem de office door giro',
+        'montagem office de correr'
       ];
       const cleaned = t5Secs.filter(s => !forbiddenT5.includes(s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()));
       if (cleaned.length !== t5Secs.length) {
@@ -369,15 +390,42 @@ function isRouterExclusivoSql(codigo, descricao) {
   return false;
 }
 
+function isOfficeDoorCorrerSql(codigo, descricao, tipoOrdem) {
+  const cod = String(codigo || '').trim();
+  const desc = normalizarTextoSql(descricao);
+  const tipo = normalizarTextoSql(tipoOrdem);
+
+  if (cod.startsWith('010.') || cod.startsWith('010') || cod === '010.0008') return true;
+  if (desc.includes('OFFICE DOOR COR') || desc.includes('OFFICE-DOOR COR')) return true;
+  if ((desc.includes('OFFICE DOOR') || desc.includes('OFFICE-DOOR') || desc.includes('OFFICE') || tipo.includes('OFFICE')) && (desc.includes('CORRER') || desc.includes('COR ') || desc.endsWith(' COR') || desc.includes('CORR') || tipo.includes('CORRER'))) {
+    return true;
+  }
+  return false;
+}
+
+function isOfficeDoorGiroSql(codigo, descricao, tipoOrdem) {
+  if (isOfficeDoorCorrerSql(codigo, descricao, tipoOrdem)) return false;
+  const cod = String(codigo || '').trim();
+  const desc = normalizarTextoSql(descricao);
+  const tipo = normalizarTextoSql(tipoOrdem);
+
+  if (cod.startsWith('009.') || cod.startsWith('009')) return true;
+  if (desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE-DOOR GIR')) return true;
+  if (desc.includes('OFFICE DOOR') || desc.includes('OFFICE-DOOR') || desc.includes('OFFICE') || tipo.includes('OFFICE')) {
+    return true;
+  }
+  return false;
+}
+
 function isEligibleForRouterSql(codigo, descricao, tipoOrdem) {
+  if (isOfficeDoorCorrerSql(codigo, descricao, tipoOrdem)) return true;
+  if (isOfficeDoorGiroSql(codigo, descricao, tipoOrdem)) return true;
   const desc = normalizarTextoSql(descricao);
   const tipo = normalizarTextoSql(tipoOrdem);
   const cod = String(codigo || '').trim();
   const regex = /VAI[\s-]?E?[\s-]?VEM|OFFICE[\s-]?DOOR|\bVV\b/i;
   if (regex.test(desc) || regex.test(tipo)) return true;
   if (cod.startsWith('011.') || cod.startsWith('011') || desc.includes('VAI VEM')) return true;
-  if (cod.startsWith('009.') || cod.startsWith('009') || desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE DOOR')) return true;
-  if (cod.startsWith('010.') || cod.startsWith('010') || cod === '010.0008' || desc.includes('OFFICE DOOR COR')) return true;
   return false;
 }
 
@@ -528,6 +576,139 @@ try {
         });
         ordensAtualizadasCount++;
         console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) atualizada para Rota Exclusiva Router`);
+      }
+    }
+
+    // Saneamento de Rotas Oficiais Office Door (Giro e Correr)
+    const isOdCorrer = isOfficeDoorCorrerSql(o.codigo, o.descricao, o.tipoOrdem);
+    const isOdGiro = !isOdCorrer && isOfficeDoorGiroSql(o.codigo, o.descricao, o.tipoOrdem);
+
+    if (isOdGiro && (podeAtualizar || o.status !== 'FINALIZADA')) {
+      const querRouter = Boolean(o.requerRouter || o.requer_router || o.encaminhar_router);
+      const targetSteps = querRouter
+        ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Router', 'Instalação de Gaxeta', 'Montagem de Office Door Giro']
+        : ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+
+      let precisaAtualizar = false;
+      let novasEtapas = targetSteps;
+      let novoStatus = o.status;
+
+      try {
+        const parsed = JSON.parse(o.etapas || '[]');
+        if (Array.isArray(parsed)) {
+          if (JSON.stringify(parsed) !== JSON.stringify(targetSteps)) {
+            precisaAtualizar = true;
+            novasEtapas = targetSteps;
+          }
+        } else if (parsed && typeof parsed === 'object') {
+          const obj = { ...parsed };
+          if (obj['Injeção de Folhas']) {
+            obj['Injeção'] = obj['Injeção de Folhas'];
+            delete obj['Injeção de Folhas'];
+            precisaAtualizar = true;
+          }
+          if (obj['Montagem Office Door Giratória'] || obj['Montagem Office Door']) {
+            obj['Montagem de Office Door Giro'] = obj['Montagem Office Door Giratória'] || obj['Montagem Office Door'];
+            delete obj['Montagem Office Door Giratória'];
+            delete obj['Montagem Office Door'];
+            precisaAtualizar = true;
+          }
+          if (!obj['Laser']) {
+            obj['Laser'] = { status: 'PENDENTE', concluidas: 0, total: o.quantidadeFisica || 1 };
+            precisaAtualizar = true;
+          }
+          if (querRouter && !obj['Router']) {
+            obj['Router'] = { status: 'PENDENTE', concluidas: 0, total: o.quantidadeFisica || 1 };
+            precisaAtualizar = true;
+          }
+          if (precisaAtualizar) {
+            novasEtapas = obj;
+          }
+        } else {
+          precisaAtualizar = true;
+          novasEtapas = targetSteps;
+        }
+      } catch {
+        precisaAtualizar = true;
+        novasEtapas = targetSteps;
+      }
+
+      const isPendenteOuAguardando = !o.status || o.status === 'pendente' || o.status.toLowerCase().startsWith('aguardando início') || o.status.toLowerCase().startsWith('aguardando inicio');
+      if (isPendenteOuAguardando && semApontamento) {
+        novoStatus = 'Aguardando Início em: Corte';
+      }
+
+      if (precisaAtualizar) {
+        db.prepare(`
+          UPDATE ordens 
+          SET etapas = ?,
+              status = COALESCE(?, status),
+              atualizadoEm = ?
+          WHERE id = ?
+        `).run(JSON.stringify(novasEtapas), novoStatus, Date.now(), o.id);
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) saneada para rota oficial Office Door Giro`);
+      }
+    } else if (isOdCorrer && (podeAtualizar || o.status !== 'FINALIZADA')) {
+      const querRouter = Boolean(o.requerRouter || o.requer_router || o.encaminhar_router);
+      const targetSteps = querRouter
+        ? ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Router', 'Montagem Office de Correr']
+        : ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Montagem Office de Correr'];
+
+      let precisaAtualizar = false;
+      let novasEtapas = targetSteps;
+      let novoStatus = o.status;
+
+      try {
+        const parsed = JSON.parse(o.etapas || '[]');
+        if (Array.isArray(parsed)) {
+          if (JSON.stringify(parsed) !== JSON.stringify(targetSteps)) {
+            precisaAtualizar = true;
+            novasEtapas = targetSteps;
+          }
+        } else if (parsed && typeof parsed === 'object') {
+          const obj = { ...parsed };
+          if (obj['Preparação Office Door']) {
+            obj['Preparação Office Door Correr'] = obj['Preparação Office Door'];
+            delete obj['Preparação Office Door'];
+            precisaAtualizar = true;
+          }
+          if (obj['Montagem Office Door Correr']) {
+            obj['Montagem Office de Correr'] = obj['Montagem Office Door Correr'];
+            delete obj['Montagem Office Door Correr'];
+            precisaAtualizar = true;
+          }
+          if (querRouter && !obj['Router']) {
+            obj['Router'] = { status: 'PENDENTE', concluidas: 0, total: o.quantidadeFisica || 1 };
+            precisaAtualizar = true;
+          }
+          if (precisaAtualizar) {
+            novasEtapas = obj;
+          }
+        } else {
+          precisaAtualizar = true;
+          novasEtapas = targetSteps;
+        }
+      } catch {
+        precisaAtualizar = true;
+        novasEtapas = targetSteps;
+      }
+
+      const isPendenteOuAguardando = !o.status || o.status === 'pendente' || o.status.toLowerCase().startsWith('aguardando início') || o.status.toLowerCase().startsWith('aguardando inicio');
+      if (isPendenteOuAguardando && semApontamento) {
+        novoStatus = 'Aguardando Início em: Corte';
+      }
+
+      if (precisaAtualizar) {
+        db.prepare(`
+          UPDATE ordens 
+          SET etapas = ?,
+              status = COALESCE(?, status),
+              atualizadoEm = ?
+          WHERE id = ?
+        `).run(JSON.stringify(novasEtapas), novoStatus, Date.now(), o.id);
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) saneada para rota oficial Office Door Correr`);
       }
     }
   }
@@ -804,9 +985,9 @@ app.get('/api/terminais', (req, res) => {
   }
 });
 
-app.post('/api/terminais', (req, res) => {
+app.post(['/api/terminais', '/api/configuracoes/terminais'], (req, res) => {
   try {
-    const { terminals } = req.body;
+    const terminals = req.body.terminals || req.body.terminais || (Array.isArray(req.body) ? req.body : null);
     if (!Array.isArray(terminals)) return res.status(400).json({ error: 'Terminais inválidos' });
 
     const stmt = db.prepare(`
@@ -840,6 +1021,63 @@ app.post('/api/terminais', (req, res) => {
     res.json({ success: true, count: atualizados.length, terminals: atualizados });
   } catch (err) {
     console.error('Erro ao salvar terminais:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/terminais/:id', (req, res) => {
+  try {
+    const termId = Number(req.params.id);
+    const { name, label, sectors, setores } = req.body;
+    const secs = Array.isArray(sectors) ? sectors : (Array.isArray(setores) ? setores : []);
+
+    const existing = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
+    const now = Date.now();
+    const finalName = name || (existing ? existing.name : `Terminal ${termId}`);
+    const finalLabel = label !== undefined ? label : (existing ? existing.label : '');
+
+    db.prepare(`
+      INSERT INTO terminais (id, name, label, sectors, atualizadoEm)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        label = excluded.label,
+        sectors = excluded.sectors,
+        atualizadoEm = excluded.atualizadoEm
+    `).run(termId, finalName, finalLabel, JSON.stringify(secs), now);
+
+    const atualizados = obterTerminais();
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
+    res.json({ success: true, terminalId: termId, terminals: atualizados });
+  } catch (err) {
+    console.error('Erro ao atualizar terminal via PUT:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/terminais/:id/setores/:setor', (req, res) => {
+  try {
+    const termId = Number(req.params.id);
+    const sectorName = decodeURIComponent(req.params.setor || '').trim();
+    if (!sectorName) return res.status(400).json({ error: 'Nome do setor obrigatório' });
+
+    const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
+    if (!row) return res.status(404).json({ error: 'Terminal não encontrado' });
+
+    let sectors = JSON.parse(row.sectors || '[]');
+    sectors = sectors.filter(s => s.toLowerCase() !== sectorName.toLowerCase());
+
+    const now = Date.now();
+    db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?')
+      .run(JSON.stringify(sectors), now, termId);
+
+    const atualizados = obterTerminais();
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
+    res.json({ success: true, terminalId: termId, sectorRemoved: sectorName, terminals: atualizados });
+  } catch (err) {
+    console.error('Erro ao remover setor do terminal:', err);
     res.status(500).json({ error: err.message });
   }
 });

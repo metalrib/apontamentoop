@@ -355,14 +355,33 @@ export function isOfficeDoorCorrer(op: any): boolean {
   if (!op) return false;
   const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
   const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+  const tipo = String(op?.tipoOrdem || op?.tipo || '').toUpperCase();
   return (
     cod.startsWith('010.') ||
     cod.startsWith('010') ||
     cod === '010.0008' ||
     desc.includes('OFFICE DOOR COR') ||
     desc.includes('OFFICE-DOOR COR') ||
-    (desc.includes('OFFICE DOOR') && (desc.includes('CORRER') || desc.includes('COR ')))
+    ((desc.includes('OFFICE DOOR') || desc.includes('OFFICE-DOOR') || desc.includes('OFFICE') || tipo.includes('OFFICE')) && (desc.includes('CORRER') || desc.includes('COR ') || desc.endsWith(' COR') || desc.includes('CORR') || tipo.includes('CORRER')))
   );
+}
+
+/**
+ * Identifica se a OP é de Porta Office Door de Giro (código 009.xxxx ou descrição correspondente)
+ */
+export function isOfficeDoorGiro(op: any): boolean {
+  if (!op) return false;
+  if (isOfficeDoorCorrer(op)) return false;
+  const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+  const tipo = String(op?.tipoOrdem || op?.tipo || '').toUpperCase();
+
+  if (cod.startsWith('009.') || cod.startsWith('009')) return true;
+  if (desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE-DOOR GIR')) return true;
+  if (desc.includes('OFFICE DOOR') || desc.includes('OFFICE-DOOR') || desc.includes('OFFICE') || tipo.includes('OFFICE')) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1001,31 +1020,29 @@ export function obterEtapasDaRota(op: any): string[] {
   }
 
   // 6. OFFICE DOOR (GIRO OU CORRER / FAMÍLIAS 009.xxxx E 010.xxxx) - SEMPRE ESPECIAL
-  else if (cod.startsWith('009.') || desc.includes('OFFICE DOOR GIR')) {
-    steps = [
-      'Corte',
-      'Dobra',
-      'Preparação de Folha',
-      'Injeção de Folhas',
-      'Instalação de Gaxeta',
-      'Montagem Office Door Giratória'
-    ];
+  else if (isOfficeDoorCorrer({ codigo: cod, descricao: desc, tipoOrdem: desc })) {
+    const temRouter = Boolean(
+      (op as any)?.requerRouter ||
+      (op as any)?.requer_router ||
+      (op as any)?.encaminhar_router ||
+      (Array.isArray((op as any)?.etapas) && (op as any).etapas.includes('Router')) ||
+      ((op as any)?.etapas && typeof (op as any).etapas === 'object' && 'Router' in (op as any).etapas)
+    );
+    steps = temRouter
+      ? ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Router', 'Montagem Office de Correr']
+      : ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Montagem Office de Correr'];
   }
-  else if (
-    cod.startsWith('010.') ||
-    cod === '010.0008' ||
-    desc.includes('OFFICE DOOR COR') ||
-    desc.includes('OFFICE-DOOR COR') ||
-    (desc.includes('OFFICE DOOR') && (desc.includes('CORRER') || desc.includes('COR ')))
-  ) {
-    steps = [
-      'Corte',
-      'Corte Alumínio',
-      'Preparação Office Door',
-      'Injeção',
-      'Router',
-      'Montagem Office Door Correr'
-    ];
+  else if (isOfficeDoorGiro({ codigo: cod, descricao: desc, tipoOrdem: desc })) {
+    const temRouter = Boolean(
+      (op as any)?.requerRouter ||
+      (op as any)?.requer_router ||
+      (op as any)?.encaminhar_router ||
+      (Array.isArray((op as any)?.etapas) && (op as any).etapas.includes('Router')) ||
+      ((op as any)?.etapas && typeof (op as any).etapas === 'object' && 'Router' in (op as any).etapas)
+    );
+    steps = temRouter
+      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Router', 'Instalação de Gaxeta', 'Montagem de Office Door Giro']
+      : ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Office Door Giro'];
   }
 
   // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO)

@@ -8,7 +8,9 @@ import {
   isPortaCorrerPadrao,
   isRotaExclusivaLaser,
   isRotaLaserDobra,
-  isRotaExclusivaRouter
+  isRotaExclusivaRouter,
+  isOfficeDoorCorrer,
+  isOfficeDoorGiro
 } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
@@ -105,6 +107,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     else if (desc.startsWith('FOLHA')) familia = 'Folha Avulsa';
     else if (codNormalizado.startsWith('021') || desc.includes('ANCORA')) familia = 'Âncora';
     else if (codNormalizado.startsWith('011') || desc.includes('VAI VEM')) familia = 'Porta Vai e Vem';
+    else if (isOfficeDoorCorrer(op)) familia = 'Porta Office Door de Correr';
+    else if (isOfficeDoorGiro(op)) familia = 'Porta Office Door de Giro';
     else if (codNormalizado.startsWith('009') || codNormalizado.startsWith('010') || desc.includes('OFFICE DOOR')) familia = 'Office Door';
     else if (codNormalizado.startsWith('024') || desc.includes('PENDURAL')) familia = 'Cortina / Pendural';
     else if (codNormalizado.startsWith('027') || desc.includes('VISOR')) familia = 'Visor';

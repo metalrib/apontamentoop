@@ -338,6 +338,45 @@ export function isRotaExclusivaRouter(op: any): boolean {
   return false;
 }
 
+/**
+ * Identifica se a ordem de produção pertence à família Porta Office Door de Correr
+ */
+export function isOfficeDoorCorrer(op: any): boolean {
+  if (!op) return false;
+  const codRaw = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const tipo = String(op?.tipoOrdem || op?.tipo || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  if (codRaw.startsWith('010.') || codRaw.startsWith('010') || codRaw === '010.0008') return true;
+  if (desc.includes('OFFICE DOOR COR') || desc.includes('OFFICE-DOOR COR')) return true;
+  if ((desc.includes('OFFICE DOOR') || desc.includes('OFFICE-DOOR') || desc.includes('OFFICE') || tipo.includes('OFFICE')) && (desc.includes('CORRER') || desc.includes('COR ') || desc.endsWith(' COR') || desc.includes('CORR') || tipo.includes('CORRER'))) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Identifica se a ordem de produção pertence à família Porta Office Door de Giro
+ */
+export function isOfficeDoorGiro(op: any): boolean {
+  if (!op) return false;
+  if (isOfficeDoorCorrer(op)) return false;
+  const codRaw = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
+  const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const tipo = String(op?.tipoOrdem || op?.tipo || '').toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  if (codRaw.startsWith('009.') || codRaw.startsWith('009')) return true;
+  if (desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE-DOOR GIR')) return true;
+  if (desc.includes('OFFICE DOOR') || desc.includes('OFFICE-DOOR') || desc.includes('OFFICE') || tipo.includes('OFFICE')) {
+    return true;
+  }
+  return false;
+}
+
 export const ROUTE_RULES: RouteRule[] = [
   // Rota 15 - Porta Giratória Padrão (Whitelist Exclusiva - Terminal 4: Montagem Direta)
   {
@@ -425,12 +464,17 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "OFFICE DOOR COR",
     label: "Porta Office Door de Correr",
-    steps: ["Corte", "Corte Alumínio", "Preparação Office Door", "Injeção", "Router", "Montagem Office Door Correr"]
+    steps: ["Corte", "Corte Alumínio", "Preparação Office Door Correr", "Injeção", "Montagem Office de Correr"]
+  },
+  {
+    keyword: "OFFICE DOOR GIR",
+    label: "Porta Office Door de Giro",
+    steps: ["Corte", "Laser", "Dobra", "Preparação de Folha", "Injeção", "Instalação de Gaxeta", "Montagem de Office Door Giro"]
   },
   {
     keyword: "OFFICE DOOR",
-    label: "Office Door",
-    steps: ["Corte", "Laser", "Dobra", "Preparação", "Injeção", "Montagem Office Door"]
+    label: "Porta Office Door de Giro",
+    steps: ["Corte", "Laser", "Dobra", "Preparação de Folha", "Injeção", "Instalação de Gaxeta", "Montagem de Office Door Giro"]
   },
   {
     keyword: "PT VAI VEM",

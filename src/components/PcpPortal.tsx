@@ -268,7 +268,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     const templates: Record<string, { desc: string; cod: string }> = {
       FOLHA: { desc: 'FOLHA PORTA ISOTÉRMICA INOX 304 2100x900', cod: '001.0118' },
       BAT: { desc: 'BATENTE BAT AÇO GALVANIZADO 2100x900', cod: '020.0033' },
-      'OFFICE DOOR': { desc: 'PORTA OFFICE DOOR COM VISOR DUPLO', cod: '003.0044' },
+      'OFFICE DOOR': { desc: 'PORTA OFFICE DOOR GIRO COM VISOR DUPLO', cod: '009.0108' },
+      'OFFICE DOOR GIR': { desc: 'PORTA OFFICE DOOR GIRO COM VISOR DUPLO', cod: '009.0108' },
+      'OFFICE DOOR COR': { desc: 'PORTA OFFICE DOOR DE CORRER COM VISOR DUPLO', cod: '010.0008' },
       'PT GIR': { desc: 'PORTA PT GIR GIRATÓRIA REFORÇADA INOX', cod: '004.0055' },
       'PT VAI VEM': { desc: 'PORTA PT VAI VEM IMPACTO POLICARBONATO', cod: '005.0066' },
       ANCORA: { desc: 'ESTRUTURA ANCORA MONTAGEM PESADA', cod: '006.0077' },
@@ -1237,7 +1239,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                 >
                   <option value="FOLHA">FOLHA - Folha Standard / Isotérmica</option>
                   <option value="BAT">BAT - Batente</option>
-                  <option value="OFFICE DOOR">OFFICE DOOR - Office Door</option>
+                  <option value="OFFICE DOOR GIR">OFFICE DOOR GIRO - Porta Office Door de Giro</option>
+                  <option value="OFFICE DOOR COR">OFFICE DOOR CORRER - Porta Office Door de Correr</option>
                   <option value="PT GIR">PT GIR - Porta Giratória</option>
                   <option value="PT VAI VEM">PT VAI VEM - Porta Vai Vem</option>
                   <option value="ANCORA">ANCORA - Âncora / Fixação</option>
