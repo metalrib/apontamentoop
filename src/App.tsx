@@ -195,6 +195,14 @@ export default function App() {
       setCurrentTerminal((prev) => {
         if (!prev) return dynamicTerms[0] || TERMINALS[0];
         const match = dynamicTerms.find((t) => t.id === prev.id);
+        if (
+          match &&
+          match.id === prev.id &&
+          match.name === prev.name &&
+          JSON.stringify(match.sectors) === JSON.stringify(prev.sectors)
+        ) {
+          return prev;
+        }
         return match || dynamicTerms[0] || TERMINALS[0];
       });
     };

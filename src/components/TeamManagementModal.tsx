@@ -400,28 +400,33 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
     return Array.from(set);
   }, [dynamicTerminalSectors]);
 
-  // Carrega operadores e terminais salvos
-  const loadData = () => {
+  // Carrega operadores e terminais salvos do armazenamento local (síncrono e sem disparar rede)
+  const loadData = useCallback(() => {
     const listOps = fetchOperators();
     setOperators(listOps);
     const listTerms = fetchTerminalsConfig();
     setTerminals(listTerms);
-    fetchLocalTerminais().then((updatedTerms) => {
-      if (updatedTerms && updatedTerms.length > 0) {
-        setTerminals(updatedTerms);
-      }
-    }).catch(() => {});
-  };
+  }, []);
 
   useEffect(() => {
     if (isOpen) {
       loadData();
       resetForm();
 
+      // Sincroniza do SQLite apenas uma vez na abertura do componente (sem disparar re-fetches em loop)
+      fetchLocalTerminais().then((updatedTerms) => {
+        if (updatedTerms && updatedTerms.length > 0) {
+          setTerminals((prev) => {
+            if (JSON.stringify(prev) === JSON.stringify(updatedTerms)) return prev;
+            return updatedTerms;
+          });
+        }
+      }).catch(() => {});
+
+      // Ouve apenas eventos específicos de operadores e setores, lendo apenas dados locais sem chamar HTTP
       const handleDataUpdate = () => {
         loadData();
       };
-      // Ouve apenas eventos específicos de operadores e setores, ignorando eventos de OPs em background
       window.addEventListener('metalrib_sectors_updated', handleDataUpdate);
       window.addEventListener('metalrib_operators_updated', handleDataUpdate);
 
@@ -430,7 +435,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
         window.removeEventListener('metalrib_operators_updated', handleDataUpdate);
       };
     }
-  }, [isOpen]);
+  }, [isOpen, loadData]);
 
   const showNotification = (msg: string) => {
     setSuccessToast(msg);

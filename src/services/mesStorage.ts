@@ -688,28 +688,42 @@ export async function fetchLocalOrdens(): Promise<boolean> {
   return false;
 }
 
+let isFetchingColaboradores = false;
+
 export async function fetchLocalColaboradores(): Promise<Operator[]> {
   if (typeof window === 'undefined') return [];
+  if (isFetchingColaboradores) return fetchOperators();
+  isFetchingColaboradores = true;
   try {
     const localUrl = getLocalServerUrl();
     const res = await fetch(`${localUrl}/api/colaboradores`, { cache: 'no-store' });
     if (!res.ok) return [];
     const colabs = await res.json();
     if (Array.isArray(colabs) && colabs.length > 0) {
-      console.log('[MES Storage] Colaboradores oficiais sincronizados do servidor:', colabs.length);
-      saveOperators(colabs);
-      localStorage.setItem('MES_COLABORADORES_OFICIAIS', JSON.stringify(colabs));
-      window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
+      const currentStored = localStorage.getItem('MES_COLABORADORES_OFICIAIS');
+      const newStored = JSON.stringify(colabs);
+      if (currentStored !== newStored) {
+        console.log('[MES Storage] Colaboradores oficiais sincronizados do servidor:', colabs.length);
+        saveOperators(colabs);
+        localStorage.setItem('MES_COLABORADORES_OFICIAIS', newStored);
+        window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
+      }
       return colabs;
     }
   } catch (err) {
     console.warn('[MES Storage] Erro ao buscar colaboradores da API:', err);
+  } finally {
+    isFetchingColaboradores = false;
   }
   return [];
 }
 
+let isFetchingTerminais = false;
+
 export async function fetchLocalTerminais(): Promise<TerminalConfig[]> {
   if (typeof window === 'undefined') return [];
+  if (isFetchingTerminais) return fetchTerminalsConfig();
+  isFetchingTerminais = true;
   try {
     const localUrl = getLocalServerUrl();
     const res = await fetch(`${localUrl}/api/terminais`, { cache: 'no-store' });
@@ -717,15 +731,21 @@ export async function fetchLocalTerminais(): Promise<TerminalConfig[]> {
     const terms = await res.json();
     if (Array.isArray(terms) && terms.length > 0) {
       const { terminals: sanitized } = sanitizeTerminalSectors(terms);
-      localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
-      const setoresMap = buildSetoresMap(sanitized);
-      localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-      window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
-      console.log('[MES Storage] Configuração de 5 terminais e setores sincronizada do SQLite:', sanitized.length);
+      const currentStored = localStorage.getItem(STORAGE_TERMINALS_KEY);
+      const newStored = JSON.stringify(sanitized);
+      if (currentStored !== newStored) {
+        localStorage.setItem(STORAGE_TERMINALS_KEY, newStored);
+        const setoresMap = buildSetoresMap(sanitized);
+        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+        console.log('[MES Storage] Configuração de 5 terminais e setores sincronizada do SQLite:', sanitized.length);
+      }
       return sanitized;
     }
   } catch (err) {
     console.warn('[MES Storage] Erro ao sincronizar terminais do SQLite:', err);
+  } finally {
+    isFetchingTerminais = false;
   }
   return fetchTerminalsConfig();
 }
@@ -752,11 +772,13 @@ export function initLocalSocketListeners(): void {
     socket.on('colaboradores_atualizados', (colabs: any[]) => {
       console.log('[Socket.io] Evento colaboradores_atualizados recebido do backend:', colabs?.length);
       if (Array.isArray(colabs) && colabs.length > 0) {
-        saveOperators(colabs);
-        localStorage.setItem('MES_COLABORADORES_OFICIAIS', JSON.stringify(colabs));
-        window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
-      } else {
-        fetchLocalColaboradores();
+        const currentStored = localStorage.getItem('MES_COLABORADORES_OFICIAIS');
+        const newStored = JSON.stringify(colabs);
+        if (currentStored !== newStored) {
+          saveOperators(colabs);
+          localStorage.setItem('MES_COLABORADORES_OFICIAIS', newStored);
+          window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
+        }
       }
     });
 
@@ -764,10 +786,14 @@ export function initLocalSocketListeners(): void {
       console.log('[Socket.io] Evento terminais_atualizados recebido do backend:', terms?.length);
       if (Array.isArray(terms) && terms.length > 0) {
         const { terminals: sanitized } = sanitizeTerminalSectors(terms);
-        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
-        const setoresMap = buildSetoresMap(sanitized);
-        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+        const currentStored = localStorage.getItem(STORAGE_TERMINALS_KEY);
+        const newStored = JSON.stringify(sanitized);
+        if (currentStored !== newStored) {
+          localStorage.setItem(STORAGE_TERMINALS_KEY, newStored);
+          const setoresMap = buildSetoresMap(sanitized);
+          localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+          window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+        }
       }
     });
 
@@ -775,10 +801,14 @@ export function initLocalSocketListeners(): void {
       console.log('[Socket.io] Evento setores_atualizados recebido do backend:', terms?.length);
       if (Array.isArray(terms) && terms.length > 0) {
         const { terminals: sanitized } = sanitizeTerminalSectors(terms);
-        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
-        const setoresMap = buildSetoresMap(sanitized);
-        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+        const currentStored = localStorage.getItem(STORAGE_TERMINALS_KEY);
+        const newStored = JSON.stringify(sanitized);
+        if (currentStored !== newStored) {
+          localStorage.setItem(STORAGE_TERMINALS_KEY, newStored);
+          const setoresMap = buildSetoresMap(sanitized);
+          localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
+          window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+        }
       }
     });
 
@@ -806,16 +836,6 @@ export function initLocalSocketListeners(): void {
       window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
       fetchLocalOrdens();
       fetchLocalColaboradores();
-    });
-
-    socket.on('setores_atualizados', (terms: any[]) => {
-      if (Array.isArray(terms) && terms.length > 0) {
-        const { terminals: sanitized } = sanitizeTerminalSectors(terms);
-        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
-        const setoresMap = buildSetoresMap(sanitized);
-        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-        window.dispatchEvent(new CustomEvent('metalrib_sectors_updated'));
-      }
     });
 
     socket.on('ordens_atualizadas', (ordens: any[]) => {
@@ -1375,7 +1395,9 @@ export function fetchTerminalsConfig(): TerminalConfig[] {
     if (Array.isArray(list) && list.length > 0) {
       const { terminals: sanitized, changed } = sanitizeTerminalSectors(list);
       if (changed) {
-        saveTerminalsConfig(sanitized);
+        localStorage.setItem(STORAGE_TERMINALS_KEY, JSON.stringify(sanitized));
+        const setoresMap = buildSetoresMap(sanitized);
+        localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
       }
       return sanitized;
     }
