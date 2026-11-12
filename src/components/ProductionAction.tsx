@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
-import { updateProductionOrder, obterOcorrenciasDaOp, cleanOpId, getLocalSocket, purgeLocalAppointmentsForOp } from '../services/mesStorage';
+import { updateProductionOrder, obterOcorrenciasDaOp, cleanOpId, getLocalSocket, purgeLocalAppointmentsForOp, getLocalServerUrl } from '../services/mesStorage';
 import { formatarNumeroOP } from '../utils/nomusParser';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -15,9 +15,9 @@ interface ProductionActionProps {
   selectedSector: string | null;
   selectedOperator: string | null;
   currentTerminal: TerminalConfig;
-  onStartUnit: (unidadeNumero: number, etapaRota: string) => void;
+  onStartUnit: (unidadeNumero: number, etapaRota: string, encaminharRouter?: boolean) => void;
   onFinishUnit: (apontamentoId: string, encaminharRouter?: boolean) => void;
-  onStartBatch?: (etapaRota: string, quantidadeTotal: number) => void;
+  onStartBatch?: (etapaRota: string, quantidadeTotal: number, encaminharRouter?: boolean) => void;
   onFinishBatch?: (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean) => void;
   onCancelStart?: (apontamentoId: string, etapaRota: string) => void;
   isLoading?: boolean;
@@ -139,12 +139,14 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
   const [showRouterModal, setShowRouterModal] = useState<boolean>(false);
   const [encaminharRouter, setEncaminharRouter] = useState<boolean>(
-    Boolean(order.requerRouter || order.encaminhar_router || order.requer_router)
+    Boolean(order?.requerRouter || order?.encaminhar_router || order?.requer_router)
   );
 
   useEffect(() => {
-    setEncaminharRouter(Boolean(order.requerRouter || order.encaminhar_router || order.requer_router));
-  }, [order.op_numero, order.requerRouter, order.encaminhar_router, order.requer_router]);
+    if (order) {
+      setEncaminharRouter(Boolean(order.requerRouter || order.encaminhar_router || order.requer_router));
+    }
+  }, [order?.op_numero, order?.numero, (order as any)?.id, order?.requerRouter, order?.encaminhar_router, order?.requer_router]);
 
   // Identifica se o setor selecionado é o Corte no Terminal 1
   const isCorteSector = Boolean(
@@ -577,15 +579,28 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
           {/* Opção Condicional Exclusiva na Injeção: Encaminhar para Router */}
           {showRouterOption && (
             <div
-              onClick={() => {
+              onClick={async () => {
                 playClick();
                 const nextVal = !encaminharRouter;
                 setEncaminharRouter(nextVal);
-                updateProductionOrder(order.op_numero, {
+                await updateProductionOrder(order.op_numero, {
                   requerRouter: nextVal,
                   requer_router: nextVal,
                   encaminhar_router: nextVal
-                });
+                } as any);
+                try {
+                  const localUrl = getLocalServerUrl();
+                  fetch(`${localUrl}/api/ordens/${cleanOpId(order.op_numero)}/iniciar-etapa`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      etapa: matchedStep,
+                      setor: selectedSector,
+                      requerRouter: nextVal,
+                      encaminharRouter: nextVal
+                    })
+                  }).catch(() => {});
+                } catch {}
               }}
               className={`mb-2 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
                 encaminharRouter
@@ -773,15 +788,28 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
                 {/* OPÇÃO EM DESTAQUE: [ ] Encaminhar para Router */}
                 <div
-                  onClick={() => {
+                  onClick={async () => {
                     playClick();
                     const nextVal = !encaminharRouter;
                     setEncaminharRouter(nextVal);
-                    updateProductionOrder(order.op_numero, {
+                    await updateProductionOrder(order.op_numero, {
                       requerRouter: nextVal,
                       requer_router: nextVal,
                       encaminhar_router: nextVal
-                    });
+                    } as any);
+                    try {
+                      const localUrl = getLocalServerUrl();
+                      fetch(`${localUrl}/api/ordens/${cleanOpId(order.op_numero)}/iniciar-etapa`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          etapa: matchedStep,
+                          setor: selectedSector,
+                          requerRouter: nextVal,
+                          encaminharRouter: nextVal
+                        })
+                      }).catch(() => {});
+                    } catch {}
                   }}
                   className={`p-4 rounded-xl border flex items-start gap-3.5 cursor-pointer select-none transition-all mb-6 ${
                     encaminharRouter
@@ -1074,15 +1102,28 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
               {/* OPÇÃO EM DESTAQUE: [ ] Encaminhar para Router */}
               <div
-                onClick={() => {
+                onClick={async () => {
                   playClick();
                   const nextVal = !encaminharRouter;
                   setEncaminharRouter(nextVal);
-                  updateProductionOrder(order.op_numero, {
+                  await updateProductionOrder(order.op_numero, {
                     requerRouter: nextVal,
                     requer_router: nextVal,
                     encaminhar_router: nextVal
-                  });
+                  } as any);
+                  try {
+                    const localUrl = getLocalServerUrl();
+                    fetch(`${localUrl}/api/ordens/${cleanOpId(order.op_numero)}/iniciar-etapa`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        etapa: matchedStep,
+                        setor: selectedSector,
+                        requerRouter: nextVal,
+                        encaminharRouter: nextVal
+                      })
+                    }).catch(() => {});
+                  } catch {}
                 }}
                 className={`p-4 rounded-xl border flex items-start gap-3.5 cursor-pointer select-none transition-all mb-6 ${
                   encaminharRouter
@@ -1406,9 +1447,23 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
               const nextVal = !encaminharRouter;
               setEncaminharRouter(nextVal);
               await updateProductionOrder(order.op_numero, {
+                requerRouter: nextVal,
                 requer_router: nextVal,
                 encaminhar_router: nextVal
-              });
+              } as any);
+              try {
+                const localUrl = getLocalServerUrl();
+                fetch(`${localUrl}/api/ordens/${cleanOpId(order.op_numero)}/iniciar-etapa`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    etapa: matchedStep,
+                    setor: selectedSector,
+                    requerRouter: nextVal,
+                    encaminharRouter: nextVal
+                  })
+                }).catch(() => {});
+              } catch {}
             }}
             className={`w-full mb-2.5 p-3 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
               encaminharRouter
@@ -1496,10 +1551,17 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
               if (isCorteSector) {
                 await updateProductionOrder(order.op_numero, { requer_laser: sendToLaser, requerLaser: sendToLaser } as any);
               }
+              if (showRouterOption) {
+                await updateProductionOrder(order.op_numero, {
+                  requerRouter: encaminharRouter,
+                  requer_router: encaminharRouter,
+                  encaminhar_router: encaminharRouter
+                } as any);
+              }
               if (onStartBatch) {
-                onStartBatch(matchedStep, totalPhysicalUnits);
+                onStartBatch(matchedStep, totalPhysicalUnits, showRouterOption ? encaminharRouter : undefined);
               } else {
-                onStartUnit(1, matchedStep);
+                onStartUnit(1, matchedStep, showRouterOption ? encaminharRouter : undefined);
               }
             }}
             disabled={isLoading}
@@ -1608,6 +1670,59 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
         </div>
       )}
 
+      {/* Opção Condicional Exclusiva na Injeção: Requer Router / Com Visor */}
+      {showRouterOption && isUnblocked && (
+        <div
+          onClick={async () => {
+            playClick();
+            const nextVal = !encaminharRouter;
+            setEncaminharRouter(nextVal);
+            await updateProductionOrder(order.op_numero, {
+              requerRouter: nextVal,
+              requer_router: nextVal,
+              encaminhar_router: nextVal
+            } as any);
+            try {
+              const localUrl = getLocalServerUrl();
+              fetch(`${localUrl}/api/ordens/${cleanOpId(order.op_numero)}/iniciar-etapa`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  etapa: matchedStep,
+                  setor: selectedSector,
+                  requerRouter: nextVal,
+                  encaminharRouter: nextVal
+                })
+              }).catch(() => {});
+            } catch {}
+          }}
+          className={`w-full mb-2.5 p-3 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
+            encaminharRouter
+              ? 'bg-amber-950/40 border-amber-500/70 text-amber-200 shadow-sm'
+              : 'bg-slate-900/90 border-slate-700/80 text-slate-400 hover:border-slate-600'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <input
+              type="checkbox"
+              id="send-to-router-toggle-unit-pending"
+              checked={encaminharRouter}
+              readOnly
+              className="w-4 h-4 rounded text-amber-500 accent-amber-500 cursor-pointer pointer-events-none shrink-0"
+            />
+            <span className="text-xs font-mono font-medium">
+              <span>Requer Router / Com Visor</span>{' '}
+              <span className="text-[11px] text-slate-500">(Terminal 5)</span>
+            </span>
+          </div>
+          {encaminharRouter && (
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono shrink-0">
+              ⚙ Requer Router (Com Visor)
+            </span>
+          )}
+        </div>
+      )}
+
       {!isUnblocked ? (
         <button
           disabled
@@ -1624,7 +1739,14 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
             if (isCorteSector) {
               await updateProductionOrder(order.op_numero, { requer_laser: sendToLaser, requerLaser: sendToLaser } as any);
             }
-            onStartUnit(nextUnitNumber, matchedStep);
+            if (showRouterOption) {
+              await updateProductionOrder(order.op_numero, {
+                requerRouter: encaminharRouter,
+                requer_router: encaminharRouter,
+                encaminhar_router: encaminharRouter
+              } as any);
+            }
+            onStartUnit(nextUnitNumber, matchedStep, showRouterOption ? encaminharRouter : undefined);
           }}
           disabled={isLoading}
           className="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] transition-all text-white font-bold text-base rounded-xl flex items-center justify-center gap-2 shadow-md uppercase tracking-wide cursor-pointer"

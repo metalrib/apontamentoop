@@ -637,6 +637,9 @@ export interface Apontamento {
   is_lote?: boolean;
   quantidade_lote?: number;
   quantidade_refugo?: number;
+  requerRouter?: boolean;
+  requer_router?: boolean;
+  encaminhar_router?: boolean;
 }
 
 export interface Operator {

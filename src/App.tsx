@@ -641,7 +641,7 @@ export default function App() {
   };
 
   // Iniciar Unidade
-  const handleStartUnit = async (unidadeNumero: number, etapaRota: string) => {
+  const handleStartUnit = async (unidadeNumero: number, etapaRota: string, encaminharRouter?: boolean) => {
     if (!currentOp || !selectedSector || !selectedOperator || !currentTerminal) return;
     setIsLoading(true);
     try {
@@ -651,7 +651,8 @@ export default function App() {
         setor: selectedSector,
         etapa_rota: etapaRota,
         terminal_id: currentTerminal.id,
-        operador: selectedOperator
+        operador: selectedOperator,
+        requerRouter: encaminharRouter
       });
 
       playSuccessStart();
@@ -718,7 +719,7 @@ export default function App() {
   };
 
   // Iniciar Lote Completo
-  const handleStartBatch = async (etapaRota: string, quantidadeTotal: number) => {
+  const handleStartBatch = async (etapaRota: string, quantidadeTotal: number, encaminharRouter?: boolean) => {
     if (!currentOp || !selectedSector || !selectedOperator || !currentTerminal) return;
     setIsLoading(true);
     const opNum = currentOp.op_numero;
@@ -732,7 +733,8 @@ export default function App() {
         setor: sector,
         etapa_rota: etapaRota,
         terminal_id: termId,
-        operador: opNome
+        operador: opNome,
+        requerRouter: encaminharRouter
       });
 
       playSuccessStart();

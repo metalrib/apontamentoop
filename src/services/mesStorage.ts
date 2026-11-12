@@ -1779,6 +1779,7 @@ export async function startUnit(params: {
   etapa_rota: string;
   terminal_id: number;
   operador: string;
+  requerRouter?: boolean;
 }): Promise<Apontamento> {
   ensureInitialData();
   const cleanOp = params.op_numero.trim().toUpperCase();
@@ -1798,6 +1799,9 @@ export async function startUnit(params: {
 
   const uniqueId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const nowIso = new Date().toISOString();
+  const routerVal = params.requerRouter;
+  const hasRouter = routerVal !== undefined;
+  const routerBool = Boolean(routerVal);
   const novoApontamento: Apontamento = {
     id: uniqueId,
     op_numero: cleanOp,
@@ -1815,7 +1819,12 @@ export async function startUnit(params: {
     colaborador: params.operador,
     hora_inicio: nowIso,
     horaInicio: nowIso,
-    status: 'EM_ANDAMENTO'
+    status: 'EM_ANDAMENTO',
+    ...(hasRouter ? {
+      requerRouter: routerBool,
+      requer_router: routerBool,
+      encaminhar_router: routerBool
+    } : {})
   };
 
   tree[cleanOp][uniqueId] = novoApontamento;
@@ -1861,10 +1870,20 @@ export async function startUnit(params: {
       operadorAtual: params.operador,
       dataInicio: nowIso,
       data_atualizacao: nowIso,
-      ultimaAtualizacao: nowIso
+      ultimaAtualizacao: nowIso,
+      ...(hasRouter ? {
+        requerRouter: routerBool,
+        requer_router: routerBool,
+        encaminhar_router: routerBool
+      } : {})
     };
 
     if (targetOrder) {
+      if (hasRouter) {
+        targetOrder.requerRouter = routerBool;
+        targetOrder.requer_router = routerBool;
+        targetOrder.encaminhar_router = routerBool;
+      }
       const { steps } = getRouteForOp(targetOrder);
       const totalPadrao = Number(targetOrder.quantidade_total ?? targetOrder.quantidade ?? 1) || 1;
       if (!targetOrder.etapas) {
@@ -1919,10 +1938,30 @@ export async function startUnit(params: {
 
     try {
       const localUrl = getLocalServerUrl();
+      if (hasRouter) {
+        fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/iniciar-etapa`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            etapa: params.etapa_rota,
+            setor: params.setor,
+            operador: params.operador,
+            requerRouter: routerBool,
+            encaminharRouter: routerBool
+          })
+        }).catch(() => {});
+      }
       fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(targetOrder || opUpdates)
+        body: JSON.stringify({
+          ...(targetOrder || opUpdates),
+          ...(hasRouter ? {
+            requerRouter: routerBool,
+            requer_router: routerBool,
+            encaminhar_router: routerBool
+          } : {})
+        })
       }).catch(() => {});
       fetch(`${localUrl}/api/apontamentos`, {
         method: 'POST',
@@ -2203,6 +2242,7 @@ export interface StartBatchParams {
   etapa_rota: string;
   terminal_id: number;
   operador: string;
+  requerRouter?: boolean;
 }
 
 /**
@@ -2227,6 +2267,9 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
   const uniqueId = `apt_lote_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const nowIso = new Date().toISOString();
+  const routerVal = params.requerRouter;
+  const hasRouter = routerVal !== undefined;
+  const routerBool = Boolean(routerVal);
   const totalUnits = Math.max(1, Math.round(params.quantidade_total || 1));
   const novoApontamento: Apontamento = {
     id: uniqueId,
@@ -2247,7 +2290,12 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
     colaborador: params.operador,
     hora_inicio: nowIso,
     horaInicio: nowIso,
-    status: 'EM_ANDAMENTO'
+    status: 'EM_ANDAMENTO',
+    ...(hasRouter ? {
+      requerRouter: routerBool,
+      requer_router: routerBool,
+      encaminhar_router: routerBool
+    } : {})
   };
 
   tree[cleanOp][uniqueId] = novoApontamento;
@@ -2294,10 +2342,20 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       operadorAtual: params.operador,
       dataInicio: nowIso,
       data_atualizacao: nowIso,
-      ultimaAtualizacao: nowIso
+      ultimaAtualizacao: nowIso,
+      ...(hasRouter ? {
+        requerRouter: routerBool,
+        requer_router: routerBool,
+        encaminhar_router: routerBool
+      } : {})
     };
 
     if (targetOrder) {
+      if (hasRouter) {
+        targetOrder.requerRouter = routerBool;
+        targetOrder.requer_router = routerBool;
+        targetOrder.encaminhar_router = routerBool;
+      }
       const { steps } = getRouteForOp(targetOrder);
       const totalPadrao = Number(targetOrder.quantidade_total ?? targetOrder.quantidade ?? 1) || 1;
       if (!targetOrder.etapas) {
@@ -2352,10 +2410,30 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
     try {
       const localUrl = getLocalServerUrl();
+      if (hasRouter) {
+        fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/iniciar-etapa`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            etapa: params.etapa_rota,
+            setor: params.setor,
+            operador: params.operador,
+            requerRouter: routerBool,
+            encaminharRouter: routerBool
+          })
+        }).catch(() => {});
+      }
       fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(targetOrder || opUpdates)
+        body: JSON.stringify({
+          ...(targetOrder || opUpdates),
+          ...(hasRouter ? {
+            requerRouter: routerBool,
+            requer_router: routerBool,
+            encaminhar_router: routerBool
+          } : {})
+        })
       }).catch(() => {});
       fetch(`${localUrl}/api/apontamentos`, {
         method: 'POST',

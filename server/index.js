@@ -1070,6 +1070,61 @@ app.put('/api/ordens/:id', (req, res) => {
   res.json({ success: true });
 });
 
+// 4.0 Início de etapa oficial (com persistência de flags do lote como requerRouter)
+app.post(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, res) => {
+  try {
+    const id = req.params.id || req.body.id || req.body.op_numero || req.body.numero;
+    if (!id) return res.status(400).json({ error: 'ID da ordem obrigatório' });
+
+    const { etapa, setor, operador, requerRouter, encaminharRouter, requer_router } = req.body;
+    const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
+    const formatId = `OP ${cleanId}`;
+
+    const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+      .get(id, cleanId, formatId, cleanId);
+    if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+    const hasRouterFlag = requerRouter !== undefined || encaminharRouter !== undefined || requer_router !== undefined;
+    const routerVal = hasRouterFlag ? (Boolean(requerRouter || encaminharRouter || requer_router) ? 1 : 0) : null;
+    const nowMs = Date.now();
+
+    if (routerVal !== null) {
+      db.prepare(`
+        UPDATE ordens SET
+          requerRouter = ?,
+          requer_router = ?,
+          encaminhar_router = ?,
+          status = 'EM_PRODUCAO',
+          atualizadoEm = ?
+        WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+      `).run(routerVal, routerVal, routerVal, nowMs, id, cleanId, formatId, cleanId);
+    } else {
+      db.prepare(`
+        UPDATE ordens SET
+          status = 'EM_PRODUCAO',
+          atualizadoEm = ?
+        WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+      `).run(nowMs, id, cleanId, formatId, cleanId);
+    }
+
+    const todas = obterTodasOrdens();
+    io.emit('ordens_atualizadas', todas);
+    return res.json({
+      success: true,
+      requerRouter: routerVal === 1,
+      status: 'EM_PRODUCAO'
+    });
+  } catch (err) {
+    console.error('[/api/ordens/iniciar-etapa] Erro:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+app.put(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, res, next) => {
+  req.method = 'POST';
+  app._router.handle(req, res, next);
+});
+
 // 4.1 Conclusão de etapa oficial (com inserção dinâmica de Router sob demanda)
 app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req, res) => {
   const id = req.params.id || req.body.id || req.body.op_numero;
@@ -1583,8 +1638,17 @@ app.post('/api/apontamentos', (req, res) => {
   const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(formatOp, cleanOp, formatOp, cleanOp);
   if (opRow) {
     let novoStatus = opRow.status;
+    const hasRouterInApt = apt.requerRouter !== undefined || apt.requer_router !== undefined || apt.encaminharRouter !== undefined || req.body.requerRouter !== undefined || req.body.requer_router !== undefined || req.body.encaminharRouter !== undefined;
+    const routerValFromApt = hasRouterInApt ? (Boolean(apt.requerRouter || apt.requer_router || apt.encaminharRouter || req.body.requerRouter || req.body.requer_router || req.body.encaminharRouter) ? 1 : 0) : null;
+
     if (apt.status === 'EM_ANDAMENTO') {
       novoStatus = 'EM_PRODUCAO';
+      if (routerValFromApt !== null) {
+        db.prepare(`
+          UPDATE ordens SET requerRouter = ?, requer_router = ?, encaminhar_router = ?, atualizadoEm = ?
+          WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+        `).run(routerValFromApt, routerValFromApt, routerValFromApt, nowMs, formatOp, cleanOp, formatOp, cleanOp);
+      }
     } else if (apt.status === 'FINALIZADO') {
       const isInjecaoApt = (apt.setor && /inje/i.test(apt.setor)) || (apt.etapa_rota && /inje/i.test(apt.etapa_rota));
       const querRouter = Boolean(
