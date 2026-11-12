@@ -527,7 +527,7 @@ function processarRotaProduto(op) {
 }
 
 // =========================================================================
-// PARSER PRINCIPAL DO HTML DO NOMUS ERP
+// PARSER PRINCIPAL DO HTML DO NOMUS ERP (TABELAS TR, DIV GRID & REGEX FALLBACK)
 // =========================================================================
 
 function parseNomusHtml(htmlContent) {
@@ -539,346 +539,513 @@ function parseNomusHtml(htmlContent) {
   }
 
   const doc = parse(htmlContent);
-  const rows = doc.querySelectorAll('tr');
 
+  // STRATEGY 1: Localização de linhas (tr tradicionais ou divs role="row" / grid-row)
+  let rows = doc.querySelectorAll('tr');
   if (rows.length === 0) {
-    return { orders: [], rawCount: 0, warnings: ['Nenhuma linha de tabela encontrada no HTML fornecido.'] };
+    rows = doc.querySelectorAll('[role="row"], div.row, div.grid-row, div.report-row, div[class*="row"], div[class*="Row"]');
   }
 
-  // 1. Localização dinâmica da linha de cabeçalho
-  let headerRow = doc.querySelector('tr.chRow');
+  const isOpPattern = (txt) => /OP\s*\d+/i.test(txt) || /\b\d{4,8}[\-_/]\d{1,3}\b/.test(txt);
 
-  if (!headerRow) {
-    for (const row of rows) {
-      const cells = row.querySelectorAll('th, td');
-      if (cells.length < 5) continue;
-      const texts = cells.map((c) => normalizeHeader(c.textContent));
+  if (rows.length > 0) {
+    // 1. Localização dinâmica da linha de cabeçalho
+    let headerRow = doc.querySelector('tr.chRow, [role="row"].chRow, div.chRow, thead tr');
 
-      const hasOp = texts.some((t) => (t.includes('ordem') || t.includes('op')) && !t.includes('entrega') && !t.includes('status'));
-      const hasDescOrCod = texts.some((t) => t.includes('desc') || t.includes('cod') || t.includes('produto'));
-      const hasEntrega = texts.some((t) => t.includes('entrega') || t.includes('prazo'));
+    if (!headerRow) {
+      for (const row of rows) {
+        const cells = row.querySelectorAll('th, td, [role="columnheader"], [role="gridcell"], div[class*="cell"], div[class*="col"]');
+        if (cells.length < 5) continue;
+        const texts = cells.map((c) => normalizeHeader(c.textContent));
 
-      if ((hasOp && (hasDescOrCod || hasEntrega)) || (hasDescOrCod && hasEntrega)) {
-        headerRow = row;
-        break;
-      }
-    }
-  }
+        const hasOp = texts.some((t) => (t.includes('ordem') || t.includes('op')) && !t.includes('entrega') && !t.includes('status'));
+        const hasDescOrCod = texts.some((t) => t.includes('desc') || t.includes('cod') || t.includes('produto') || t.includes('item'));
+        const hasEntrega = texts.some((t) => t.includes('entrega') || t.includes('prazo') || t.includes('previsao'));
 
-  if (!headerRow) {
-    const thRow = rows.find((r) => r.querySelectorAll('th').length >= 5);
-    if (thRow) {
-      headerRow = thRow;
-    }
-  }
-
-  // 2. Mapeamento dinâmico de cabeçalhos (sem índice fixo)
-  let idxOp = -1;
-  let idxDescricao = -1;
-  let idxCodigo = -1;
-  let idxQtde = -1;
-  let idxQtdeProduzida = -1;
-  let idxEntrega = -1;
-  let idxStatus = -1;
-  let idxLote = -1;
-  let idxObservacao = -1;
-
-  if (headerRow) {
-    const headerCells = headerRow.querySelectorAll('th, td');
-    headerCells.forEach((cell, idx) => {
-      const norm = normalizeHeader(cell.textContent);
-
-      if (norm.includes('entrega') || norm.includes('prazo') || norm.includes('previsao')) {
-        idxEntrega = idx;
-      } else if (norm.includes('status') || norm.includes('situacao')) {
-        idxStatus = idx;
-      } else if (norm.includes('qtde') || norm.includes('quantidade') || norm.includes('qtd')) {
-        if (norm.includes('produz') || norm.includes('prod')) {
-          idxQtdeProduzida = idx;
-        } else {
-          idxQtde = idx;
+        if ((hasOp && (hasDescOrCod || hasEntrega)) || (hasDescOrCod && hasEntrega)) {
+          headerRow = row;
+          break;
         }
-      } else if (norm.includes('ordem') || norm.includes('op') || norm.includes('numero') || norm.includes('num op') || norm.includes('nº op')) {
-        idxOp = idx;
-      } else if (norm.includes('cod') || norm.includes('ref')) {
-        idxCodigo = idx;
-      } else if (norm.includes('desc') || norm.includes('item') || (norm.includes('produto') && !norm.includes('cod'))) {
-        idxDescricao = idx;
-      } else if (norm.includes('lote')) {
-        idxLote = idx;
-      } else if (norm.includes('observ') || norm.includes('obs') || norm.includes('nota')) {
-        idxObservacao = idx;
       }
-    });
-  }
-
-  // Fallback se algum cabeçalho não tiver sido mapeado
-  if (idxOp === -1) {
-    const sampleRow = rows.find((r) => r !== headerRow && r.querySelectorAll('td').length >= 8);
-    const colCount = sampleRow ? sampleRow.querySelectorAll('td').length : 10;
-    if (colCount >= 10) {
-      if (idxEntrega === -1) idxEntrega = 1;
-      if (idxStatus === -1) idxStatus = 2;
-      if (idxDescricao === -1) idxDescricao = 3;
-      if (idxCodigo === -1) idxCodigo = 4;
-      if (idxLote === -1) idxLote = 5;
-      if (idxObservacao === -1) idxObservacao = 6;
-      if (idxOp === -1) idxOp = 7;
-      if (idxQtde === -1) idxQtde = 8;
-      if (idxQtdeProduzida === -1) idxQtdeProduzida = 9;
-    } else {
-      if (idxEntrega === -1) idxEntrega = 0;
-      if (idxStatus === -1) idxStatus = 1;
-      if (idxDescricao === -1) idxDescricao = 2;
-      if (idxCodigo === -1) idxCodigo = 3;
-      if (idxLote === -1) idxLote = 4;
-      if (idxObservacao === -1) idxObservacao = 5;
-      if (idxOp === -1) idxOp = 6;
-      if (idxQtde === -1) idxQtde = 7;
-      if (idxQtdeProduzida === -1) idxQtdeProduzida = 8;
-    }
-  }
-
-  // 3. Tratamento de agrupamentos e células mescladas com memória carry-down
-  let ultimaDataEntrega = '';
-  let ultimoStatus = '';
-  let ultimaDescricaoValida = '';
-  let ultimoCodigoValido = '';
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
-    if (row === headerRow) continue;
-
-    const rowClass = (row.getAttribute('class') || '').trim();
-    const hasSubtotalClass =
-      /\b(sL|sR|tL|tR)\b/i.test(rowClass) ||
-      Boolean(row.querySelector('td.sL, td.sR, td.tL, td.tR, th.sL, th.sR, th.tL, th.tR'));
-
-    const rowText = (row.textContent || '').replace(/\u00a0/g, ' ').trim();
-    const rowLower = normalizeHeader(rowText);
-
-    if (
-      hasSubtotalClass ||
-      rowLower.includes('resumo geral') ||
-      rowLower.includes('subtotal') ||
-      rowLower.includes('total geral') ||
-      rowLower.includes('registros encontrados')
-    ) {
-      continue;
     }
 
-    if (row.querySelector('th') && !row.querySelector('td')) continue;
-    if (rowLower.includes('entrega op') && (rowLower.includes('ordem') || rowLower.includes('descricao'))) continue;
-
-    const cells = row.querySelectorAll('td');
-    if (cells.length === 0) continue;
-
-    // Atualização da memória carry-down
-    const rawEntrega = idxEntrega >= 0 && cells[idxEntrega] ? cleanCellText(cells[idxEntrega]) : '';
-    if (isValidDataValue(rawEntrega)) {
-      ultimaDataEntrega = rawEntrega;
-    }
-    const dataEntrega = ultimaDataEntrega;
-
-    const rawStatus = idxStatus >= 0 && cells[idxStatus] ? cleanCellText(cells[idxStatus]) : '';
-    if (isValidDataValue(rawStatus)) {
-      ultimoStatus = rawStatus;
-    }
-    const statusNomus = ultimoStatus || 'Liberada';
-
-    const celulaDescricao = idxDescricao >= 0 && cells[idxDescricao] ? cells[idxDescricao] : null;
-    let descTexto = celulaDescricao ? cleanCellText(celulaDescricao) : '';
-    if (descTexto && isValidDataValue(descTexto)) {
-      ultimaDescricaoValida = descTexto;
-    } else {
-      descTexto = ultimaDescricaoValida;
+    if (!headerRow) {
+      const thRow = rows.find((r) => r.querySelectorAll('th, [role="columnheader"]').length >= 5);
+      if (thRow) {
+        headerRow = thRow;
+      }
     }
 
-    const celulaCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cells[idxCodigo] : null;
-    let codTexto = celulaCodigo ? cleanCellText(celulaCodigo) : '';
+    // 2. Mapeamento dinâmico de cabeçalhos
+    let idxOp = -1;
+    let idxDescricao = -1;
+    let idxCodigo = -1;
+    let idxQtde = -1;
+    let idxQtdeProduzida = -1;
+    let idxEntrega = -1;
+    let idxStatus = -1;
+    let idxLote = -1;
+    let idxObservacao = -1;
 
-    if (!codTexto || !isValidDataValue(codTexto) || !/^\d{3}[\.-]?\d{4}$/.test(codTexto.trim())) {
-      const celulaComCod = cells.find((c) => {
-        const txt = cleanCellText(c).trim();
-        return /^\d{3}[\.-]\d{4}$/.test(txt) || (/^\d{7}$/.test(txt) && !txt.startsWith('202'));
+    if (headerRow) {
+      const headerCells = headerRow.querySelectorAll('th, td, [role="columnheader"], [role="gridcell"], div[class*="cell"], div[class*="col"]');
+      headerCells.forEach((cell, idx) => {
+        const norm = normalizeHeader(cell.textContent);
+
+        if (norm.includes('entrega') || norm.includes('prazo') || norm.includes('previsao') || norm.includes('dt. entrega') || norm.includes('data entrega')) {
+          idxEntrega = idx;
+        } else if (norm.includes('status') || norm.includes('situacao') || norm.includes('fase')) {
+          idxStatus = idx;
+        } else if (norm.includes('qtde') || norm.includes('quantidade') || norm.includes('qtd') || norm.includes('quant')) {
+          if (norm.includes('produz') || norm.includes('prod')) {
+            idxQtdeProduzida = idx;
+          } else {
+            idxQtde = idx;
+          }
+        } else if (norm.includes('ordem') || norm.includes('op') || norm.includes('numero') || norm.includes('num op') || norm.includes('nº op') || norm.includes('n° op')) {
+          idxOp = idx;
+        } else if (norm.includes('cod') || norm.includes('ref')) {
+          idxCodigo = idx;
+        } else if (norm.includes('desc') || norm.includes('item') || (norm.includes('produto') && !norm.includes('cod')) || norm.includes('especificacao')) {
+          idxDescricao = idx;
+        } else if (norm.includes('lote')) {
+          idxLote = idx;
+        } else if (norm.includes('observ') || norm.includes('obs') || norm.includes('nota')) {
+          idxObservacao = idx;
+        }
       });
-      if (celulaComCod) {
-        codTexto = cleanCellText(celulaComCod).trim();
+    }
+
+    // Inferência inteligente de colunas a partir das células de dados caso o cabeçalho não tenha sido mapeado
+    if (idxOp === -1) {
+      const sampleRow = rows.find((r) => {
+        if (r === headerRow) return false;
+        const c = r.querySelectorAll('td, [role="gridcell"], div[class*="cell"]');
+        return c.length >= 7;
+      });
+      const cellsCount = sampleRow ? sampleRow.querySelectorAll('td, [role="gridcell"], div[class*="cell"]').length : 9;
+      if (cellsCount >= 10) {
+        if (idxEntrega === -1) idxEntrega = 1;
+        if (idxStatus === -1) idxStatus = 2;
+        if (idxDescricao === -1) idxDescricao = 3;
+        if (idxCodigo === -1) idxCodigo = 4;
+        if (idxLote === -1) idxLote = 5;
+        if (idxObservacao === -1) idxObservacao = 6;
+        if (idxOp === -1) idxOp = 7;
+        if (idxQtde === -1) idxQtde = 8;
+        if (idxQtdeProduzida === -1) idxQtdeProduzida = 9;
+      } else {
+        if (idxEntrega === -1) idxEntrega = 0;
+        if (idxStatus === -1) idxStatus = 1;
+        if (idxDescricao === -1) idxDescricao = 2;
+        if (idxCodigo === -1) idxCodigo = 3;
+        if (idxLote === -1) idxLote = 4;
+        if (idxObservacao === -1) idxObservacao = 5;
+        if (idxOp === -1) idxOp = 6;
+        if (idxQtde === -1) idxQtde = 7;
+        if (idxQtdeProduzida === -1) idxQtdeProduzida = 8;
       }
     }
 
-    if (!codTexto || !isValidDataValue(codTexto)) {
-      const matchInDesc = (descTexto || '').match(/\b(\d{3}[\.-]\d{4})\b/);
-      if (matchInDesc) {
-        codTexto = matchInDesc[1];
-      }
-    }
+    // 3. Tratamento de agrupamentos e células mescladas com memória carry-down
+    let ultimaDataEntrega = '';
+    let ultimoStatus = '';
+    let ultimaDescricaoValida = '';
+    let ultimoCodigoValido = '';
 
-    if (codTexto && isValidDataValue(codTexto)) {
-      ultimoCodigoValido = codTexto;
-    } else {
-      codTexto = ultimoCodigoValido;
-    }
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row === headerRow) continue;
 
-    // Leitura da célula da OP
-    let rawOpCellText = '';
-    if (idxOp >= 0 && cells[idxOp]) {
-      rawOpCellText = cleanCellText(cells[idxOp]);
-    }
+      const rowClass = (row.getAttribute('class') || '').trim();
+      const hasSubtotalClass =
+        /\b(sL|sR|tL|tR)\b/i.test(rowClass) ||
+        Boolean(row.querySelector('td.sL, td.sR, td.tL, td.tR, th.sL, th.sR, th.tL, th.tR'));
 
-    const isOpPattern = (txt) => /OP\s*\d+/i.test(txt) || /\b\d{4,8}[\-_/]\d{1,3}\b/.test(txt);
+      const rowText = (row.textContent || '').replace(/\u00a0/g, ' ').trim();
+      const rowLower = normalizeHeader(rowText);
 
-    if (!isOpPattern(rawOpCellText)) {
-      const foundCell = cells.find((c) => isOpPattern(cleanCellText(c)));
-      if (!foundCell) {
+      if (
+        hasSubtotalClass ||
+        rowLower.includes('resumo geral') ||
+        rowLower.includes('subtotal') ||
+        rowLower.includes('total geral') ||
+        rowLower.includes('registros encontrados')
+      ) {
         continue;
       }
-      rawOpCellText = cleanCellText(foundCell);
-    }
 
-    const opMatch = rawOpCellText.match(/OP\s*(\d+[\-_/]\d+)/i) || rawOpCellText.match(/(\d{4,8}[\-_/]\d{1,3})/i);
-    let numero = '';
-    if (opMatch) {
-      const cleanCode = opMatch[1].replace(/[_/]/g, '-');
-      numero = `OP ${cleanCode}`;
-    } else {
-      const cleanCode = rawOpCellText.replace(/^(\s*OP\s*)+/i, '').trim();
-      numero = cleanCode.startsWith('OP') ? cleanCode : `OP ${cleanCode}`;
-    }
+      if (row.querySelector('th') && !row.querySelector('td') && !row.querySelector('[role="gridcell"]')) continue;
+      if (rowLower.includes('entrega op') && (rowLower.includes('ordem') || rowLower.includes('descricao'))) continue;
 
-    const fallbackDesc = numero.startsWith('OP') ? `PRODUTO ${numero}` : `PRODUTO OP ${numero}`;
-    const descricao = (descTexto || ultimaDescricaoValida || fallbackDesc).toUpperCase();
-    const codigo = codTexto || ultimoCodigoValido || '';
-
-    const rawLote = idxLote >= 0 && cells[idxLote] ? cleanCellText(cells[idxLote]) : '';
-    const lote = isValidDataValue(rawLote) ? rawLote : '—';
-
-    const rawObs = idxObservacao >= 0 && cells[idxObservacao] ? cleanCellText(cells[idxObservacao]) : '';
-    const observacao = isValidDataValue(rawObs) ? rawObs : '';
-
-    const rawQtdText = idxQtde >= 0 && cells[idxQtde] ? cleanCellText(cells[idxQtde]) : '1';
-    let parsedQtd = 1;
-    if (rawQtdText) {
-      let cleanQtd = rawQtdText.replace(/\s+/g, '');
-      if (cleanQtd.includes('.') && cleanQtd.includes(',')) {
-        cleanQtd = cleanQtd.replace(/\./g, '').replace(',', '.');
-      } else if (cleanQtd.includes(',')) {
-        cleanQtd = cleanQtd.replace(',', '.');
+      let cells = row.querySelectorAll('td, [role="gridcell"], div[class*="cell"], div[class*="col"]');
+      if (cells.length === 0) {
+        cells = Array.from(row.childNodes).filter((n) => n.nodeType === 1);
       }
-      cleanQtd = cleanQtd.replace(/[^\d.]/g, '');
-      const num = parseFloat(cleanQtd);
-      parsedQtd = isNaN(num) || num <= 0 ? 1 : num;
-    }
+      if (cells.length === 0) continue;
 
-    const isDecimal = Math.abs(parsedQtd - Math.round(parsedQtd)) > 0.001;
-    const descUpper = descricao.toUpperCase();
-    const isM2 = (isDecimal || descUpper.includes('M2') || descUpper.includes('M²')) && parsedQtd > 0;
+      // Atualização da memória carry-down
+      const rawEntrega = idxEntrega >= 0 && cells[idxEntrega] ? cleanCellText(cells[idxEntrega]) : '';
+      if (isValidDataValue(rawEntrega)) {
+        ultimaDataEntrega = rawEntrega;
+      }
+      const dataEntrega = ultimaDataEntrega;
 
-    let quantidadeTotal = 1;
-    let quantidadeM2 = undefined;
-    let unidadeMedida = 'PC';
+      const rawStatus = idxStatus >= 0 && cells[idxStatus] ? cleanCellText(cells[idxStatus]) : '';
+      if (isValidDataValue(rawStatus)) {
+        ultimoStatus = rawStatus;
+      }
+      const statusNomus = ultimoStatus || 'Liberada';
 
-    if (isM2) {
-      unidadeMedida = 'M²';
-      quantidadeM2 = Number(parsedQtd.toFixed(2));
-      quantidadeTotal = deducePhysicalUnitsFromM2(descricao, parsedQtd);
-    } else {
-      quantidadeTotal = Math.round(parsedQtd);
-    }
+      const celulaDescricao = idxDescricao >= 0 && cells[idxDescricao] ? cells[idxDescricao] : null;
+      let descTexto = celulaDescricao ? cleanCellText(celulaDescricao) : '';
+      if (descTexto && isValidDataValue(descTexto)) {
+        ultimaDescricaoValida = descTexto;
+      } else {
+        descTexto = ultimaDescricaoValida;
+      }
 
-    const cleanCod = codigo.trim();
-    const isFamilia011 =
-      cleanCod.startsWith('011.') ||
-      cleanCod.startsWith('011') ||
-      cleanCod.includes('011.0012') ||
-      cleanCod.includes('011.0013') ||
-      cleanCod.includes('011.0117');
-    const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO');
-    const quantidadeFolhas = isDupla ? (quantidadeTotal > 1 ? quantidadeTotal * 2 : 2) : quantidadeTotal;
-    const quantidadeFisicaInicial = isDupla && quantidadeTotal === 1 ? 2 : quantidadeTotal;
+      const celulaCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cells[idxCodigo] : null;
+      let codTexto = celulaCodigo ? cleanCellText(celulaCodigo) : '';
 
-    let qtdeProduzida = 0;
-    if (idxQtdeProduzida >= 0 && cells[idxQtdeProduzida]) {
-      const rawProd = cleanCellText(cells[idxQtdeProduzida]);
-      if (rawProd) {
-        let cleanProd = rawProd.replace(/\s+/g, '');
-        if (cleanProd.includes('.') && cleanProd.includes(',')) {
-          cleanProd = cleanProd.replace(/\./g, '').replace(',', '.');
-        } else if (cleanProd.includes(',')) {
-          cleanProd = cleanProd.replace(',', '.');
-        }
-        cleanProd = cleanProd.replace(/[^\d.]/g, '');
-        const num = parseFloat(cleanProd);
-        if (!isNaN(num) && num >= 0) {
-          qtdeProduzida = Math.round(num);
+      if (!codTexto || !isValidDataValue(codTexto) || !/^\d{3}[\.-]?\d{4}$/.test(codTexto.trim())) {
+        const celulaComCod = cells.find((c) => {
+          const txt = cleanCellText(c).trim();
+          return /^\d{3}[\.-]\d{4}$/.test(txt) || (/^\d{7}$/.test(txt) && !txt.startsWith('202'));
+        });
+        if (celulaComCod) {
+          codTexto = cleanCellText(celulaComCod).trim();
         }
       }
+
+      if (!codTexto || !isValidDataValue(codTexto)) {
+        const matchInDesc = (descTexto || '').match(/\b(\d{3}[\.-]\d{4})\b/);
+        if (matchInDesc) {
+          codTexto = matchInDesc[1];
+        }
+      }
+
+      if (codTexto && isValidDataValue(codTexto)) {
+        ultimoCodigoValido = codTexto;
+      } else {
+        codTexto = ultimoCodigoValido;
+      }
+
+      // Leitura da célula da OP
+      let rawOpCellText = '';
+      if (idxOp >= 0 && cells[idxOp]) {
+        rawOpCellText = cleanCellText(cells[idxOp]);
+      }
+
+      if (!isOpPattern(rawOpCellText)) {
+        const foundCell = cells.find((c) => isOpPattern(cleanCellText(c)));
+        if (foundCell) {
+          rawOpCellText = cleanCellText(foundCell);
+        }
+      }
+
+      if (!rawOpCellText || !isOpPattern(rawOpCellText)) {
+        const candidateCell = cells.find((c) => {
+          const txt = cleanCellText(c).trim();
+          return /^\d{5,8}$/.test(txt) && !/^\d{2}\/\d{2}\/\d{4}$/.test(txt) && !txt.startsWith('202');
+        });
+        if (candidateCell) {
+          rawOpCellText = cleanCellText(candidateCell);
+        }
+      }
+
+      if (!rawOpCellText || (!isOpPattern(rawOpCellText) && !/^\d{5,8}$/.test(rawOpCellText.trim()))) {
+        continue;
+      }
+
+      const opMatch = rawOpCellText.match(/OP\s*(\d+[\-_/]\d+)/i) || rawOpCellText.match(/(\d{4,8}[\-_/]\d{1,3})/i) || rawOpCellText.match(/(\d{5,8})/);
+      let numero = '';
+      if (opMatch) {
+        const cleanCode = opMatch[1].replace(/[_/]/g, '-');
+        numero = cleanCode.startsWith('OP') ? cleanCode : `OP ${cleanCode}`;
+      } else {
+        const cleanCode = rawOpCellText.replace(/^(\s*OP\s*)+/i, '').trim();
+        numero = cleanCode.startsWith('OP') ? cleanCode : `OP ${cleanCode}`;
+      }
+
+      const fallbackDesc = numero.startsWith('OP') ? `PRODUTO ${numero}` : `PRODUTO OP ${numero}`;
+      const descricao = (descTexto || ultimaDescricaoValida || fallbackDesc).toUpperCase();
+      const codigo = codTexto || ultimoCodigoValido || '';
+
+      const rawLote = idxLote >= 0 && cells[idxLote] ? cleanCellText(cells[idxLote]) : '';
+      const lote = isValidDataValue(rawLote) ? rawLote : '—';
+
+      const rawObs = idxObservacao >= 0 && cells[idxObservacao] ? cleanCellText(cells[idxObservacao]) : '';
+      const observacao = isValidDataValue(rawObs) ? rawObs : '';
+
+      const rawQtdText = idxQtde >= 0 && cells[idxQtde] ? cleanCellText(cells[idxQtde]) : '1';
+      let parsedQtd = 1;
+      if (rawQtdText) {
+        let cleanQtd = rawQtdText.replace(/\s+/g, '');
+        if (cleanQtd.includes('.') && cleanQtd.includes(',')) {
+          cleanQtd = cleanQtd.replace(/\./g, '').replace(',', '.');
+        } else if (cleanQtd.includes(',')) {
+          cleanQtd = cleanQtd.replace(',', '.');
+        }
+        cleanQtd = cleanQtd.replace(/[^\d.]/g, '');
+        const num = parseFloat(cleanQtd);
+        parsedQtd = isNaN(num) || num <= 0 ? 1 : num;
+      }
+
+      const isDecimal = Math.abs(parsedQtd - Math.round(parsedQtd)) > 0.001;
+      const descUpper = descricao.toUpperCase();
+      const isM2 = (isDecimal || descUpper.includes('M2') || descUpper.includes('M²')) && parsedQtd > 0;
+
+      let quantidadeTotal = 1;
+      let quantidadeM2 = undefined;
+      let unidadeMedida = 'PC';
+
+      if (isM2) {
+        unidadeMedida = 'M²';
+        quantidadeM2 = Number(parsedQtd.toFixed(2));
+        quantidadeTotal = deducePhysicalUnitsFromM2(descricao, parsedQtd);
+      } else {
+        quantidadeTotal = Math.round(parsedQtd);
+      }
+
+      const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO');
+      const quantidadeFolhas = isDupla ? (quantidadeTotal > 1 ? quantidadeTotal * 2 : 2) : quantidadeTotal;
+      const quantidadeFisicaInicial = isDupla && quantidadeTotal === 1 ? 2 : quantidadeTotal;
+
+      let qtdeProduzida = 0;
+      if (idxQtdeProduzida >= 0 && cells[idxQtdeProduzida]) {
+        const rawProd = cleanCellText(cells[idxQtdeProduzida]);
+        if (rawProd) {
+          let cleanProd = rawProd.replace(/\s+/g, '');
+          if (cleanProd.includes('.') && cleanProd.includes(',')) {
+            cleanProd = cleanProd.replace(/\./g, '').replace(',', '.');
+          } else if (cleanProd.includes(',')) {
+            cleanProd = cleanProd.replace(',', '.');
+          }
+          cleanProd = cleanProd.replace(/[^\d.]/g, '');
+          const num = parseFloat(cleanProd);
+          if (!isNaN(num) && num >= 0) {
+            qtdeProduzida = Math.round(num);
+          }
+        }
+      }
+
+      const deadline = calculateDeadlineInfo(dataEntrega);
+      let defaultFactoryStatus = 'Produzindo Hoje';
+      if (deadline.isDelayed) {
+        defaultFactoryStatus = 'Atrasada';
+      } else if (statusNomus.toUpperCase().includes('LIBERADA')) {
+        defaultFactoryStatus = 'Falta Injetar';
+      }
+
+      const cleanId = normalizarIdOP(numero);
+      const docId = formatarNumeroOP(cleanId);
+
+      const novaOp = {
+        id: docId,
+        numero: docId,
+        op_numero: docId,
+        numero_normalizado: cleanId,
+        codigo,
+        codigoProduto: codigo,
+        descricao,
+        cliente: 'Nomus ERP',
+        lote,
+        observacao,
+        observacoes: observacao,
+        observacoesNomus: observacao,
+        quantidadeFisica: quantidadeFisicaInicial,
+        quantidade_total: quantidadeFisicaInicial,
+        quantidade: quantidadeFisicaInicial,
+        quantidadeFolhas,
+        isDupla,
+        ...(quantidadeM2 !== undefined ? { quantidade_m2: quantidadeM2 } : {}),
+        qtde_produzida: qtdeProduzida,
+        data_entrega: dataEntrega || '',
+        prazoEntrega: dataEntrega || '',
+        status_nomus: statusNomus || 'Liberada',
+        statusNomus: statusNomus || 'Liberada',
+        status_fabrica: defaultFactoryStatus,
+        unidade_medida: unidadeMedida,
+        status: 'EM_PRODUCAO',
+        criadoEm: Date.now(),
+        atualizadoEm: Date.now()
+      };
+
+      const rotaInfo = processarRotaProduto(novaOp);
+      novaOp.familia = rotaInfo.familia;
+      novaOp.tipoMontagem = rotaInfo.tipoMontagem;
+      novaOp.tipoOrdem = rotaInfo.familia;
+      novaOp.rota = rotaInfo.rota;
+      novaOp.etapas = rotaInfo.rota;
+      novaOp.statusAtual = rotaInfo.statusAtual;
+      novaOp.etapaAtual = rotaInfo.rota[0] || 'Corte';
+      novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
+      novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
+
+      if (rotaInfo.requerLaser) {
+        novaOp.requerLaser = 1;
+        novaOp.requer_laser = 1;
+      }
+      if (rotaInfo.requerRouter) {
+        novaOp.requerRouter = 1;
+        novaOp.requer_router = 1;
+        novaOp.encaminhar_router = 1;
+      }
+
+      orders.push(novaOp);
     }
+  }
 
-    const deadline = calculateDeadlineInfo(dataEntrega);
-    let defaultFactoryStatus = 'Produzindo Hoje';
-    if (deadline.isDelayed) {
-      defaultFactoryStatus = 'Atrasada';
-    } else if (statusNomus.toUpperCase().includes('LIBERADA')) {
-      defaultFactoryStatus = 'Falta Injetar';
+  // STRATEGY 2: Fallback por Regex e varredura de tags contextuais caso Strategy 1 não tenha encontrado OPs
+  if (orders.length === 0) {
+    const opRegex = /(?:OP\s*)?(\d{4,8}[-_/]\d{1,3})/gi;
+    const matches = [...htmlContent.matchAll(opRegex)];
+    const seenOps = new Set();
+
+    for (const match of matches) {
+      const rawOp = match[1].replace(/[_/]/g, '-');
+      const canonicalNum = formatarNumeroOP(rawOp);
+      const cleanId = normalizarIdOP(canonicalNum);
+      if (seenOps.has(cleanId)) continue;
+      seenOps.add(cleanId);
+
+      const matchIdx = match.index || 0;
+      const windowStart = Math.max(0, matchIdx - 700);
+      const windowEnd = Math.min(htmlContent.length, matchIdx + 700);
+      const contextWindow = htmlContent.substring(windowStart, windowEnd);
+
+      // Data de entrega
+      const dateMatch = contextWindow.match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
+      const dataEntrega = dateMatch ? dateMatch[1] : '';
+
+      // Código do produto
+      const codMatch = contextWindow.match(/\b(0\d{2}[\.-]\d{4})\b/) || contextWindow.match(/\b(\d{3}[\.-]\d{4})\b/);
+      const codigo = codMatch ? codMatch[1] : '';
+
+      // Status Nomus
+      const statusMatch = contextWindow.match(/\b(Liberada|Em Produção|Produzindo|Planejada|Finalizada|Suspensa)\b/i);
+      const statusNomus = statusMatch ? statusMatch[1] : 'Liberada';
+
+      // Quantidade
+      const qtdMatch = contextWindow.match(/\b(?:Qtde|Qtd)?\s*[:=]?\s*(\d+(?:[.,]\d+)?)\s*(?:PC|PÇ|UN|M2|M²)?\b/i);
+      let parsedQtd = qtdMatch ? parseFloat(qtdMatch[1].replace(',', '.')) : 1;
+      if (isNaN(parsedQtd) || parsedQtd <= 0) parsedQtd = 1;
+
+      // Descrição limpa de tags
+      let descricao = '';
+      const tagTextMatches = [...contextWindow.matchAll(/>([^<>]{3,120})</g)]
+        .map((m) => m[1].replace(/\u00a0/g, ' ').replace(/&nbsp;/gi, ' ').trim())
+        .filter((t) => isValidDataValue(t) && !t.includes('<') && !t.includes('>'));
+
+      for (const t of tagTextMatches) {
+        if (
+          !/^\d{2}\/\d{2}\/\d{4}$/.test(t) &&
+          !/^\d{3}[\.-]?\d{4}$/.test(t) &&
+          !/^(?:OP\s*)?\d{4,8}[-_/]\d{1,3}$/i.test(t) &&
+          !/^\d+$/.test(t) &&
+          !/^(?:liberada|produzindo|em produção|planejada|finalizada|suspensa)$/i.test(t) &&
+          !/^(?:resumo geral|total geral|subtotal)$/i.test(t)
+        ) {
+          if (/(?:PT|PORTA|FOLHA|PERFIL|ABRIGO|ESTANTE|BATENTE|OFFICE|GUIA|TRILHO|GIR|COR)/i.test(t)) {
+            descricao = t.toUpperCase();
+            break;
+          }
+        }
+      }
+
+      if (!descricao) {
+        const textWindow = contextWindow.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+        const descMatch = textWindow.match(/\b((?:PT|PORTA|FOLHA|PERFIL|ABRIGO|ESTANTE|BATENTE|OFFICE|GUIA|TRILHO)[A-Z0-9\s\.\/\-\,\+]{3,60})/i);
+        if (descMatch) {
+          descricao = descMatch[1].trim().toUpperCase();
+        } else {
+          descricao = `PRODUTO ${canonicalNum}`;
+        }
+      }
+
+      const isDecimal = Math.abs(parsedQtd - Math.round(parsedQtd)) > 0.001;
+      const descUpper = descricao.toUpperCase();
+      const isM2 = (isDecimal || descUpper.includes('M2') || descUpper.includes('M²')) && parsedQtd > 0;
+
+      let quantidadeTotal = 1;
+      let quantidadeM2 = undefined;
+      let unidadeMedida = 'PC';
+
+      if (isM2) {
+        unidadeMedida = 'M²';
+        quantidadeM2 = Number(parsedQtd.toFixed(2));
+        quantidadeTotal = deducePhysicalUnitsFromM2(descricao, parsedQtd);
+      } else {
+        quantidadeTotal = Math.round(parsedQtd);
+      }
+
+      const isDupla = descUpper.includes('DUPLA') || descUpper.includes('DUPLO');
+      const quantidadeFolhas = isDupla ? (quantidadeTotal > 1 ? quantidadeTotal * 2 : 2) : quantidadeTotal;
+      const quantidadeFisicaInicial = isDupla && quantidadeTotal === 1 ? 2 : quantidadeTotal;
+
+      const deadline = calculateDeadlineInfo(dataEntrega);
+      let defaultFactoryStatus = 'Produzindo Hoje';
+      if (deadline.isDelayed) {
+        defaultFactoryStatus = 'Atrasada';
+      } else if (statusNomus.toUpperCase().includes('LIBERADA')) {
+        defaultFactoryStatus = 'Falta Injetar';
+      }
+
+      const novaOp = {
+        id: canonicalNum,
+        numero: canonicalNum,
+        op_numero: canonicalNum,
+        numero_normalizado: cleanId,
+        codigo,
+        codigoProduto: codigo,
+        descricao,
+        cliente: 'Nomus ERP',
+        lote: '—',
+        observacao: '',
+        observacoes: '',
+        observacoesNomus: '',
+        quantidadeFisica: quantidadeFisicaInicial,
+        quantidade_total: quantidadeFisicaInicial,
+        quantidade: quantidadeFisicaInicial,
+        quantidadeFolhas,
+        isDupla,
+        ...(quantidadeM2 !== undefined ? { quantidade_m2: quantidadeM2 } : {}),
+        qtde_produzida: 0,
+        data_entrega: dataEntrega || '',
+        prazoEntrega: dataEntrega || '',
+        status_nomus: statusNomus,
+        statusNomus: statusNomus,
+        status_fabrica: defaultFactoryStatus,
+        unidade_medida: unidadeMedida,
+        status: 'EM_PRODUCAO',
+        criadoEm: Date.now(),
+        atualizadoEm: Date.now()
+      };
+
+      const rotaInfo = processarRotaProduto(novaOp);
+      novaOp.familia = rotaInfo.familia;
+      novaOp.tipoMontagem = rotaInfo.tipoMontagem;
+      novaOp.tipoOrdem = rotaInfo.familia;
+      novaOp.rota = rotaInfo.rota;
+      novaOp.etapas = rotaInfo.rota;
+      novaOp.statusAtual = rotaInfo.statusAtual;
+      novaOp.etapaAtual = rotaInfo.rota[0] || 'Corte';
+      novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
+      novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
+
+      if (rotaInfo.requerLaser) {
+        novaOp.requerLaser = 1;
+        novaOp.requer_laser = 1;
+      }
+      if (rotaInfo.requerRouter) {
+        novaOp.requerRouter = 1;
+        novaOp.requer_router = 1;
+        novaOp.encaminhar_router = 1;
+      }
+
+      orders.push(novaOp);
     }
-
-    const cleanId = normalizarIdOP(numero);
-    const docId = formatarNumeroOP(cleanId);
-
-    const novaOp = {
-      id: docId,
-      numero: docId,
-      op_numero: docId,
-      numero_normalizado: cleanId,
-      codigo,
-      codigoProduto: codigo,
-      descricao,
-      cliente: 'Nomus ERP',
-      lote,
-      observacao,
-      observacoes: observacao,
-      observacoesNomus: observacao,
-      quantidadeFisica: quantidadeFisicaInicial,
-      quantidade_total: quantidadeFisicaInicial,
-      quantidade: quantidadeFisicaInicial,
-      quantidadeFolhas,
-      isDupla,
-      ...(quantidadeM2 !== undefined ? { quantidade_m2: quantidadeM2 } : {}),
-      qtde_produzida: qtdeProduzida,
-      data_entrega: dataEntrega || '',
-      prazoEntrega: dataEntrega || '',
-      status_nomus: statusNomus || 'Liberada',
-      statusNomus: statusNomus || 'Liberada',
-      status_fabrica: defaultFactoryStatus,
-      unidade_medida: unidadeMedida,
-      status: 'EM_PRODUCAO',
-      criadoEm: Date.now(),
-      atualizadoEm: Date.now()
-    };
-
-    const rotaInfo = processarRotaProduto(novaOp);
-    novaOp.familia = rotaInfo.familia;
-    novaOp.tipoMontagem = rotaInfo.tipoMontagem;
-    novaOp.tipoOrdem = rotaInfo.familia;
-    novaOp.rota = rotaInfo.rota;
-    novaOp.etapas = rotaInfo.rota;
-    novaOp.statusAtual = rotaInfo.statusAtual;
-    novaOp.etapaAtual = rotaInfo.rota[0] || 'Corte';
-    novaOp.statusEtapa = `Aguardando Início em: ${novaOp.etapaAtual}`;
-    novaOp.status = `Aguardando Início em: ${novaOp.etapaAtual}`;
-
-    if (rotaInfo.requerLaser) {
-      novaOp.requerLaser = 1;
-      novaOp.requer_laser = 1;
-    }
-    if (rotaInfo.requerRouter) {
-      novaOp.requerRouter = 1;
-      novaOp.requer_router = 1;
-      novaOp.encaminhar_router = 1;
-    }
-
-    orders.push(novaOp);
   }
 
   // Deduplicação por número normalizado

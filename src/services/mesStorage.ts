@@ -4147,7 +4147,11 @@ export async function limparOrdensDuplicadas(): Promise<{ success: boolean; remo
 export interface NomusSyncStatus {
   timestamp: string | null;
   totalProcessadas: number;
+  totalOps?: number;
   origem: string | null;
+  horario?: string | null;
+  novas?: number;
+  atualizadas?: number;
 }
 
 /**

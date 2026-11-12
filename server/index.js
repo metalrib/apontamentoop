@@ -236,11 +236,17 @@ try {
   console.warn('[Sync Status] Aviso ao recuperar status do banco:', e.message);
 }
 
-function registrarSyncNomus(totalProcessadas, origem = 'tampermonkey') {
+function registrarSyncNomus(totalProcessadas, origem = 'tampermonkey', extras = {}) {
+  const now = new Date();
+  const horario = extras.horario || now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   const syncObj = {
-    timestamp: new Date().toISOString(),
+    timestamp: now.toISOString(),
+    horario,
     totalProcessadas: Number(totalProcessadas || 0),
-    origem: String(origem || 'manual')
+    totalOps: Number(totalProcessadas || 0),
+    origem: String(origem || 'manual'),
+    novas: Number(extras.novas || 0),
+    atualizadas: Number(extras.atualizadas || 0)
   };
   ultimaSyncNomus = syncObj;
   try {
@@ -1778,7 +1784,11 @@ app.post('/api/ordens', (req, res) => {
   
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
-  registrarSyncNomus(ordens.length, req.body.origem || (deveSubstituir ? 'substituir' : 'manual'));
+  const horarioManual = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const totalOpsManual = ordens.length;
+  const ultimaSyncManual = registrarSyncNomus(totalOpsManual, req.body.origem || (deveSubstituir ? 'substituir' : 'manual'), { horario: horarioManual, novas: totalOpsManual, atualizadas: 0 });
+  io.emit('sync_nomus_atualizado', { horario: horarioManual, totalOps: totalOpsManual, novas: totalOpsManual, atualizadas: 0 });
+  io.emit('nomus_sync_status', ultimaSyncManual);
   res.json({ success: true, count: todas.length });
 });
 
@@ -1789,20 +1799,37 @@ app.options('/api/importar-nomus-auto', cors());
 
 app.post('/api/importar-nomus-auto', (req, res) => {
   try {
-    const rawHtml = (typeof req.body === 'string' ? req.body : req.body?.html) || '';
+    let rawHtml = (typeof req.body === 'string' ? req.body : (req.body?.html || req.body?.data || req.body?.content)) || '';
+    if (typeof rawHtml === 'string' && rawHtml.startsWith('"') && rawHtml.endsWith('"')) {
+      try { rawHtml = JSON.parse(rawHtml); } catch {}
+    }
+
     if (!rawHtml || !rawHtml.trim()) {
       return res.status(400).json({ ok: false, error: 'HTML do Nomus não informado no payload (esperado req.body.html)' });
     }
 
-    console.log(`[Nomus Auto] Recebida requisição de importação automática do Nomus (${rawHtml.length} bytes)...`);
-    const { orders, warnings } = parseNomusHtml(rawHtml);
+    const { orders: opsEncontradas, warnings } = parseNomusHtml(rawHtml);
+    console.log('[Sync Nomus Auto] Tamanho HTML recebido:', rawHtml.length, '| OPs encontradas:', (opsEncontradas ? opsEncontradas.length : 0));
 
-    if (!orders || orders.length === 0) {
+    if (!opsEncontradas || opsEncontradas.length === 0) {
       console.warn('[Nomus Auto] Nenhuma OP válida encontrada no HTML recebido.');
-      return res.json({ ok: true, processadas: 0, aviso: 'Nenhuma OP válida encontrada no relatório HTML.' });
+      return res.json({ ok: true, totalOps: 0, novas: 0, atualizadas: 0, aviso: 'Nenhuma OP válida encontrada no relatório HTML.' });
     }
 
-    console.log(`[Nomus Auto] Parsed com sucesso: ${orders.length} OPs válidas.`);
+    // Contagem de novas vs atualizadas
+    const existingNums = new Set(
+      db.prepare('SELECT numero FROM ordens').all().map(r => r.numero)
+    );
+    let novas = 0;
+    let atualizadas = 0;
+    for (const op of opsEncontradas) {
+      const canonicalNum = formatarNumeroOP(op.numero_normalizado || op.numero || op.id);
+      if (existingNums.has(canonicalNum)) {
+        atualizadas++;
+      } else {
+        novas++;
+      }
+    }
 
     const upsertStmt = db.prepare(`
       INSERT INTO ordens (
@@ -1888,7 +1915,7 @@ app.post('/api/importar-nomus-auto', (req, res) => {
       }
     });
 
-    tx(orders);
+    tx(opsEncontradas);
 
     // Limpeza preventiva pós-importação
     const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();
@@ -1911,11 +1938,17 @@ app.post('/api/importar-nomus-auto', (req, res) => {
     }
 
     const ordensAtualizadas = obterTodasOrdens();
-    console.log(`[Nomus Auto] Emitindo 'ordens_atualizadas' com ${ordensAtualizadas.length} ordens.`);
-    io.emit('ordens_atualizadas', ordensAtualizadas);
-    registrarSyncNomus(orders.length, req.body.origem || 'tampermonkey');
+    const horario = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const totalOps = opsEncontradas.length;
 
-    return res.json({ ok: true, processadas: orders.length });
+    const ultimaSync = registrarSyncNomus(totalOps, req.body?.origem || 'tampermonkey', { horario, novas, atualizadas });
+
+    console.log(`[Nomus Auto] Sincronização automática concluída: ${totalOps} OPs (novas: ${novas}, atualizadas: ${atualizadas}, horário: ${horario}). Emitindo eventos Socket.io...`);
+    io.emit('sync_nomus_atualizado', { horario, totalOps, novas, atualizadas });
+    io.emit('nomus_sync_status', ultimaSync);
+    io.emit('ordens_atualizadas', ordensAtualizadas);
+
+    return res.json({ ok: true, totalOps, novas, atualizadas });
   } catch (err) {
     console.error('[Nomus Auto] Erro ao processar importação automática:', err);
     return res.status(500).json({ ok: false, error: err.message });

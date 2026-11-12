@@ -162,7 +162,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       socket = getLocalSocket();
       if (socket) {
         const onSyncStatus = (data: any) => {
-          if (data && data.timestamp) {
+          if (data && (data.timestamp || data.horario)) {
             setNomusSyncStatus(data);
             if (typeof window !== 'undefined') {
               localStorage.setItem('mes_nomus_sync_status', JSON.stringify(data));
@@ -170,9 +170,32 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           }
         };
         socket.on('nomus_sync_status', onSyncStatus);
+
+        const onSyncAtualizado = (data: any) => {
+          if (data) {
+            setNomusSyncStatus((prev) => {
+              const updated: NomusSyncStatus = {
+                timestamp: new Date().toISOString(),
+                totalProcessadas: data.totalOps ?? data.totalProcessadas ?? prev?.totalProcessadas ?? 0,
+                totalOps: data.totalOps ?? data.totalProcessadas ?? prev?.totalProcessadas ?? 0,
+                origem: data.origem || 'tampermonkey',
+                horario: data.horario,
+                novas: data.novas,
+                atualizadas: data.atualizadas
+              };
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('mes_nomus_sync_status', JSON.stringify(updated));
+              }
+              return updated;
+            });
+          }
+        };
+        socket.on('sync_nomus_atualizado', onSyncAtualizado);
+
         return () => {
           window.removeEventListener('metalrib_nomus_sync_status', handleCustomSyncEvent);
           socket.off('nomus_sync_status', onSyncStatus);
+          socket.off('sync_nomus_atualizado', onSyncAtualizado);
         };
       }
     } catch {}
@@ -182,7 +205,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     };
   }, []);
 
-  const formatarHoraSync = (isoString?: string | null): string => {
+  const formatarHoraSync = (isoString?: string | null, horarioDirect?: string | null): string => {
+    if (horarioDirect) return horarioDirect;
     if (!isoString) return '';
     try {
       const d = new Date(isoString);
@@ -604,11 +628,11 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           {nomusSyncStatus?.timestamp ? (
             <div
               className="px-3 py-2 bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 rounded-xl flex items-center gap-2 text-xs font-semibold shadow-sm transition-all"
-              title={`Última sincronização Nomus: ${new Date(nomusSyncStatus.timestamp).toLocaleString('pt-BR')} (${nomusSyncStatus.totalProcessadas} OPs, origem: ${nomusSyncStatus.origem || 'automática'})`}
+              title={`Última sincronização Nomus: ${formatarHoraSync(nomusSyncStatus.timestamp, nomusSyncStatus.horario)} (${nomusSyncStatus.totalProcessadas} OPs${nomusSyncStatus.novas !== undefined ? `, novas: ${nomusSyncStatus.novas}, atualizadas: ${nomusSyncStatus.atualizadas}` : ''}, origem: ${nomusSyncStatus.origem || 'automática'})`}
             >
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse inline-block shadow-sm shadow-emerald-400/50"></span>
               <span className="text-emerald-200 font-mono tracking-tight">
-                Sync Nomus: {formatarHoraSync(nomusSyncStatus.timestamp)} ({nomusSyncStatus.totalProcessadas} {nomusSyncStatus.totalProcessadas === 1 ? 'OP' : 'OPs'})
+                Sync Nomus: {formatarHoraSync(nomusSyncStatus.timestamp, nomusSyncStatus.horario)} ({nomusSyncStatus.totalProcessadas} {nomusSyncStatus.totalProcessadas === 1 ? 'OP' : 'OPs'})
               </span>
             </div>
           ) : (
