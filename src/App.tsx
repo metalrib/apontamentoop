@@ -389,6 +389,7 @@ export default function App() {
         (a.op === currentOp.op_numero || a.op_numero === currentOp.op_numero) &&
         a.status === 'EM_ANDAMENTO' &&
         (a.is_lote || a.unidade_numero === 0) &&
+        (!a.terminal_id || Number(a.terminal_id) === Number(currentTerminal.id)) &&
         (currentTerminal.sectors.includes(a.setor) || (a.setorFisico && currentTerminal.sectors.includes(a.setorFisico)))
     );
 
@@ -464,16 +465,69 @@ export default function App() {
     const list: ActiveBatchItem[] = [];
     const seenKeys = new Set<string>();
 
-    const terminalSectorsNorm = (currentTerminal.sectors || []).map((s: string) =>
-      (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+    const activeTermId = Number(currentTerminal.id);
+    const activeTermCode = `T${activeTermId}`;
+    const activeTermName = currentTerminal.name || `Terminal ${activeTermId}`;
+
+    // Obter a lista oficial de postos/setores configurados para este terminalAtivo
+    const officialSectors: string[] = (
+      Array.isArray(currentTerminal.sectors) && currentTerminal.sectors.length > 0
+        ? currentTerminal.sectors
+        : (POSTOS_POR_TERMINAL[activeTermCode] || [])
     );
 
-    const belongsToTerminal = (setorOrEtapa?: string, termId?: number, termName?: string) => {
-      if (termId && Number(termId) === Number(currentTerminal.id)) return true;
-      if (termName && (termName === `T${currentTerminal.id}` || termName === currentTerminal.name)) return true;
+    const terminalSectorsNorm = officialSectors
+      .map((s: string) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim())
+      .filter(Boolean);
+
+    const normalizeStep = (str?: string) =>
+      (str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+
+    // Verificação rigorosa se o nome do posto/etapa pertence explicitamente aos setores deste terminal
+    const isSectorOfActiveTerminal = (setorOrEtapa?: string) => {
       if (!setorOrEtapa) return false;
-      const norm = setorOrEtapa.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
-      return terminalSectorsNorm.some((ts: string) => ts === norm || ts.includes(norm) || norm.includes(ts));
+      const norm = normalizeStep(setorOrEtapa);
+      return terminalSectorsNorm.some((ts: string) => {
+        if (ts === norm) return true;
+        // Aliases específicos e seguros para variações conhecidas da fábrica
+        if ((norm === 'laser' || norm === 'laser cnc') && (ts === 'laser' || ts === 'laser cnc')) return true;
+        if (norm.startsWith('preparacao de folha') && ts.startsWith('preparacao de folha')) return true;
+        if (norm.startsWith('injecao') && !norm.includes('batente') && ts.startsWith('injecao') && !ts.includes('batente')) return true;
+        if (norm.includes('vai vem') && ts.includes('vai vem') && norm.includes('montagem') && ts.includes('montagem')) return true;
+        if (norm.includes('corte') && norm.includes('aluminio') && ts.includes('corte') && ts.includes('aluminio')) return true;
+        if (norm.includes('solda') && ts.includes('solda')) return true;
+        return false;
+      });
+    };
+
+    // Critério oficial de pertencimento estrito ao terminal ativo
+    const belongsToTerminal = (setorOrEtapa?: string, termId?: number | string, termName?: string) => {
+      const parsedTermId = (termId !== undefined && termId !== null && termId !== '') ? Number(termId) : null;
+      const normTermName = (termName || '').trim().toUpperCase();
+
+      // Regra 1: O registro de início da etapa possui terminalId ou terminalNome igual ao terminalAtivo atual
+      const isCurrentId = parsedTermId !== null && parsedTermId > 0 && parsedTermId === activeTermId;
+      const isCurrentName = normTermName === activeTermCode || normTermName === activeTermName.toUpperCase();
+      if (isCurrentId || isCurrentName) {
+        return true;
+      }
+
+      // Se o registro apontar explicitamente para OUTRO terminal (ex: termId = 3 quando estamos no 5),
+      // NUNCA exibir este card aqui, pois pertence comprovadamente a outro terminal
+      if (parsedTermId !== null && parsedTermId > 0 && parsedTermId !== activeTermId) {
+        return false;
+      }
+      if (normTermName && normTermName.startsWith('T') && normTermName !== activeTermCode) {
+        return false;
+      }
+
+      // Regra 2: O nome do posto/etapa em execução pertence explicitamente à lista de setores vinculados a este terminalAtivo
+      if (isSectorOfActiveTerminal(setorOrEtapa)) {
+        return true;
+      }
+
+      // NUNCA exibir etapas de outros terminais caso não haja correspondência
+      return false;
     };
 
     // 1. Vasculhar apontamentos com status EM_ANDAMENTO (ou sem hora_fim)
@@ -518,7 +572,9 @@ export default function App() {
       if (ord.etapas && typeof ord.etapas === 'object' && !Array.isArray(ord.etapas)) {
         for (const [etapaNome, etapaData] of Object.entries(ord.etapas)) {
           if (etapaData && typeof etapaData === 'object' && (etapaData.status === 'EM_PRODUCAO' || etapaData.status === 'EM_ANDAMENTO')) {
-            if (belongsToTerminal(etapaNome)) {
+            const etapaTermId = (etapaData as any).terminal_id || (etapaData as any).terminalId;
+            const etapaTermName = (etapaData as any).terminal || (etapaData as any).terminalNome;
+            if (belongsToTerminal(etapaNome, etapaTermId, etapaTermName)) {
               const uniqueKey = `${cleanKey}_${etapaNome.toLowerCase()}`;
               if (!seenKeys.has(uniqueKey)) {
                 seenKeys.add(uniqueKey);
@@ -600,6 +656,7 @@ export default function App() {
             a.status === 'EM_ANDAMENTO' &&
             (a.is_lote || a.unidade_numero === 0) &&
             currentTerminal &&
+            (!a.terminal_id || Number(a.terminal_id) === Number(currentTerminal.id)) &&
             (currentTerminal.sectors.includes(a.setor) || (a.setorFisico && currentTerminal.sectors.includes(a.setorFisico)))
         );
 

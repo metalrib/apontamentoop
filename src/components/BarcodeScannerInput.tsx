@@ -257,6 +257,8 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
             <ActiveBatchesPanel
               items={activeBatches}
               onSelectBatch={onSelectActiveBatch}
+              terminalId={currentTerminal?.id}
+              terminalNome={currentTerminal?.name}
             />
           </div>
         )}

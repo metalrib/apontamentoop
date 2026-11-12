@@ -18,6 +18,8 @@ export interface ActiveBatchItem {
 interface ActiveBatchesPanelProps {
   items: ActiveBatchItem[];
   onSelectBatch: (item: ActiveBatchItem) => void;
+  terminalId?: number | string;
+  terminalNome?: string;
 }
 
 const ActiveBatchCard: React.FC<{ item: ActiveBatchItem; onSelect: () => void }> = ({ item, onSelect }) => {
@@ -102,8 +104,19 @@ const ActiveBatchCard: React.FC<{ item: ActiveBatchItem; onSelect: () => void }>
   );
 };
 
-export const ActiveBatchesPanel: React.FC<ActiveBatchesPanelProps> = ({ items, onSelectBatch }) => {
+export const ActiveBatchesPanel: React.FC<ActiveBatchesPanelProps> = ({
+  items,
+  onSelectBatch,
+  terminalId,
+  terminalNome
+}) => {
   if (!items || items.length === 0) return null;
+
+  const terminalLabel = terminalId
+    ? `TERMINAL ${terminalId}`
+    : terminalNome
+    ? terminalNome.toUpperCase()
+    : 'ESTE TERMINAL';
 
   return (
     <div className="w-full max-w-5xl mx-auto flex flex-col gap-3.5 animate-in fade-in slide-in-from-bottom-3 duration-200">
@@ -115,7 +128,7 @@ export const ActiveBatchesPanel: React.FC<ActiveBatchesPanelProps> = ({ items, o
           </div>
           <div className="flex items-center gap-2">
             <h3 className="text-sm sm:text-base font-extrabold text-white tracking-wide font-mono">
-              ⚡ LOTES EM EXECUÇÃO NESTE TERMINAL
+              ⚡ LOTES EM EXECUÇÃO NO {terminalLabel}
             </h3>
             <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
               {items.length}

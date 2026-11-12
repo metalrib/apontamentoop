@@ -42,14 +42,14 @@ export const colaboradores: ColaboradorRaw[] = [
   { id: 'nalysson', nome: 'Nalysson', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
 
   // TERMINAL 5
-  { id: 'vitor', nome: 'Vitor', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Montagem Portas de Correr Padrão e Especial'], especialista: false },
-  { id: 'fabio', nome: 'Fabio', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial', 'Solda'], especialista: true },
+  { id: 'vitor', nome: 'Vitor', terminais: ['T5'], setores: ['Router', 'Corte Alumínio', 'Preparação Vai Vem'], especialista: false },
+  { id: 'cristiane', nome: 'Cristiane', terminais: ['T5'], setores: ['Elétrica'], especialista: false },
+  { id: 'marcio', nome: 'Marcio', terminais: ['T5'], setores: ['Elétrica'], especialista: false },
+  { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina'], especialista: false },
+  { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: false },
+  { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: false },
+  { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem'], especialista: false },
+  { id: 'fabio', nome: 'Fabio', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica'], especialista: true },
 
   // ESPECIALISTA MULTI-TERMINAL
   { id: 'afonso', nome: 'Afonso', terminais: ['T1', 'T3', 'T4', 'T5'], setores: ['TODOS'], especialista: true }

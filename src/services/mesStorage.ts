@@ -1243,6 +1243,31 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       changed = true;
     }
 
+    // Saneamento rigoroso do Terminal 5: remover setores de montagem do Terminal 3/4
+    if (Number(t.id) === 5) {
+      const forbiddenT5 = [
+        'montagem portas de correr padrao e especial',
+        'montagem de portas giratoria padrao e especial',
+        'montagem de portas giratorias',
+        'montagem portas emendadas',
+        'montagem porta vai-vem',
+        'corte de trilho p/ porta correr',
+        'montagem de trilho p/ porta correr',
+        'instalacao de gaxeta',
+        'finalizacao vai vem',
+        'preparacao de batentes',
+        'injecao e finalizacao de batentes'
+      ];
+      const filtered = sectors.filter((s) => {
+        const norm = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        return !forbiddenT5.includes(norm);
+      });
+      if (filtered.length !== sectors.length) {
+        sectors = filtered;
+        changed = true;
+      }
+    }
+
     return { ...t, sectors, setores: [...sectors] };
   });
 

@@ -131,11 +131,31 @@ try {
       { id: 2, name: 'Terminal 2', label: 'Preparação e Injetora de folhas', sectors: JSON.stringify(['Preparação de Folha', 'Preparação Office Door', 'Injeção', 'Injeção de Folhas']) },
       { id: 3, name: 'Terminal 3', label: 'Batentes e Portas Office/Emendadas', sectors: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Montagem Portas de Correr Padrão e Especial', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Instalação de Gaxeta', 'Finalização Vai Vem', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
       { id: 4, name: 'Terminal 4', label: 'Montagem Vai-Vem & Gaxeta', sectors: JSON.stringify(['Montagem Porta Vai-Vem', 'Montagem Portas Office Door', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
-      { id: 5, name: 'Terminal 5', label: 'Router, Solda e Especiais', sectors: JSON.stringify(['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Solda', 'Solda e Montagem', 'Montagem Estante', 'Elétrica', 'Cortina', 'Montagem Portas de Correr Padrão e Especial']) }
+      { id: 5, name: 'Terminal 5', label: 'Router, Solda e Especiais', sectors: JSON.stringify(['Corte Alumínio', 'Preparação Vai Vem', 'Preparação Office Door', 'Router', 'Corte', 'Solda', 'Solda e Montagem', 'Montagem Estante', 'Montagem Abrigo Doca', 'Cortina', 'Elétrica']) }
     ];
     const insertTerm = db.prepare('INSERT INTO terminais (id, name, label, sectors, atualizadoEm) VALUES (?, ?, ?, ?, ?)');
     for (const dt of defaultTerms) {
       insertTerm.run(dt.id, dt.name, dt.label, dt.sectors, Date.now());
+    }
+  } else {
+    // Saneamento de Terminal 5 para expurgar setores de montagem indevidos
+    const t5Row = db.prepare('SELECT * FROM terminais WHERE id = 5').get();
+    if (t5Row) {
+      let t5Secs = JSON.parse(t5Row.sectors || '[]');
+      const forbiddenT5 = [
+        'montagem portas de correr padrao e especial',
+        'montagem de portas giratoria padrao e especial',
+        'montagem de portas giratorias',
+        'montagem portas emendadas',
+        'montagem porta vai-vem',
+        'corte de trilho p/ porta correr',
+        'montagem de trilho p/ porta correr'
+      ];
+      const cleaned = t5Secs.filter(s => !forbiddenT5.includes(s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()));
+      if (cleaned.length !== t5Secs.length) {
+        db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = 5').run(JSON.stringify(cleaned), Date.now());
+        console.log('[SQLite] Terminal 5 saneado com sucesso (removidos setores de montagem indevidos)');
+      }
     }
   }
 } catch (e) {
@@ -179,14 +199,14 @@ const COLABORADORES_PADRAO = [
   { id: 'nalysson', nome: 'Nalysson', badge: 'GIR-04', codigo: 'GIR-04', terminais: ['T4'], setores: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial'], especialista: 0, ativo: 1 },
 
   // TERMINAL 5
-  { id: 'vitor', nome: 'Vitor', badge: 'ROU-01', codigo: 'ROU-01', cracha: 'ROU-01', funcao: 'Operador Router', terminais: ['T5'], setores: ['Router', 'Corte Alumínio', 'Preparação Vai Vem', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'cristiane', nome: 'Cristiane', badge: 'ELE-01', codigo: 'ELE-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'marcio', nome: 'Marcio', badge: 'ELE-02', codigo: 'ELE-02', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'gabriele', nome: 'Gabriele', badge: 'COR-01', codigo: 'COR-01', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'yasmin', nome: 'Yasmin', badge: 'PVV-01', codigo: 'PVV-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'carol', nome: 'Carol', badge: 'T5-01', codigo: 'T5-01', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'nathan', nome: 'Nathan', badge: 'SOL-01', codigo: 'SOL-01', terminais: ['T5'], setores: ['Solda', 'Montagem Portas de Correr Padrão e Especial'], especialista: 0, ativo: 1 },
-  { id: 'fabio', nome: 'Fabio', badge: 'ESP-T5', codigo: 'ESP-T5', terminais: ['T5'], setores: ['Montagem Portas de Correr Padrão e Especial', 'Solda'], especialista: 1, ativo: 1 },
+  { id: 'vitor', nome: 'Vitor', badge: 'ROU-01', codigo: 'ROU-01', cracha: 'ROU-01', funcao: 'Operador Router', terminais: ['T5'], setores: ['Router', 'Corte Alumínio', 'Preparação Vai Vem'], especialista: 0, ativo: 1 },
+  { id: 'cristiane', nome: 'Cristiane', badge: 'ELE-01', codigo: 'ELE-01', terminais: ['T5'], setores: ['Elétrica'], especialista: 0, ativo: 1 },
+  { id: 'marcio', nome: 'Marcio', badge: 'ELE-02', codigo: 'ELE-02', terminais: ['T5'], setores: ['Elétrica'], especialista: 0, ativo: 1 },
+  { id: 'gabriele', nome: 'Gabriele', badge: 'COR-01', codigo: 'COR-01', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina'], especialista: 0, ativo: 1 },
+  { id: 'yasmin', nome: 'Yasmin', badge: 'PVV-01', codigo: 'PVV-01', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: 0, ativo: 1 },
+  { id: 'carol', nome: 'Carol', badge: 'T5-01', codigo: 'T5-01', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: 0, ativo: 1 },
+  { id: 'nathan', nome: 'Nathan', badge: 'SOL-01', codigo: 'SOL-01', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem'], especialista: 0, ativo: 1 },
+  { id: 'fabio', nome: 'Fabio', badge: 'ESP-T5', codigo: 'ESP-T5', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica'], especialista: 1, ativo: 1 },
 
   // ESPECIALISTA MULTI-TERMINAL
   { id: 'afonso', nome: 'Afonso', badge: 'ESP-MULTI', codigo: 'ESP-MULTI', terminais: ['T1', 'T3', 'T4', 'T5'], setores: ['TODOS'], especialista: 1, ativo: 1 }

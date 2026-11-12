@@ -44,18 +44,10 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Router',
     'Corte',
     'Solda',
+    'Solda e Montagem',
     'Montagem Estante',
     'Montagem Abrigo Doca',
     'Cortina',
-    'Elétrica',
-    'Montagem Portas Emendadas',
-    'Montagem de Portas Giratória Padrão e Especial',
-    'Montagem de Portas Giratórias',
-    'Montagem Portas de Correr Padrão e Especial',
-    'Montagem Portas Office Door',
-    'Montagem Office Door Correr',
-    'Montagem Porta Vai-Vem',
-    'Corte de Trilho p/ Porta Correr',
-    'Montagem de Trilho p/ Porta Correr'
+    'Elétrica'
   ]
 };
