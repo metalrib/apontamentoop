@@ -11,7 +11,7 @@ import {
   etapaPertenceARota,
   matchStepName
 } from '../utils/routeEngine';
-import { updateProductionOrder, verificarECorrigirRotaOp } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, fetchTerminalsConfig } from '../services/mesStorage';
 import { playClick, playBlockedError } from '../utils/audio';
 import { Check, AlertCircle, Lock } from 'lucide-react';
 
@@ -32,6 +32,19 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
 }) => {
   const order = verificarECorrigirRotaOp(propOrder);
   const [blockedWarning, setBlockedWarning] = useState<string | null>(null);
+  const [, setSectorsVersion] = useState(0);
+
+  // Escuta atualizações de configuração de terminais e setores via Socket.io / Eventos locais
+  useEffect(() => {
+    const handleSectorsChange = () => {
+      setSectorsVersion((v) => v + 1);
+    };
+    window.addEventListener('metalrib_sectors_updated', handleSectorsChange);
+    return () => {
+      window.removeEventListener('metalrib_sectors_updated', handleSectorsChange);
+    };
+  }, []);
+
   const qtdTotal = obterQuantidadeTotal(order);
 
   // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
@@ -43,10 +56,12 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isAncora = isAncoraOrder(order);
   const isTerminal5 = terminal.id === 5;
 
-  const termKey = `T${terminal.id}` as keyof typeof POSTOS_POR_TERMINAL;
-  const rawTerminalSectors = (Array.isArray(terminal?.sectors) && terminal.sectors.length > 0
-    ? terminal.sectors
-    : (POSTOS_POR_TERMINAL[termKey] || [])
+  // Consulta DINÂMICA da lista de setores configurados para o terminal ativo (SQLite / localStorage)
+  const dynamicTerminals = fetchTerminalsConfig();
+  const activeTerminalConfig = dynamicTerminals.find((t) => t.id === terminal?.id) || terminal;
+  const rawTerminalSectors = (Array.isArray(activeTerminalConfig?.sectors)
+    ? activeTerminalConfig.sectors
+    : (Array.isArray(terminal?.sectors) ? terminal.sectors : [])
   ).map((s: string) => {
     const st = String(s || '').trim();
     return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')

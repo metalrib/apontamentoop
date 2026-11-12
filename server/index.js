@@ -1405,6 +1405,7 @@ app.post(['/api/terminais', '/api/configuracoes/terminais'], (req, res) => {
 
     tx(terminals);
     const atualizados = obterTerminais();
+    io.emit('config_terminais_atualizada', atualizados);
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
     res.json({ success: true, count: atualizados.length, terminals: atualizados });
@@ -1437,6 +1438,7 @@ app.put('/api/terminais/:id', (req, res) => {
     `).run(termId, finalName, finalLabel, JSON.stringify(secs), now);
 
     const atualizados = obterTerminais();
+    io.emit('config_terminais_atualizada', atualizados);
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
     res.json({ success: true, terminalId: termId, terminals: atualizados });
@@ -1463,6 +1465,7 @@ app.delete('/api/terminais/:id/setores/:setor', (req, res) => {
       .run(JSON.stringify(sectors), now, termId);
 
     const atualizados = obterTerminais();
+    io.emit('config_terminais_atualizada', atualizados);
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
     res.json({ success: true, terminalId: termId, sectorRemoved: sectorName, terminals: atualizados });
@@ -1507,11 +1510,98 @@ app.post('/api/terminais/:id/setores', (req, res) => {
     });
 
     const atualizados = obterTerminais();
+    io.emit('config_terminais_atualizada', atualizados);
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
     res.json({ success: true, terminalId: termId, sector: clean, terminals: atualizados });
   } catch (err) {
     console.error('Erro ao adicionar setor ao terminal:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Endpoint para renomear setor da fábrica propagando para terminais e colaboradores
+app.post(['/api/setores/renomear', '/api/terminais/setores/renomear'], (req, res) => {
+  try {
+    const { oldName, newName, terminalId } = req.body;
+    const oldClean = String(oldName || '').trim();
+    const newClean = String(newName || '').trim();
+    if (!oldClean || !newClean) {
+      return res.status(400).json({ error: 'oldName e newName são obrigatórios' });
+    }
+
+    const now = Date.now();
+    // 1. Atualizar nos terminais
+    const rows = db.prepare('SELECT id, name, label, sectors FROM terminais').all();
+    const updateTermStmt = db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?');
+    const tx = db.transaction(() => {
+      for (const row of rows) {
+        if (terminalId && Number(terminalId) !== Number(row.id)) continue;
+        let secs = JSON.parse(row.sectors || '[]');
+        let modified = false;
+        secs = secs.map(s => {
+          if (s.trim().toLowerCase() === oldClean.toLowerCase()) {
+            modified = true;
+            return newClean;
+          }
+          return s;
+        });
+        if (modified) {
+          updateTermStmt.run(JSON.stringify(Array.from(new Set(secs))), now, row.id);
+        }
+      }
+
+      // 2. Atualizar nos colaboradores cadastrados
+      const colabs = db.prepare('SELECT id, setores, setoresPorTerminal FROM colaboradores').all();
+      const updateColabStmt = db.prepare('UPDATE colaboradores SET setores = ?, setoresPorTerminal = ?, atualizadoEm = ? WHERE id = ?');
+      for (const c of colabs) {
+        let modified = false;
+        let cSetores = [];
+        try { cSetores = typeof c.setores === 'string' ? JSON.parse(c.setores) : (c.setores || []); } catch {}
+        if (Array.isArray(cSetores)) {
+          cSetores = cSetores.map(s => {
+            if (s.trim().toLowerCase() === oldClean.toLowerCase()) {
+              modified = true;
+              return newClean;
+            }
+            return s;
+          });
+        }
+
+        let cSetoresPorTerm = {};
+        try { cSetoresPorTerm = typeof c.setoresPorTerminal === 'string' ? JSON.parse(c.setoresPorTerminal) : (c.setoresPorTerminal || {}); } catch {}
+        if (cSetoresPorTerm && typeof cSetoresPorTerm === 'object') {
+          for (const k of Object.keys(cSetoresPorTerm)) {
+            if (Array.isArray(cSetoresPorTerm[k])) {
+              cSetoresPorTerm[k] = cSetoresPorTerm[k].map(s => {
+                if (s.trim().toLowerCase() === oldClean.toLowerCase()) {
+                  modified = true;
+                  return newClean;
+                }
+                return s;
+              });
+            }
+          }
+        }
+
+        if (modified) {
+          updateColabStmt.run(JSON.stringify(cSetores), JSON.stringify(cSetoresPorTerm), now, c.id);
+        }
+      }
+    });
+
+    tx();
+
+    const atualizados = obterTerminais();
+    const colabsAtualizados = obterColaboradores();
+    io.emit('config_terminais_atualizada', atualizados);
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
+    io.emit('colaboradores_atualizados', colabsAtualizados);
+
+    res.json({ success: true, oldName: oldClean, newName: newClean, terminals: atualizados });
+  } catch (err) {
+    console.error('Erro ao renomear setor:', err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -1582,6 +1582,23 @@ export function isEtapaConcluida(op: any, etapaNome: string, apontamentos?: any[
   return false;
 }
 
+function terminalPossuiSetorConfigurado(terminalId?: number, postoNome?: string): boolean {
+  if (!terminalId || !postoNome || typeof window === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem('metalrib_terminais') || localStorage.getItem('metalrib_terminals_config');
+    if (!raw) return false;
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return false;
+    const term = list.find((t: any) => Number(t.id) === Number(terminalId));
+    if (!term) return false;
+    const secs = Array.isArray(term.sectors) ? term.sectors : (Array.isArray(term.setores) ? term.setores : []);
+    const clean = postoNome.trim().toLowerCase();
+    return secs.some((s: string) => String(s || '').trim().toLowerCase() === clean);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Matriz Oficial de Roteamento Industrial e Validação Sequencial Estrita.
  * Valida se o posto selecionado pertence à rota oficial do produto,
@@ -1773,7 +1790,7 @@ export function validarPostoIndustrial(
         motivo: 'Estante Walk-In Completa possui rota de etapa única exclusiva no posto "Montagem Estante" (Terminal 5).'
       };
     }
-    if (terminalId && terminalId !== 5) {
+    if (terminalId && terminalId !== 5 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'A Montagem de Estante Walk-in deve ser realizada no Terminal 5.' };
     }
     return { valido: true };
@@ -1788,10 +1805,10 @@ export function validarPostoIndustrial(
         motivo: 'Quadro Estante Walk-in só pode ser apontado na rota: Laser (T1) -> Dobra (T1) -> Solda (T5) -> Montagem Estante (T5).'
       };
     }
-    if ((postoSelecionado === 'Laser' || postoSelecionado === 'Dobra') && terminalId && terminalId !== 1) {
+    if ((postoSelecionado === 'Laser' || postoSelecionado === 'Dobra') && terminalId && terminalId !== 1 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: `A etapa ${postoSelecionado} do Quadro Estante deve ser realizada no Terminal 1.` };
     }
-    if ((postoSelecionado === 'Solda' || postoSelecionado === 'Montagem Estante') && terminalId && terminalId !== 5) {
+    if ((postoSelecionado === 'Solda' || postoSelecionado === 'Montagem Estante') && terminalId && terminalId !== 5 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: `A etapa ${postoSelecionado} do Quadro Estante deve ser realizada no Terminal 5.` };
     }
     if (postoSelecionado === 'Dobra' && !isEtapaIniciadaOuConcluida(op, 'Laser', apontamentos) && !isEtapaIniciadaOuConcluida(op, 'Corte', apontamentos)) {
@@ -1815,7 +1832,7 @@ export function validarPostoIndustrial(
         motivo: 'Pé da Estante sem pintura só pode ser apontado na rota da serralheria: Corte (T5) -> Solda (T5) -> Montagem Estante (T5).'
       };
     }
-    if (terminalId && terminalId !== 5) {
+    if (terminalId && terminalId !== 5 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'O processo de Pé da Estante sem pintura é exclusivo da serralheria no Terminal 5.' };
     }
     if (postoSelecionado === 'Solda' && !isEtapaConcluida(op, 'Corte', apontamentos)) {
@@ -1835,7 +1852,7 @@ export function validarPostoIndustrial(
         motivo: 'Pé da Estante com pintura possui rota única no posto "Montagem Estante" (Terminal 5).'
       };
     }
-    if (terminalId && terminalId !== 5) {
+    if (terminalId && terminalId !== 5 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'A montagem de Pé de Estante com pintura deve ser feita no Terminal 5.' };
     }
     return { valido: true };
@@ -1849,7 +1866,7 @@ export function validarPostoIndustrial(
         motivo: 'Resistência de Piso 70W/MT deve ser apontada exclusivamente no posto "Montagem Portas Emendadas" (Terminal 3 ou 4).'
       };
     }
-    if (terminalId && terminalId !== 3 && terminalId !== 4) {
+    if (terminalId && terminalId !== 3 && terminalId !== 4 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'Resistência de Piso só pode ser montada no Terminal 3 ou Terminal 4.' };
     }
     return { valido: true };
@@ -1865,7 +1882,7 @@ export function validarPostoIndustrial(
         motivo: 'Abrigo de Doca Retrátil só pode ser apontado na rota: Corte (T5) -> Solda (T5) -> Montagem Abrigo Doca (T5).'
       };
     }
-    if (terminalId && terminalId !== 5) {
+    if (terminalId && terminalId !== 5 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'O Abrigo de Doca Retrátil deve ser fabricado exclusivamente no Terminal 5.' };
     }
     if (postoSelecionado === 'Solda' && !isEtapaConcluida(op, 'Corte', apontamentos)) {
@@ -1886,7 +1903,7 @@ export function validarPostoIndustrial(
         motivo: 'Perfil PP só pode ser apontado na rota: Corte (T1) -> Dobra (T1).'
       };
     }
-    if (terminalId && terminalId !== 1) {
+    if (terminalId && terminalId !== 1 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'Perfil PP deve ser processado exclusivamente no Terminal 1.' };
     }
     if (postoSelecionado === 'Dobra' && !isEtapaIniciadaOuConcluida(op, 'Corte', apontamentos) && !isEtapaIniciadaOuConcluida(op, 'Laser', apontamentos)) {
@@ -1903,7 +1920,7 @@ export function validarPostoIndustrial(
         motivo: 'Kit Gaxeta U deve ser apontado exclusivamente no posto "Montagem Portas Emendadas" (Terminal 3 ou 4).'
       };
     }
-    if (terminalId && terminalId !== 3 && terminalId !== 4) {
+    if (terminalId && terminalId !== 3 && terminalId !== 4 && !terminalPossuiSetorConfigurado(terminalId, postoSelecionado)) {
       return { valido: false, motivo: 'Kit Gaxeta U só pode ser montado no Terminal 3 ou Terminal 4.' };
     }
     return { valido: true };

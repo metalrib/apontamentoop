@@ -317,6 +317,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
   // Estado de Gestão de Setores (Aba 2)
   const [newSectorName, setNewSectorName] = useState<string>('');
   const [newSectorTerminalId, setNewSectorTerminalId] = useState<number>(1);
+  const [selectedTerminalTab, setSelectedTerminalTab] = useState<number>(1);
   const [sectorError, setSectorError] = useState<string | null>(null);
   // Estado para seleção híbrida de rota / texto livre (Aba 2)
   const [isCustomNewSector, setIsCustomNewSector] = useState<boolean>(false);
@@ -857,6 +858,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
     setNewSectorName('');
     setSelectedRouteOption('');
     setIsCustomNewSector(false);
+    setSelectedTerminalTab(newSectorTerminalId);
     loadData();
     showNotification(`Setor "${clean}" adicionado ao Terminal ${newSectorTerminalId}!`);
     if (onOperatorsUpdated) onOperatorsUpdated();
@@ -1768,7 +1770,12 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                       </label>
                       <select
                         value={newSectorTerminalId}
-                        onChange={(e) => setNewSectorTerminalId(Number(e.target.value))}
+                        onChange={(e) => {
+                          const tid = Number(e.target.value);
+                          setNewSectorTerminalId(tid);
+                          setSelectedTerminalTab(tid);
+                          setSectorError(null);
+                        }}
                         className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-emerald-400 cursor-pointer"
                       >
                         {terminals.map((t) => (
@@ -1799,63 +1806,141 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                 </form>
               </div>
 
-              {/* Lista dos 5 Terminais e seus respectivos Setores */}
+              {/* Abas focadas por Terminal e Grade Larga de Setores */}
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-black text-slate-300 font-mono uppercase tracking-wider flex items-center gap-2">
-                    <Layers className="w-4 h-4 text-blue-400" />
-                    <span>SETORES DISTRIBUÍDOS POR TERMINAL FÍSICO</span>
-                  </h3>
-                  <span className="text-xs text-slate-500 font-mono">
-                    {allFactorySectors.length} setores ativos no total
-                  </span>
+                {/* 5 Botões Horizontais dos Terminais */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[11px] font-mono font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-blue-400" />
+                      <span>SELECIONE O TERMINAL PARA VISUALIZAR E GERENCIAR OS SETORES:</span>
+                    </span>
+                    <span className="text-xs text-slate-500 font-mono">
+                      {allFactorySectors.length} setores ativos na fábrica
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                    {terminals.map((term) => {
+                      const isSelected = selectedTerminalTab === term.id;
+                      const sectorCount = (term.sectors || []).length;
+                      return (
+                        <button
+                          key={`tab_terminal_${term.id}`}
+                          type="button"
+                          onClick={() => {
+                            playClick();
+                            setSelectedTerminalTab(term.id);
+                            setNewSectorTerminalId(term.id);
+                            setSectorError(null);
+                          }}
+                          className={`flex items-center justify-between p-3 rounded-2xl border transition-all text-left cursor-pointer active:scale-95 ${
+                            isSelected
+                              ? 'bg-gradient-to-r from-blue-700 to-blue-600 border-blue-400 text-white shadow-lg shadow-blue-950/80 ring-2 ring-blue-500/50'
+                              : 'bg-[#0a1124] border-slate-800 text-slate-300 hover:bg-slate-800/80 hover:border-slate-700 hover:text-white'
+                          }`}
+                        >
+                          <div className="min-w-0 flex-1 mr-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-black ${
+                                isSelected
+                                  ? 'bg-blue-950 text-blue-200 border border-blue-400/60'
+                                  : 'bg-slate-900 text-blue-400 border border-slate-700'
+                              }`}>
+                                T{term.id}
+                              </span>
+                              <span className="text-xs font-bold truncate">
+                                {term.name}
+                              </span>
+                            </div>
+                            <p className={`text-[10px] truncate mt-0.5 ${isSelected ? 'text-blue-100 font-medium' : 'text-slate-400'}`}>
+                              {term.label || `Terminal ${term.id}`}
+                            </p>
+                          </div>
+                          <span className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                            isSelected
+                              ? 'bg-white text-blue-900 shadow-sm'
+                              : 'bg-slate-900 text-slate-300 border border-slate-700'
+                          }`}>
+                            {sectorCount}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                  {terminals.map((term) => (
-                    <div
-                      key={term.id}
-                      className="bg-[#0e172e] border border-blue-900/60 rounded-2xl p-4 shadow-lg space-y-3"
-                    >
-                      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                        <div>
-                          <span className="text-[10px] bg-blue-900/50 text-blue-300 border border-blue-700/50 px-2 py-0.5 rounded font-mono font-bold">
-                            TERMINAL {term.id}
-                          </span>
-                          <h4 className="text-sm font-bold text-white mt-1">
-                            {term.name} - {term.label}
-                          </h4>
+                {/* Grade Larga dos Setores do Terminal Selecionado */}
+                {(() => {
+                  const activeTerminal = terminals.find((t) => t.id === selectedTerminalTab) || terminals[0];
+                  if (!activeTerminal) return null;
+                  const activeSectors = Array.from(new Set(activeTerminal.sectors || []));
+
+                  return (
+                    <div className="bg-[#070b16] border border-blue-900/40 rounded-2xl p-5 space-y-4 shadow-xl">
+                      <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 text-blue-400 flex items-center justify-center font-mono font-black text-sm shadow-inner">
+                            T{activeTerminal.id}
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-black text-white font-mono flex items-center gap-2">
+                              <span>TERMINAL {activeTerminal.id}: {activeTerminal.name.toUpperCase()}</span>
+                              {activeTerminal.label && (
+                                <span className="text-xs text-slate-400 font-normal">({activeTerminal.label})</span>
+                              )}
+                            </h3>
+                            <p className="text-xs text-slate-400 font-mono">
+                              Setores físicos vinculados e disponíveis para apontamento neste terminal
+                            </p>
+                          </div>
                         </div>
-                        <span className="text-[11px] font-mono text-slate-400">
-                          {term.sectors.length} {term.sectors.length === 1 ? 'setor' : 'setores'}
+
+                        <span className="text-xs font-mono font-bold px-3 py-1 bg-blue-950/80 text-blue-300 border border-blue-800/60 rounded-xl">
+                          {activeSectors.length} {activeSectors.length === 1 ? 'setor ativo' : 'setores ativos'}
                         </span>
                       </div>
 
-                      <div className="space-y-2">
-                        {term.sectors.length === 0 ? (
-                          <div className="text-xs text-slate-500 italic py-2">
-                            Nenhum setor vinculado a este terminal.
-                          </div>
-                        ) : (
-                          Array.from(new Set(term.sectors || [])).map((sec, secIdx) => {
+                      {activeSectors.length === 0 ? (
+                        <div className="bg-[#0a1124] border border-slate-800/80 rounded-2xl p-8 text-center space-y-2">
+                          <Layers className="w-8 h-8 text-slate-600 mx-auto" />
+                          <p className="text-sm font-bold text-slate-300">Nenhum setor vinculado ao Terminal {activeTerminal.id}</p>
+                          <p className="text-xs text-slate-500">
+                            Utilize o formulário acima para criar ou vincular setores a este terminal.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+                          {activeSectors.map((sec, secIdx) => {
                             const cleanSec = normalizeSecNameClean(sec);
-                            const assignedCount = (sectorAssignedCounts.counts[cleanSec.trim()] || sectorAssignedCounts.counts[sec.trim()] || 0) + sectorAssignedCounts.roamingCount;
+                            const assignedCount =
+                              (sectorAssignedCounts.counts[cleanSec.trim()] ||
+                                sectorAssignedCounts.counts[sec.trim()] ||
+                                0) + sectorAssignedCounts.roamingCount;
 
                             return (
                               <div
-                                key={`terminal_${term.id}_sector_${cleanSec}_${secIdx}`}
-                                className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-slate-700 transition"
+                                key={`term_${activeTerminal.id}_sector_${cleanSec}_${secIdx}`}
+                                className="flex flex-col justify-between p-4 rounded-2xl bg-[#0e172e] border border-slate-800 hover:border-blue-700/60 transition shadow-md group"
                               >
-                                <div className="flex-1 mr-2 min-w-0">
-                                  <div className="text-xs font-bold text-white truncate">
-                                    {cleanSec}
+                                <div className="mb-3">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <h4 className="text-sm font-bold text-white break-words leading-snug">
+                                      {cleanSec}
+                                    </h4>
+                                    <span className="text-[10px] font-mono px-2 py-0.5 bg-blue-950 text-blue-300 border border-blue-800/60 rounded-lg shrink-0">
+                                      T{activeTerminal.id}
+                                    </span>
                                   </div>
-                                  <div className="text-[10px] font-mono text-slate-400">
-                                    {assignedCount} colaboradores habilitados
+                                  <div className="text-xs font-mono text-slate-400 mt-2 flex items-center gap-1.5">
+                                    <Users className="w-3.5 h-3.5 text-slate-500" />
+                                    <span>
+                                      {assignedCount} {assignedCount === 1 ? 'colaborador habilitado' : 'colaboradores habilitados'}
+                                    </span>
                                   </div>
                                 </div>
 
-                                <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <div className="flex items-center justify-end gap-2 pt-2.5 border-t border-slate-800/60">
                                   {/* Renomear Setor */}
                                   <button
                                     type="button"
@@ -1863,10 +1948,11 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                                       playClick();
                                       setRenamingSector({ oldName: cleanSec, newName: cleanSec });
                                     }}
-                                    className="p-1.5 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-800/40 text-xs transition cursor-pointer"
+                                    className="px-3 py-1.5 rounded-xl bg-blue-950/80 hover:bg-blue-900 text-blue-300 hover:text-white border border-blue-800/50 text-xs font-mono flex items-center gap-1.5 transition cursor-pointer active:scale-95"
                                     title={`Renomear setor "${cleanSec}"`}
                                   >
                                     <Edit2 className="w-3.5 h-3.5" />
+                                    <span>Editar</span>
                                   </button>
 
                                   {/* Excluir Setor */}
@@ -1874,22 +1960,23 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                                     type="button"
                                     onClick={() => {
                                       playClick();
-                                      setSectorToDelete({ terminalId: term.id, sectorName: cleanSec });
+                                      setSectorToDelete({ terminalId: activeTerminal.id, sectorName: cleanSec });
                                     }}
-                                    className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/40 text-xs transition cursor-pointer"
-                                    title={`Excluir setor "${cleanSec}" do Terminal ${term.id}`}
+                                    className="px-3 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/50 text-xs font-mono flex items-center gap-1.5 transition cursor-pointer active:scale-95"
+                                    title={`Excluir setor "${cleanSec}" do Terminal ${activeTerminal.id}`}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
+                                    <span>Excluir</span>
                                   </button>
                                 </div>
                               </div>
                             );
-                          })
-                        )}
-                      </div>
+                          })}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
               </div>
             </div>
           )}

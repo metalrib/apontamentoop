@@ -782,8 +782,8 @@ export function initLocalSocketListeners(): void {
       }
     });
 
-    socket.on('terminais_atualizados', (terms: any[]) => {
-      console.log('[Socket.io] Evento terminais_atualizados recebido do backend:', terms?.length);
+    const handleTerminaisUpdateEvent = (terms: any[]) => {
+      console.log('[Socket.io] Evento config_terminais_atualizada/terminais_atualizados recebido:', terms?.length);
       if (Array.isArray(terms) && terms.length > 0) {
         const { terminals: sanitized } = sanitizeTerminalSectors(terms);
         const currentStored = localStorage.getItem(STORAGE_TERMINALS_KEY);
@@ -793,24 +793,14 @@ export function initLocalSocketListeners(): void {
           const setoresMap = buildSetoresMap(sanitized);
           localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
           window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
+          broadcastUpdate();
         }
       }
-    });
+    };
 
-    socket.on('setores_atualizados', (terms: any[]) => {
-      console.log('[Socket.io] Evento setores_atualizados recebido do backend:', terms?.length);
-      if (Array.isArray(terms) && terms.length > 0) {
-        const { terminals: sanitized } = sanitizeTerminalSectors(terms);
-        const currentStored = localStorage.getItem(STORAGE_TERMINALS_KEY);
-        const newStored = JSON.stringify(sanitized);
-        if (currentStored !== newStored) {
-          localStorage.setItem(STORAGE_TERMINALS_KEY, newStored);
-          const setoresMap = buildSetoresMap(sanitized);
-          localStorage.setItem('metalrib_setores_por_terminal', JSON.stringify(setoresMap));
-          window.dispatchEvent(new CustomEvent('metalrib_sectors_updated', { detail: sanitized }));
-        }
-      }
-    });
+    socket.on('config_terminais_atualizada', handleTerminaisUpdateEvent);
+    socket.on('terminais_atualizados', handleTerminaisUpdateEvent);
+    socket.on('setores_atualizados', handleTerminaisUpdateEvent);
 
     socket.on('ordem_resetada', (data: any) => {
       console.log('[Socket.io] Evento ordem_resetada recebido:', data);
@@ -1543,10 +1533,8 @@ export async function removeSectorFromTerminal(terminalId: number | string, sect
   saveTerminalsConfig(terminals);
   try {
     const localUrl = getLocalServerUrl();
-    fetch(`${localUrl}/api/terminais/${termIdNum}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(term)
+    fetch(`${localUrl}/api/terminais/${termIdNum}/setores/${encodeURIComponent(clean)}`, {
+      method: 'DELETE'
     }).catch(() => {});
   } catch {}
 
@@ -1645,6 +1633,16 @@ export function renameSectorGlobally(oldName: string, newName: string): void {
   if (opModified) {
     saveOperators(operators);
   }
+
+  // Sincroniza a renomeação com o backend SQLite e emite via WebSocket
+  try {
+    const localUrl = getLocalServerUrl();
+    fetch(`${localUrl}/api/setores/renomear`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ oldName: oldClean, newName: newClean })
+    }).catch(() => {});
+  } catch {}
 }
 
 export function deleteSectorGlobally(sectorName: string): void {
