@@ -293,28 +293,6 @@ try {
     ensureSectorInTerminal(4, 'Montagem de Office Door Giro');
     ensureSectorInTerminal(4, 'Montagem Office de Correr');
     ensureSectorInTerminal(5, 'Preparação Office Door Correr');
-
-    // Saneamento de Terminal 5 para expurgar setores de montagem indevidos
-    const t5Row = db.prepare('SELECT * FROM terminais WHERE id = 5').get();
-    if (t5Row) {
-      let t5Secs = JSON.parse(t5Row.sectors || '[]');
-      const forbiddenT5 = [
-        'montagem portas de correr padrao e especial',
-        'montagem de portas giratoria padrao e especial',
-        'montagem de portas giratorias',
-        'montagem portas emendadas',
-        'montagem porta vai-vem',
-        'corte de trilho p/ porta correr',
-        'montagem de trilho p/ porta correr',
-        'montagem de office door giro',
-        'montagem office de correr'
-      ];
-      const cleaned = t5Secs.filter(s => !forbiddenT5.includes(s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()));
-      if (cleaned.length !== t5Secs.length) {
-        db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = 5').run(JSON.stringify(cleaned), Date.now());
-        console.log('[SQLite] Terminal 5 saneado com sucesso (removidos setores de montagem indevidos)');
-      }
-    }
   }
 } catch (e) {
   console.warn('[SQLite] Erro ao inicializar terminais padrão:', e);
@@ -1487,11 +1465,15 @@ app.post('/api/terminais/:id/setores', (req, res) => {
     if (row) {
       sectors = JSON.parse(row.sectors || '[]');
     }
+    const totalAntes = sectors.length;
     sectors = sectors.map(sanitizeSectorEncoding);
     if (!sectors.some(s => s.toLowerCase() === clean.toLowerCase())) {
       sectors.push(clean);
     }
     sectors = Array.from(new Set(sectors));
+    const totalDepois = sectors.length;
+
+    console.log('[API Setores] Salvando setor:', { terminalId: termId, setorNome: clean, totalAntes, totalDepois });
 
     const now = Date.now();
     db.prepare(`
@@ -1512,7 +1494,7 @@ app.post('/api/terminais/:id/setores', (req, res) => {
     io.emit('config_terminais_atualizada', atualizados);
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
-    res.json({ success: true, terminalId: termId, sector: clean, terminals: atualizados });
+    res.json({ success: true, terminalId: termId, sector: clean, totalAntes, totalDepois, terminals: atualizados });
   } catch (err) {
     console.error('Erro ao adicionar setor ao terminal:', err);
     res.status(500).json({ error: err.message });
@@ -2985,16 +2967,34 @@ io.on('connection', (socket) => {
     if (row) {
       sectors = JSON.parse(row.sectors || '[]');
     }
+    const totalAntes = sectors.length;
     sectors = sectors.map(sanitizeSectorEncoding);
     if (!sectors.some(s => s.toLowerCase() === clean.toLowerCase())) {
       sectors.push(clean);
-      sectors = Array.from(new Set(sectors));
-      db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?')
-        .run(JSON.stringify(sectors), Date.now(), termId);
-      const atualizados = obterTerminais();
-      io.emit('terminais_atualizados', atualizados);
-      io.emit('setores_atualizados', atualizados);
     }
+    sectors = Array.from(new Set(sectors));
+    const totalDepois = sectors.length;
+
+    console.log('[API Setores] Salvando setor via Socket:', { terminalId: termId, setorNome: clean, totalAntes, totalDepois });
+
+    db.prepare(`
+      INSERT INTO terminais (id, name, label, sectors, atualizadoEm)
+      VALUES (@id, @name, @label, @sectors, @atualizadoEm)
+      ON CONFLICT(id) DO UPDATE SET
+        sectors = excluded.sectors,
+        atualizadoEm = excluded.atualizadoEm
+    `).run({
+      id: termId,
+      name: row ? row.name : `Terminal ${termId}`,
+      label: row ? row.label : '',
+      sectors: JSON.stringify(sectors),
+      atualizadoEm: Date.now()
+    });
+
+    const atualizados = obterTerminais();
+    io.emit('config_terminais_atualizada', atualizados);
+    io.emit('terminais_atualizados', atualizados);
+    io.emit('setores_atualizados', atualizados);
   });
 
   socket.on('atualizar_terminais', (terms) => {
@@ -3024,6 +3024,7 @@ io.on('connection', (socket) => {
     });
     tx(terms);
     const atualizados = obterTerminais();
+    io.emit('config_terminais_atualizada', atualizados);
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
   });
