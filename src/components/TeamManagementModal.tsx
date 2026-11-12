@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Operator, TerminalConfig, TERMINALS, ROUTE_RULES } from '../types/mes';
 import { POSTOS_POR_TERMINAL } from '../data/terminais';
 
