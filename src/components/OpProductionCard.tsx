@@ -245,7 +245,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             </div>
 
             {isConcluidaGeral && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 shadow-sm animate-pulse">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 shadow-sm">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                 <span>CONCLUÍDA GERAL (100%)</span>
               </span>
@@ -343,7 +343,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             {activeStationName ? (
               <div className="flex items-center justify-between gap-2 px-3 py-2 bg-blue-950/60 border border-blue-500/50 rounded-xl text-xs font-mono text-blue-200 shadow-sm">
                 <div className="flex items-center gap-2 truncate">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-400 shrink-0" />
                   <span className="truncate">
                     <span className="font-extrabold text-blue-300">🔵 PROCESSO ATUAL:</span>{' '}
                     <strong className="text-white">{activeStationName}</strong>{' '}
@@ -605,7 +605,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                 {activeStationName ? (
                   <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 bg-blue-950/80 border border-blue-500/40 rounded-lg text-xs font-mono text-blue-200">
                     <div className="flex items-center gap-2 truncate">
-                      <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                      <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
                       <span className="truncate">
                         <strong>🔵 PROCESSO ATUAL:</strong> {activeStationName}{' '}
                         {activeOperatorName && (
@@ -746,7 +746,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             e.stopPropagation();
             setStepToReset(null);
           }}
-          className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[99999] bg-slate-950/90 flex items-center justify-center p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}
@@ -820,7 +820,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             e.stopPropagation();
             setShowResetAllModal(false);
           }}
-          className="fixed inset-0 z-[99999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          className="fixed inset-0 z-[99999] bg-slate-950/90 flex items-center justify-center p-4"
         >
           <div
             onClick={(e) => e.stopPropagation()}

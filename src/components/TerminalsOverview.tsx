@@ -232,10 +232,7 @@ export const TerminalsOverview: React.FC<TerminalsOverviewProps> = ({
                   <div className="shrink-0 flex items-center">
                     {hasActiveOrders ? (
                       <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-[11px] font-mono font-bold text-emerald-400">
-                        <span className="relative flex h-2.5 w-2.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                        </span>
+                        <span className="inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
                         <span>Ativo</span>
                       </div>
                     ) : (
@@ -306,10 +303,7 @@ export const TerminalsOverview: React.FC<TerminalsOverviewProps> = ({
                             {sector}
                           </span>
                           {isRunning && (
-                            <span className="relative flex h-2 w-2 shrink-0 mt-0.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                            </span>
+                            <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500 shrink-0 mt-0.5" />
                           )}
                         </div>
 
@@ -344,10 +338,7 @@ export const TerminalsOverview: React.FC<TerminalsOverviewProps> = ({
               <div className="pt-3 border-t border-blue-950/80 text-xs font-mono shrink-0">
                 {activeOperators.length > 0 ? (
                   <div className="text-emerald-400 font-bold flex items-center gap-2 truncate">
-                    <span className="relative flex h-2 w-2 shrink-0">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-                    </span>
+                    <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500 shrink-0" />
                     <span className="truncate">
                       👥 Operadores ativos: {activeOperators.join(', ')}
                     </span>

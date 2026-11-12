@@ -110,6 +110,14 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const [showTeamModal, setShowTeamModal] = useState<boolean>(false);
   const [operatorsList, setOperatorsList] = useState<Operator[]>(() => fetchOperators());
 
+  const handleCloseTeamModal = useCallback(() => {
+    setShowTeamModal(false);
+  }, []);
+
+  const handleOperatorsUpdated = useCallback(() => {
+    setOperatorsList(fetchOperators());
+  }, []);
+
   useEffect(() => {
     const handleUpdate = () => {
       setOperatorsList(fetchOperators());
@@ -501,7 +509,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       )}
 
       {/* Top Header do Portal PCP & Coordenação */}
-      <header className="bg-[#0c142b] border-b border-blue-900/60 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sticky top-0 z-40 backdrop-blur-md">
+      <header className="bg-[#0c142b] border-b border-blue-900/60 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sticky top-0 z-40">
         <div className="flex items-center gap-4">
           <MetalribLogo size="md" />
           <div className="border-l border-blue-900/80 pl-4 hidden md:block">
@@ -1070,10 +1078,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
               <div className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl shadow-xl space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="relative flex h-3.5 w-3.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500" />
-                    </span>
+                    <span className="inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 shrink-0" />
                     <div>
                       <h3 className="text-base font-extrabold text-white font-mono tracking-wide uppercase">
                         Painel Andon · Monitoramento Operacional ao Vivo
@@ -1136,7 +1141,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                         : 'bg-slate-950/80 border border-slate-800 text-slate-300 hover:bg-slate-900 hover:text-white'
                     }`}
                   >
-                    <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />
                     <span>Em Andamento</span>
                     <span className={`px-1.5 py-0.2 rounded text-[10px] ${andonFilterPill === 'em_andamento' ? 'bg-blue-500/30 text-blue-200' : 'bg-slate-800 text-slate-400'}`}>
                       {totalEmAndamento}
@@ -1212,7 +1217,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
       {/* Modal de Cadastro de Nova OP */}
       {showNewOpModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
           <div className="bg-[#0c142b] border-2 border-blue-900 w-full max-w-lg rounded-3xl p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4 pb-3 border-b border-blue-900/80">
               <div className="flex items-center gap-2">
@@ -1367,7 +1372,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
       {/* Modal de Importação do HTML de Status de OP do Nomus ERP */}
       {showNomusImportModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-[#0c142b] border-2 border-emerald-500/60 w-full max-w-4xl max-h-[90vh] rounded-3xl shadow-2xl flex flex-col overflow-hidden my-auto">
             {/* Header do Modal - Fixo no Topo */}
             <div className="p-6 pb-4 border-b border-blue-900/80 flex items-center justify-between flex-shrink-0 bg-[#0c142b]">
@@ -1601,7 +1606,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
             <div className="p-5 border-t border-blue-900/80 flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0 bg-[#090F21]">
               <span className="text-xs font-mono text-center sm:text-left">
                 {isImportingNomus ? (
-                  <span className="text-emerald-400 font-bold animate-pulse flex items-center gap-1.5 justify-center sm:justify-start">
+                  <span className="text-emerald-400 font-bold flex items-center gap-1.5 justify-center sm:justify-start">
                     <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                     <span>Gravando ordens no banco e sincronizando os 5 terminais em lote...</span>
                   </span>
@@ -1670,7 +1675,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
       {/* Modal de Confirmação para Limpar Lista de OPs (100% In-App, sem window.confirm) */}
       {showClearConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
           <div className="bg-[#0c142b] border-2 border-rose-500/80 w-full max-w-md rounded-3xl p-6 shadow-2xl text-center space-y-4">
             <div className="w-14 h-14 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center mx-auto">
               <Trash2 className="w-7 h-7" />
@@ -1707,7 +1712,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
       {/* Modal Confirmação Excluir Todo Histórico de Apontamentos */}
       {showClearAptsModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
           <div className="bg-[#0b1122] border-2 border-rose-900/80 w-full max-w-md rounded-3xl p-6 shadow-2xl relative animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center font-bold">
@@ -1749,7 +1754,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
       {/* Modal Confirmação Excluir Apontamento Individual */}
       {apontamentoToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
           <div className="bg-[#0b1122] border-2 border-rose-900/80 w-full max-w-md rounded-3xl p-6 shadow-2xl relative animate-in fade-in zoom-in-95">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center font-bold">
@@ -1792,8 +1797,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       {/* Modal de Gestão de Colaboradores e Escala de Setores */}
       <TeamManagementModal
         isOpen={showTeamModal}
-        onClose={() => setShowTeamModal(false)}
-        onOperatorsUpdated={() => setOperatorsList(fetchOperators())}
+        onClose={handleCloseTeamModal}
+        onOperatorsUpdated={handleOperatorsUpdated}
       />
     </div>
   );

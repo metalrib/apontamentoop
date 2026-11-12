@@ -603,14 +603,14 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
         <div className="w-full bg-[#0e131f] border border-cyan-500/50 rounded-xl p-2.5 shadow-lg shrink-0 mt-auto">
           <div className="flex items-center justify-between mb-2 text-xs font-mono flex-wrap gap-1.5">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping" />
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shrink-0" />
               <span className="font-bold text-cyan-400 uppercase tracking-wider">
                 LOTE EM PRODUÇÃO: {totalPhysicalUnits} PC • {selectedSector} • {operatorName} • Iniciado às {startTimeFormatted}
               </span>
             </div>
             <div className="flex items-center gap-2">
               {pausaAtiva && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold">
                   <span>⏸️</span>
                   <span>{pausaAtiva.nome} (Pausa Automática)</span>
                 </div>
@@ -807,7 +807,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
           {/* Modal de Confirmação de Estorno de Início de Lote */}
           {showCancelModal && (
-            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
               <div className="bg-[#0f172a] border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
@@ -857,7 +857,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
           {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
           {showRouterModal && (
-            <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
               <div className="bg-[#0f172a] border border-cyan-500/40 rounded-2xl p-6 max-w-lg w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
                   <div className="flex items-center gap-2.5">
@@ -992,14 +992,14 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
       <div className="w-full bg-[#0e131f] border border-rose-500/50 rounded-xl p-2.5 shadow-lg shrink-0 mt-auto">
         <div className="flex items-center justify-between mb-2 text-xs font-mono flex-wrap gap-1.5">
           <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 animate-ping" />
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shrink-0" />
             <span className="font-bold text-rose-400 uppercase tracking-wider">
               UNIDADE {activeForCurrentOperator.unidade_numero} DE {totalPhysicalUnits} EM PRODUÇÃO · {operatorName}
             </span>
           </div>
           <div className="flex items-center gap-2">
             {pausaAtiva && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold animate-pulse">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-semibold">
                 <span>⏸️</span>
                 <span>{pausaAtiva.nome} (Pausa Automática)</span>
               </div>
@@ -1121,7 +1121,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
         {/* Modal de Confirmação de Estorno de Início de Unidade */}
         {showCancelModal && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0f172a] border border-rose-500/50 rounded-2xl p-6 max-w-md w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-2.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-400">
@@ -1171,7 +1171,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
         {/* MODAL DE ENCERRAMENTO DA INJEÇÃO (OPÇÃO ENCAMINHAR PARA ROUTER) */}
         {showRouterModal && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0f172a] border border-cyan-500/40 rounded-2xl p-6 max-w-lg w-full shadow-2xl animate-in fade-in zoom-in-95 duration-150 text-left">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800 mb-4">
                 <div className="flex items-center gap-2.5">
@@ -1496,7 +1496,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
               <span
                 className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                   pecasDisponiveisParaMontar > 0
-                    ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 animate-pulse'
+                    ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50'
                     : 'bg-slate-900 text-slate-500 border-slate-800'
                 }`}
               >
@@ -1727,7 +1727,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
             <span
               className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${
                 pecasDisponiveisParaMontar > 0
-                  ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50 animate-pulse'
+                  ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50'
                   : 'bg-slate-900 text-slate-500 border-slate-800'
               }`}
             >

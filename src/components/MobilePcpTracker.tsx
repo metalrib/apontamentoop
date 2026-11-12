@@ -328,10 +328,10 @@ const MobileOpCardItem = React.memo<MobileOpCardItemProps>(({
         <ChevronRight className="w-4 h-4 text-slate-500 shrink-0 group-hover:text-blue-300 group-hover:translate-x-0.5 transition-transform" />
       </div>
 
-      {/* LINHA 4: Indicador Pulsante se estiver com Operador Ativo */}
+      {/* LINHA 4: Indicador se estiver com Operador Ativo */}
       {isRunning && activeApt && (
         <div className="flex items-center gap-1.5 text-[11px] font-mono text-cyan-300 bg-cyan-950/60 border border-cyan-500/40 rounded-lg px-2.5 py-1">
-          <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />
           <User className="w-3.5 h-3.5 text-amber-400 shrink-0" />
           <span className="truncate">
             <strong>{activeApt.operador}</strong> em <strong>{String(activeApt.setor || '').toUpperCase()}</strong>
@@ -733,13 +733,13 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
   return (
     <div className="w-full max-w-md mx-auto min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans border-x border-slate-800 shadow-2xl relative select-none">
       {/* Top Header Mobile */}
-      <header className="sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md border-b border-slate-800 px-3.5 py-2.5 flex items-center justify-between gap-2 shadow-md">
+      <header className="sticky top-0 z-30 bg-slate-900 border-b border-slate-800 px-3.5 py-2.5 flex items-center justify-between gap-2 shadow-md">
         <div className="flex items-center gap-2">
           <MetalribLogo size="sm" />
           <div>
             <div className="text-[11px] font-mono font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
               <span>PCP MOBILE</span>
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
             </div>
             <div className="text-[10px] text-slate-400 font-mono">RASTREIO INSTANTÂNEO</div>
           </div>
@@ -956,7 +956,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
 
         {/* Modal de Câmera para Código de Barras */}
         {isScannerOpen && (
-          <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-slate-950/90 flex flex-col items-center justify-center p-4">
             <div className="w-full max-w-sm bg-slate-900 border border-slate-700 rounded-2xl p-4 shadow-2xl flex flex-col">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs font-mono font-bold text-blue-400 flex items-center gap-1.5">
@@ -1151,9 +1151,9 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
       {/* 5. GAVETA INFERIOR / BOTTOM SHEET DE DETALHES DA OP (Opção 4) */}
       {selectedOp && routeData && evaluation && deadline && (
         <div className="fixed inset-0 z-50 overflow-hidden">
-          {/* Backdrop com blur escuro clicável para fechar */}
+          {/* Backdrop sem blur pesado clicável para fechar */}
           <div
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm transition-opacity animate-in fade-in duration-200"
+            className="fixed inset-0 bg-slate-950/90 transition-opacity animate-in fade-in duration-200"
             onClick={() => setSelectedOp(null)}
           />
 
@@ -1266,7 +1266,7 @@ export const MobilePcpTracker: React.FC<MobilePcpTrackerProps> = ({
                 ) : activeApontamento ? (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-2 text-sm font-bold text-cyan-300">
-                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-ping shrink-0" />
+                      <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 shrink-0" />
                       <span>EM PRODUÇÃO: {String(activeApontamento.setor || '').toUpperCase()}</span>
                     </div>
                     <div className="flex items-center gap-2 text-[11px] text-slate-300 pt-1">

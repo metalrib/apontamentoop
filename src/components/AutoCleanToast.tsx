@@ -37,7 +37,7 @@ export const AutoCleanToast: React.FC<AutoCleanToastProps> = ({
 
   return (
     <div className="fixed top-4 right-4 z-50 pointer-events-none flex flex-col items-end max-w-sm sm:max-w-md w-full px-3 animate-in fade-in slide-in-from-top-3 duration-200">
-      <div className="pointer-events-auto bg-slate-900/95 border border-emerald-500/60 text-white rounded-2xl p-3.5 shadow-2xl shadow-black/80 backdrop-blur-md overflow-hidden relative w-full flex items-start gap-3">
+      <div className="pointer-events-auto bg-slate-900 border border-emerald-500/60 text-white rounded-2xl p-3.5 shadow-2xl shadow-black/80 overflow-hidden relative w-full flex items-start gap-3">
         <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center shrink-0 mt-0.5">
           <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
         </div>

@@ -1011,7 +1011,7 @@ export default function App() {
 
         {/* Modal de Troca de Terminal Físico */}
         {showTerminalModal && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md overflow-y-auto flex items-center justify-center p-2 sm:p-4">
+          <div className="fixed inset-0 z-50 bg-slate-950/90 overflow-y-auto flex items-center justify-center p-2 sm:p-4">
             <TerminalSelector
               currentTerminalId={currentTerminal?.id || null}
               onSelectTerminal={handleSelectTerminal}
@@ -1036,7 +1036,7 @@ export default function App() {
 
         {/* Modal de Acesso Seguro ao PCP (PIN) */}
         {showPinModal && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md overflow-y-auto flex items-center justify-center p-2 sm:p-4">
+          <div className="fixed inset-0 z-50 bg-slate-950/90 overflow-y-auto flex items-center justify-center p-2 sm:p-4">
             <div className="bg-[#0c142b] border-2 border-blue-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center">
               <div className="w-12 h-12 rounded-2xl bg-[#1C2F8A] text-white flex items-center justify-center mx-auto mb-3 border border-blue-400/40">
                 <KeyRound className="w-6 h-6" />
@@ -1186,7 +1186,7 @@ export default function App() {
 
       {/* Modal de Troca de Terminal Físico */}
       {showTerminalModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md overflow-y-auto flex items-center justify-center p-2 sm:p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 overflow-y-auto flex items-center justify-center p-2 sm:p-4">
           <TerminalSelector
             currentTerminalId={currentTerminal?.id || null}
             onSelectTerminal={handleSelectTerminal}
@@ -1211,7 +1211,7 @@ export default function App() {
 
       {/* Modal de Acesso Seguro ao PCP (PIN) */}
       {showPinModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
           <div className="bg-[#0c142b] border-2 border-blue-900 w-full max-w-sm rounded-3xl p-6 shadow-2xl text-center">
             <div className="w-12 h-12 rounded-2xl bg-[#1C2F8A] text-white flex items-center justify-center mx-auto mb-3 border border-blue-400/40">
               <KeyRound className="w-6 h-6" />

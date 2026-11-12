@@ -61,7 +61,7 @@ const TERMINAL_DETAILS: Record<string, { label: string; desc: string }> = {
   T5: { label: 'Terminal 5', desc: 'Router, Elétrica, Solda & Acessórios' },
 };
 
-export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
+export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.memo(({
   isOpen,
   onClose,
   onOperatorsUpdated
@@ -241,19 +241,13 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       const handleDataUpdate = () => {
         loadData();
       };
+      // Ouve apenas eventos específicos de operadores e setores, ignorando eventos de OPs em background
       window.addEventListener('metalrib_sectors_updated', handleDataUpdate);
-      window.addEventListener('metalrib_data_updated', handleDataUpdate);
       window.addEventListener('metalrib_operators_updated', handleDataUpdate);
-
-      const unsubMes = subscribeToMesUpdates(() => {
-        loadData();
-      });
 
       return () => {
         window.removeEventListener('metalrib_sectors_updated', handleDataUpdate);
-        window.removeEventListener('metalrib_data_updated', handleDataUpdate);
         window.removeEventListener('metalrib_operators_updated', handleDataUpdate);
-        unsubMes();
       };
     }
   }, [isOpen]);
@@ -809,10 +803,35 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
     });
   }, [operators, searchTerm, filterTerminal, filterSector]);
 
+  // Mapa de contagem de colaboradores habilitados por setor (memoizado para rolagem e renderização ultra-rápidas)
+  const sectorAssignedCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    const roamingCount = operators.filter((op) => op.isRoaming).length;
+
+    for (const op of operators) {
+      if (op.isRoaming) continue;
+      const opSectors = new Set<string>();
+      if (Array.isArray(op.sectors)) {
+        op.sectors.forEach((s) => s && opSectors.add(s.trim()));
+      }
+      if (Array.isArray(op.setores)) {
+        op.setores.forEach((s) => s && opSectors.add(s.trim()));
+      }
+      if (op.setor && typeof op.setor === 'string') {
+        opSectors.add(op.setor.trim());
+      }
+      for (const sec of opSectors) {
+        counts[sec] = (counts[sec] || 0) + 1;
+      }
+    }
+
+    return { counts, roamingCount };
+  }, [operators]);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
       <div className="bg-[#0b1122] border-2 border-blue-900/80 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] my-auto relative">
         {/* Cabeçalho do Modal */}
         <div className="bg-[#0e172e] border-b border-blue-900/80 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -1469,7 +1488,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                                         </span>
                                       )}
                                       {isCurrentlyEditing && (
-                                        <span className="text-[9px] bg-amber-400 text-black font-bold px-1.5 py-0.2 rounded animate-pulse">
+                                        <span className="text-[9px] bg-amber-400 text-black font-bold px-1.5 py-0.2 rounded">
                                           EM EDIÇÃO
                                         </span>
                                       )}
@@ -1767,12 +1786,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
                           </div>
                         ) : (
                           Array.from(new Set(term.sectors || [])).map((sec, secIdx) => {
-                            const assignedCount = operators.filter(
-                              (op) =>
-                                op.isRoaming ||
-                                (op.sectors && op.sectors.includes(sec)) ||
-                                (op.setores && op.setores.includes(sec))
-                            ).length;
+                            const assignedCount = (sectorAssignedCounts.counts[sec.trim()] || 0) + sectorAssignedCounts.roamingCount;
 
                             return (
                               <div
@@ -1841,7 +1855,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
         {/* Modal de Confirmação: Renomear Setor */}
         {renamingSector && (
-          <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0c142b] border-2 border-blue-500/80 w-full max-w-md rounded-3xl p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
               <div className="w-12 h-12 rounded-2xl bg-blue-500/20 text-blue-400 border border-blue-500/40 flex items-center justify-center mx-auto">
                 <Edit2 className="w-6 h-6" />
@@ -1891,7 +1905,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
         {/* Modal de Confirmação: Excluir Setor */}
         {sectorToDelete && (
-          <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0c142b] border-2 border-rose-500/80 w-full max-w-md rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-in fade-in zoom-in-95">
               <div className="w-14 h-14 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center mx-auto">
                 <Trash2 className="w-7 h-7" />
@@ -1932,7 +1946,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
         {/* Modal de Confirmação: Restaurar Setores Padrão */}
         {showResetSectorsModal && (
-          <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0c142b] border-2 border-amber-500/80 w-full max-w-md rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-in fade-in zoom-in-95">
               <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center mx-auto">
                 <AlertTriangle className="w-7 h-7" />
@@ -1965,7 +1979,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
         {/* Modal de Confirmação: Excluir Colaborador */}
         {operatorToDelete && (
-          <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0c142b] border-2 border-rose-500/80 w-full max-w-md rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-in fade-in zoom-in-95">
               <div className="w-14 h-14 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center mx-auto">
                 <Trash2 className="w-7 h-7" />
@@ -2006,7 +2020,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
 
         {/* Modal de Confirmação: Restaurar Colaboradores Padrão */}
         {showResetConfirmModal && (
-          <div className="fixed inset-0 z-60 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-60 bg-slate-950/90 flex items-center justify-center p-4">
             <div className="bg-[#0c142b] border-2 border-amber-500/80 w-full max-w-md rounded-3xl p-6 shadow-2xl text-center space-y-4 animate-in fade-in zoom-in-95">
               <div className="w-14 h-14 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/40 flex items-center justify-center mx-auto">
                 <AlertTriangle className="w-7 h-7" />
@@ -2039,4 +2053,4 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = ({
       </div>
     </div>
   );
-};
+});

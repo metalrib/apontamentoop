@@ -500,7 +500,7 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.m
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shrink-0" />
                     <span className="text-base font-extrabold text-amber-200 font-mono">
                       PEÇA #{unitNum}
                     </span>

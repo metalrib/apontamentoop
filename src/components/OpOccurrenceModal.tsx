@@ -79,7 +79,7 @@ export const OpOccurrenceModal: React.FC<OpOccurrenceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 sm:p-4">
       <div className="bg-[#0c142b] border-2 border-amber-500/60 w-full max-w-lg rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col justify-between max-h-[92vh] animate-in fade-in zoom-in-95 duration-150 text-left">
         {/* Cabeçalho */}
         <div>

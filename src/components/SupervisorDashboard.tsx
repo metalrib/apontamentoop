@@ -59,7 +59,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
       <div className="bg-[#0e131f] border-2 border-slate-700 w-full max-w-6xl max-h-[92vh] rounded-3xl flex flex-col shadow-2xl overflow-hidden">
         {/* Header do Modal */}
         <div className="p-5 sm:p-6 bg-[#0a0d14] border-b border-slate-800 flex items-center justify-between">
@@ -314,7 +314,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                               className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                                 apt.status === 'FINALIZADO'
                                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse'
+                                  : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                               }`}
                             >
                               {apt.status}

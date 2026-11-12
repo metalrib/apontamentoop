@@ -64,7 +64,7 @@ const ActiveBatchCard: React.FC<{ item: ActiveBatchItem; onSelect: () => void }>
           {formatarNumeroOP(item.opNumero)}
         </span>
         <span className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-blue-600/20 text-blue-300 border border-blue-500/40 flex items-center gap-1.5 shrink-0">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
           <span className="truncate max-w-[130px] sm:max-w-[160px]">{item.etapa}</span>
         </span>
       </div>

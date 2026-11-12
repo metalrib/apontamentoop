@@ -74,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
         {currentTerminal ? (
           <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-1.5 gap-3 shadow-inner">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
               <div>
                 <div className="text-xs text-slate-400 font-medium">TERMINAL ATIVO</div>
                 <div className="text-sm font-bold text-amber-400 flex items-center gap-2">
@@ -188,7 +188,7 @@ export const Header: React.FC<HeaderProps> = ({
           className="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/60 text-amber-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
           title="Ver Status de Produção / Painel TV Andon (HTML)"
         >
-          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <span className="w-2 h-2 rounded-full bg-amber-400" />
           <span>Status TV</span>
         </button>
 

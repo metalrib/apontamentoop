@@ -46,7 +46,7 @@ export const OpChatModal: React.FC<OpChatModalProps> = ({ order, onClose, onMess
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4">
       <div className="bg-[#0c142b] border-2 border-blue-900/80 w-full max-w-lg rounded-3xl p-6 shadow-2xl flex flex-col justify-between max-h-[90vh]">
         {/* Header */}
         <div>

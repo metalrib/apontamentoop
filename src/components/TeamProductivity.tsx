@@ -318,10 +318,7 @@ export const TeamProductivity: React.FC<TeamProductivityProps> = ({
                 <div className="mb-3">
                   {activeApt ? (
                     <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs font-semibold w-full">
-                      <span className="relative flex h-2.5 w-2.5 shrink-0">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500" />
-                      </span>
+                      <span className="inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shrink-0" />
                       <span className="truncate">
                         🟢 Em curso: <strong className="text-white font-mono">{activeApt.op_numero || activeApt.op}</strong> • {activeApt.setor || activeApt.etapa_rota || 'Posto Fabril'}
                       </span>
@@ -385,7 +382,7 @@ export const TeamProductivity: React.FC<TeamProductivityProps> = ({
 
                     {/* Tooltip flutuante no hover ou clique */}
                     <div
-                      className={`absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-900/98 border border-blue-600/70 rounded-xl shadow-2xl z-30 text-xs backdrop-blur-md transition-all ${
+                      className={`absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-900 border border-blue-600/70 rounded-xl shadow-2xl z-30 text-xs transition-all ${
                         tooltipOpenId === op.id
                           ? 'flex flex-col'
                           : 'hidden group-hover/tooltip:flex group-hover/tooltip:flex-col'
@@ -418,9 +415,9 @@ export const TeamProductivity: React.FC<TeamProductivityProps> = ({
       {/* PAINEL LATERAL DESLIZANTE DE HISTÓRICO DO TURNO (DRAWER / SHEET) */}
       {selectedOperatorForDrawer && (
         <div className="fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-200">
-          {/* Backdrop com blur escuro */}
+          {/* Backdrop sem blur pesado */}
           <div
-            className="fixed inset-0 bg-black/70 backdrop-blur-sm transition-opacity"
+            className="fixed inset-0 bg-slate-950/90 transition-opacity"
             onClick={() => setSelectedOperatorForDrawer(null)}
           />
 
@@ -505,7 +502,7 @@ export const TeamProductivity: React.FC<TeamProductivityProps> = ({
                           <div
                             className={`absolute -left-[19px] top-4 w-3.5 h-3.5 rounded-full border-2 ${
                               isActive
-                                ? 'bg-emerald-400 border-emerald-300 ring-4 ring-emerald-500/20 animate-pulse'
+                                ? 'bg-emerald-400 border-emerald-300 ring-4 ring-emerald-500/20'
                                 : 'bg-blue-600 border-blue-400'
                             }`}
                           />
@@ -527,7 +524,7 @@ export const TeamProductivity: React.FC<TeamProductivityProps> = ({
                               <div>
                                 {isActive ? (
                                   <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px] font-bold">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                                     Em andamento
                                   </span>
                                 ) : (

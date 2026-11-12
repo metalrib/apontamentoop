@@ -426,7 +426,7 @@ export const AppointmentsHistory: React.FC<AppointmentsHistoryProps> = ({
                           className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                             apt.status === 'FINALIZADO'
                               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-pulse'
+                              : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
                           }`}
                         >
                           {apt.status === 'FINALIZADO' ? 'FINALIZADO' : 'EM ANDAMENTO'}
@@ -506,7 +506,7 @@ export const AppointmentsHistory: React.FC<AppointmentsHistoryProps> = ({
 
       {/* 5. MODAL DE SEGURANÇA: EXCLUIR HISTÓRICO */}
       {showClearConfirmModal && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#0b1122] border-2 border-rose-900/80 w-full max-w-md rounded-3xl p-6 shadow-2xl relative">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center font-bold shrink-0">
@@ -549,7 +549,7 @@ export const AppointmentsHistory: React.FC<AppointmentsHistoryProps> = ({
 
       {/* MODAL DE SEGURANÇA: EXCLUIR APONTAMENTO INDIVIDUAL */}
       {aptToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="bg-[#0b1122] border-2 border-rose-900/80 w-full max-w-md rounded-3xl p-6 shadow-2xl relative">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center font-bold shrink-0">
