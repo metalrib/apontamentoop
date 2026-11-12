@@ -147,12 +147,12 @@ function broadcastUpdate() {
 const persistQueue = new Set<string>();
 
 function persistirCorrecaoOp(docId: string, dadosParaAtualizar: Record<string, any>) {
-  if (persistQueue.has(docId)) return;
-  persistQueue.add(docId);
+  const cleanId = cleanOpId(docId);
+  if (!cleanId || persistQueue.has(cleanId)) return;
+  persistQueue.add(cleanId);
 
   // Sincroniza em segundo plano com a API local SQLite
   try {
-    const cleanId = cleanOpId(docId);
     const localUrl = getLocalServerUrl();
     fetch(`${localUrl}/api/ordens/${cleanId}`, {
       method: 'PUT',
@@ -167,9 +167,9 @@ function persistirCorrecaoOp(docId: string, dadosParaAtualizar: Record<string, a
  * Verifica se a OP é Porta Especial (Correr Especial ou Giratória fora da Whitelist)
  * e, caso tenha menos de 4 ou 5 etapas gravadas no banco:
  * 1. Corrigir o estado em memória imediatamente para a rota completa de 5 ou 6 etapas.
- * 2. Disparar persistência assíncrona em segundo plano no Firestore e Realtime Database.
+ * 2. Disparar persistência assíncrona em segundo plano no SQLite se permitido.
  */
-export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
+export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T, permitirPersistencia: boolean = true): T {
   if (!op || typeof op !== 'object') return op;
 
   const desc = String(op.descricao || (op as any).produto || '').toUpperCase();
@@ -351,7 +351,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       op.status = 'Aguardando Início em: Instalação de Gaxeta';
       op.statusAtual = 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta';
 
-      if (docId) {
+      if (docId && permitirPersistencia) {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
           etapas: novaRota,
@@ -393,7 +393,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
         }
       }
 
-      if (docId) {
+      if (docId && permitirPersistencia) {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
           etapas: novaRota,
@@ -461,7 +461,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       op.status = 'Aguardando Início em: Montagem Portas de Correr Padrão e Especial';
       op.statusAtual = 'AGUARDANDO INÍCIO EM: Montagem Portas de Correr Padrão e Especial';
 
-      if (docId) {
+      if (docId && permitirPersistencia) {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
           etapas: novasEtapas,
@@ -505,7 +505,7 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
         }
       }
 
-      if (docId) {
+      if (docId && permitirPersistencia) {
         persistirCorrecaoOp(docId, {
           rota: novaRota,
           etapas: novaRota,
@@ -520,13 +520,9 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
       }
     } else {
       // Já possui rota completa de 5/6 etapas (ex: OP 024471-01). Preserva o processo atual onde o lote se encontra!
-      if (docId && (op.tipoOrdem !== 'Especial Sob Medida (Fabricação Completa)' || op.familia !== 'Porta de Correr Especial')) {
-        persistirCorrecaoOp(docId, {
-          tipoOrdem: 'Especial Sob Medida (Fabricação Completa)',
-          familia: 'Porta de Correr Especial',
-          tipoMontagem: 'Porta de Correr Especial'
-        });
-      }
+      op.tipoOrdem = 'Especial Sob Medida (Fabricação Completa)';
+      op.familia = 'Porta de Correr Especial';
+      op.tipoMontagem = 'Porta de Correr Especial';
     }
   }
 
@@ -540,18 +536,26 @@ export function ensureInitialData() {
   if (typeof window === 'undefined') return;
   const existingOrdersRaw = localStorage.getItem(STORAGE_ORDERS_KEY);
   if (existingOrdersRaw) {
-    // Purga ordens de teste fictícias antigas (023838-01 a 08) que possam ter ficado no storage
     try {
       const parsed = JSON.parse(existingOrdersRaw);
       let modified = false;
-      for (const dummyKey of TEST_DUMMY_OPS) {
-        if (dummyKey in parsed) {
-          delete parsed[dummyKey];
+      const canonicalMap: Record<string, ProductionOrder> = {};
+      for (const k of Object.keys(parsed)) {
+        const clean = cleanOpId(k);
+        if (!clean || TEST_DUMMY_OPS.has(clean)) {
+          modified = true;
+          continue;
+        }
+        const canonicalKey = formatOpNumber(clean);
+        if (!canonicalMap[canonicalKey] || k === canonicalKey) {
+          canonicalMap[canonicalKey] = parsed[k];
+        }
+        if (k !== canonicalKey) {
           modified = true;
         }
       }
       if (modified) {
-        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(parsed));
+        localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(canonicalMap));
       }
     } catch {
       // ignore
@@ -644,7 +648,7 @@ export function processAndStoreLocalOrdens(ordensList: any[], shouldBroadcast: b
         etapas: parsedEtapas
       });
 
-      const corrected = verificarECorrigirRotaOp(syncedItem);
+      const corrected = verificarECorrigirRotaOp(syncedItem, false);
       ordersMap[opNumero] = corrected;
     }
 
@@ -655,6 +659,8 @@ export function processAndStoreLocalOrdens(ordensList: any[], shouldBroadcast: b
         localStorage.setItem(STORAGE_ORDERS_KEY, newRaw);
         if (shouldBroadcast) {
           broadcastUpdate();
+        } else {
+          window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
         }
       }
     }
@@ -815,7 +821,7 @@ export function initLocalSocketListeners(): void {
     socket.on('ordens_atualizadas', (ordens: any[]) => {
       console.log('[Socket.io] Evento ordens_atualizadas recebido do servidor local:', ordens?.length);
       if (Array.isArray(ordens)) {
-        processAndStoreLocalOrdens(ordens, true);
+        processAndStoreLocalOrdens(ordens, false);
       }
     });
 

@@ -129,7 +129,10 @@ export default function App() {
       ]);
       const correctedMap: Record<string, ProductionOrder> = {};
       Object.keys(allOrders || {}).forEach((k) => {
-        correctedMap[k] = verificarECorrigirRotaOp(allOrders[k]);
+        const canonical = formatOpNumber(cleanOpId(k));
+        if (canonical) {
+          correctedMap[canonical] = verificarECorrigirRotaOp(allOrders[k], false);
+        }
       });
 
       setOrders((prev) => {
@@ -237,9 +240,8 @@ export default function App() {
             encaminhar_router: Boolean(item.requerRouter || item.requer_router || item.encaminhar_router),
             etapas: parsedEtapas
           });
-          const processed = verificarECorrigirRotaOp(synced);
+          const processed = verificarECorrigirRotaOp(synced, false);
           finalMap[opNumero] = processed;
-          finalMap[clean] = processed;
         }
 
         setOrders(finalMap);
@@ -625,7 +627,7 @@ export default function App() {
     setSearchError(null);
 
     try {
-      let found = orders[clean];
+      let found = orders[clean] || orders[formatOpNumber(clean)];
       if (!found) {
         const cleanNoPrefix = clean.replace(/^OP\s*/i, '').replace(/[-_\s]/g, '');
         const keys = Object.keys(orders);

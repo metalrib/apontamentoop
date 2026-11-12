@@ -941,7 +941,7 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
  */
 export const cleanOpId = (rawId: string | number | null | undefined): string => {
   if (!rawId) return '';
-  return String(rawId).replace(/^(\s*OP\s*)+/i, '').trim();
+  return String(rawId).toUpperCase().replace(/^(\s*OP\s*)+/i, '').trim();
 };
 
 // Aliases para evitar falhas caso seja chamado com variações de nomenclatura (ex: cleanOpid):
@@ -952,7 +952,7 @@ export const cleanOpid = cleanOpId;
  * Ex: '024455-01'       -> 'OP 024455-01'
  *     'OP OP 024455-01' -> 'OP 024455-01'
  */
-export const formatOpNumber = (rawId: string): string => {
+export const formatOpNumber = (rawId: string | number | null | undefined): string => {
   const clean = cleanOpId(rawId);
   return clean ? `OP ${clean}` : '';
 };

@@ -308,22 +308,64 @@ try {
   console.warn('[SQLite] Erro ao inicializar colaboradores padrão:', e);
 }
 
-// Limpeza preventiva de duplicações e padronização de IDs
-try {
-  db.exec(`
-    DELETE FROM ordens 
-    WHERE rowid NOT IN (
-      SELECT MIN(rowid) 
-      FROM ordens 
-      GROUP BY numero
-    );
-  `);
-} catch (e) {}
+// =============================================================
+// FUNÇÕES OFICIAIS DE NORMALIZAÇÃO DE IDENTIFICADORES DE OP
+// =============================================================
+const normalizarIdOP = (op) => String(op || '').toUpperCase().replace(/^(\s*OP\s*)+/i, '').trim();
+const formatarNumeroOP = (op) => {
+  const clean = normalizarIdOP(op);
+  return clean ? `OP ${clean}` : '';
+};
 
-// Garantir índice UNIQUE em numero para suportar UPSERT nativo
+// Limpeza preventiva de duplicações e padronização absoluta de IDs e Números no SQLite
 try {
+  const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();
+  const seenNorm = new Set();
+  const idsParaExcluir = [];
+  const paraNormalizar = [];
+
+  for (const row of todasOrdensBrutas) {
+    const clean = normalizarIdOP(row.numero || row.id);
+    if (!clean) {
+      idsParaExcluir.push(row.rowid);
+      continue;
+    }
+    if (seenNorm.has(clean)) {
+      idsParaExcluir.push(row.rowid);
+    } else {
+      seenNorm.add(clean);
+      const canonicalNum = formatarNumeroOP(clean);
+      if (row.id !== canonicalNum || row.numero !== canonicalNum) {
+        paraNormalizar.push({ rowid: row.rowid, canonicalNum });
+      }
+    }
+  }
+
+  if (idsParaExcluir.length > 0) {
+    const delStmt = db.prepare('DELETE FROM ordens WHERE rowid = ?');
+    const delTx = db.transaction((list) => {
+      for (const rid of list) delStmt.run(rid);
+    });
+    delTx(idsParaExcluir);
+    console.log(`[SQLite Migration] Excluídas ${idsParaExcluir.length} ordens duplicadas.`);
+  }
+
+  if (paraNormalizar.length > 0) {
+    const normStmt = db.prepare('UPDATE ordens SET id = ?, numero = ? WHERE rowid = ?');
+    const normTx = db.transaction((list) => {
+      for (const item of list) {
+        normStmt.run(item.canonicalNum, item.canonicalNum, item.rowid);
+      }
+    });
+    normTx(paraNormalizar);
+    console.log(`[SQLite Migration] Padronizadas ${paraNormalizar.length} ordens para chave única ("OP ...").`);
+  }
+
+  // Garantir índice UNIQUE em numero para suportar UPSERT nativo
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_ordens_numero ON ordens(numero);`);
-} catch (e) {}
+} catch (e) {
+  console.warn('[SQLite Migration] Erro no saneamento inicial de ordens:', e);
+}
 
 // -------------------------------------------------------------
 // SANEAMENTO E MAPEAMENTO DE ROTAS OFICIAIS NOMUS NO SQLITE
@@ -800,8 +842,8 @@ app.get('/api/ordens', (req, res) => {
 // 1.1 Status e cronômetro em tempo real de uma OP
 app.get('/api/ordens/:identificador/status', (req, res) => {
   const { identificador } = req.params;
-  const cleanId = String(identificador || '').replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(identificador);
+  const formatId = formatarNumeroOP(cleanId);
   const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(identificador, cleanId, formatId, cleanId);
   if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
 
@@ -1123,20 +1165,51 @@ app.post('/api/terminais/:id/setores', (req, res) => {
   }
 });
 
-// 2. Limpeza de duplicadas
+// 2. Limpeza de duplicadas com normalização rigorosa
 app.post('/api/ordens/limpar-duplicadas', (req, res) => {
-  const info = db.prepare(`
-    DELETE FROM ordens 
-    WHERE rowid NOT IN (
-      SELECT MIN(rowid) 
-      FROM ordens 
-      GROUP BY numero
-    )
-  `).run();
+  const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();
+  const seenNorm = new Set();
+  const idsParaExcluir = [];
+  const paraNormalizar = [];
+
+  for (const row of todasOrdensBrutas) {
+    const clean = normalizarIdOP(row.numero || row.id);
+    if (!clean) {
+      idsParaExcluir.push(row.rowid);
+      continue;
+    }
+    if (seenNorm.has(clean)) {
+      idsParaExcluir.push(row.rowid);
+    } else {
+      seenNorm.add(clean);
+      const canonicalNum = formatarNumeroOP(clean);
+      if (row.id !== canonicalNum || row.numero !== canonicalNum) {
+        paraNormalizar.push({ rowid: row.rowid, canonicalNum });
+      }
+    }
+  }
+
+  if (idsParaExcluir.length > 0) {
+    const delStmt = db.prepare('DELETE FROM ordens WHERE rowid = ?');
+    const delTx = db.transaction((list) => {
+      for (const rid of list) delStmt.run(rid);
+    });
+    delTx(idsParaExcluir);
+  }
+
+  if (paraNormalizar.length > 0) {
+    const normStmt = db.prepare('UPDATE ordens SET id = ?, numero = ? WHERE rowid = ?');
+    const normTx = db.transaction((list) => {
+      for (const item of list) {
+        normStmt.run(item.canonicalNum, item.canonicalNum, item.rowid);
+      }
+    });
+    normTx(paraNormalizar);
+  }
 
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
-  res.json({ success: true, removidas: info.changes, total: todas.length });
+  res.json({ success: true, removidas: idsParaExcluir.length, padronizadas: paraNormalizar.length, total: todas.length });
 });
 
 // 3. Importação ou criação de ordens (com UPSERT anti-duplicação)
@@ -1169,6 +1242,7 @@ app.post('/api/ordens', (req, res) => {
       @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica, @requerLaser, @requer_laser, @requerRouter, @requer_router, @encaminhar_router, @criadoEm, @atualizadoEm
     )
     ON CONFLICT(numero) DO UPDATE SET
+      id = excluded.id,
       codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
       descricao = CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE ordens.descricao END,
       cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
@@ -1194,9 +1268,9 @@ app.post('/api/ordens', (req, res) => {
 
   const transacao = db.transaction((lista) => {
     for (const item of lista) {
-      const rawNum = String(item.numero || item.id || '').replace(/^(\s*OP\s*)+/i, '').trim();
-      if (!rawNum) continue;
-      const formattedNum = `OP ${rawNum}`;
+      const cleanId = normalizarIdOP(item.numero || item.id);
+      if (!cleanId) continue;
+      const formattedNum = formatarNumeroOP(cleanId);
       let laserVal = Boolean(item.requerLaser || item.requer_laser) ? 1 : 0;
       let routerVal = Boolean(item.requerRouter || item.requer_router || item.encaminhar_router) ? 1 : 0;
       let etapasVal = item.etapas || [];
@@ -1249,26 +1323,42 @@ app.post('/api/ordens', (req, res) => {
   transacao(ordens);
 
   // Garantia absoluta de deduplicação pós-inserção
-  db.prepare(`
-    DELETE FROM ordens 
-    WHERE rowid NOT IN (
-      SELECT MIN(rowid) 
-      FROM ordens 
-      GROUP BY numero
-    )
-  `).run();
+  const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();
+  const seenNorm = new Set();
+  const idsParaExcluir = [];
+  for (const row of todasOrdensBrutas) {
+    const clean = normalizarIdOP(row.numero || row.id);
+    if (!clean || seenNorm.has(clean)) {
+      idsParaExcluir.push(row.rowid);
+    } else {
+      seenNorm.add(clean);
+    }
+  }
+  if (idsParaExcluir.length > 0) {
+    const delStmt = db.prepare('DELETE FROM ordens WHERE rowid = ?');
+    const delTx = db.transaction((list) => {
+      for (const rid of list) delStmt.run(rid);
+    });
+    delTx(idsParaExcluir);
+  }
   
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
   res.json({ success: true, count: todas.length });
 });
 
-// 4. Atualização de ordem por ID / Número
+// 4. Atualização de ordem por ID / Número (com proteção anti-loop de idempotência)
 app.put('/api/ordens/:id', (req, res) => {
   const { id } = req.params;
   const dados = req.body;
-  const cleanId = String(id || '').replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(id);
+  const formatId = formatarNumeroOP(cleanId);
+  if (!cleanId) return res.status(400).json({ error: 'ID inválido' });
+
+  // Buscar ordem existente no SQLite
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+    .get(formatId, cleanId, formatId, cleanId);
+  if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
 
   const hasLaser = dados.requerLaser !== undefined || dados.requer_laser !== undefined;
   const laserInt = hasLaser ? (Boolean(dados.requerLaser || dados.requer_laser) ? 1 : 0) : null;
@@ -1310,33 +1400,58 @@ app.put('/api/ordens/:id', (req, res) => {
       });
     }
     etapasJson = JSON.stringify(etapasVal);
-  } else if (qtdFisicaInt !== null) {
-    const opRow = db.prepare('SELECT etapas FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(id, cleanId, formatId, cleanId);
-    if (opRow && opRow.etapas) {
-      try {
-        let etapasVal = JSON.parse(opRow.etapas);
-        if (etapasVal && typeof etapasVal === 'object' && !Array.isArray(etapasVal)) {
-          Object.keys(etapasVal).forEach(k => {
-            if (etapasVal[k] && typeof etapasVal[k] === 'object') {
-              etapasVal[k].total = qtdFisicaInt;
-            }
-          });
-          etapasJson = JSON.stringify(etapasVal);
-        }
-      } catch {}
-    }
+  } else if (qtdFisicaInt !== null && opRow.etapas) {
+    try {
+      let etapasVal = JSON.parse(opRow.etapas);
+      if (etapasVal && typeof etapasVal === 'object' && !Array.isArray(etapasVal)) {
+        Object.keys(etapasVal).forEach(k => {
+          if (etapasVal[k] && typeof etapasVal[k] === 'object') {
+            etapasVal[k].total = qtdFisicaInt;
+          }
+        });
+        etapasJson = JSON.stringify(etapasVal);
+      }
+    } catch {}
+  }
+
+  const novoStatus = dados.status !== undefined ? dados.status : opRow.status;
+  const novoTipoOrdem = dados.tipoOrdem ? String(dados.tipoOrdem).trim() : opRow.tipoOrdem;
+  const novoCliente = dados.cliente ? String(dados.cliente).trim() : opRow.cliente;
+  const novasEtapas = etapasJson !== null ? etapasJson : opRow.etapas;
+  const novaQtd = qtdFisicaInt !== null ? qtdFisicaInt : opRow.quantidadeFisica;
+  const novoLaser = laserInt !== null ? laserInt : opRow.requerLaser;
+  const novoRouter = routerInt !== null ? routerInt : opRow.requerRouter;
+
+  const houveMudanca = 
+    opRow.id !== formatId ||
+    opRow.numero !== formatId ||
+    novoStatus !== opRow.status ||
+    novasEtapas !== opRow.etapas ||
+    novaQtd !== opRow.quantidadeFisica ||
+    novoLaser !== opRow.requerLaser ||
+    novoRouter !== opRow.requerRouter ||
+    (novoTipoOrdem && novoTipoOrdem !== opRow.tipoOrdem) ||
+    (novoCliente && novoCliente !== opRow.cliente);
+
+  // PROTEÇÃO ANTI-LOOP: Se os dados forem idênticos aos já gravados no banco, retorna sem reemitir socket
+  if (!houveMudanca) {
+    return res.json({ success: true, unchanged: true });
   }
 
   const stmt = db.prepare(`
     UPDATE ordens SET
-      status = COALESCE(@status, status),
-      etapas = COALESCE(@etapas, etapas),
-      quantidadeFisica = COALESCE(@qtdFisicaInt, quantidadeFisica),
-      requerLaser = COALESCE(@laserInt, requerLaser),
-      requer_laser = COALESCE(@laserInt, requer_laser),
-      requerRouter = COALESCE(@routerInt, requerRouter),
-      requer_router = COALESCE(@routerInt, requer_router),
-      encaminhar_router = COALESCE(@routerInt, encaminhar_router),
+      id = @formatId,
+      numero = @formatId,
+      status = @novoStatus,
+      etapas = @novasEtapas,
+      tipoOrdem = @novoTipoOrdem,
+      cliente = @novoCliente,
+      quantidadeFisica = @novaQtd,
+      requerLaser = @novoLaser,
+      requer_laser = @novoLaser,
+      requerRouter = @novoRouter,
+      requer_router = @novoRouter,
+      encaminhar_router = @novoRouter,
       atualizadoEm = @atualizadoEm
     WHERE id = @id OR id = @cleanId OR numero = @id OR numero = @formatId OR numero = @cleanId
   `);
@@ -1345,11 +1460,13 @@ app.put('/api/ordens/:id', (req, res) => {
     id,
     cleanId,
     formatId,
-    status: dados.status || null,
-    etapas: etapasJson,
-    qtdFisicaInt,
-    laserInt,
-    routerInt,
+    novoStatus,
+    novasEtapas,
+    novoTipoOrdem,
+    novoCliente,
+    novaQtd,
+    novoLaser,
+    novoRouter,
     atualizadoEm: Date.now()
   });
 
@@ -1367,7 +1484,7 @@ app.put('/api/ordens/:id', (req, res) => {
 
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
-  res.json({ success: true });
+  res.json({ success: true, updated: true });
 });
 
 // 4.0 Início de etapa oficial (com persistência de flags do lote como requerRouter e quantidadeAjustada)
@@ -1377,8 +1494,8 @@ app.post(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, r
     if (!id) return res.status(400).json({ error: 'ID da ordem obrigatório' });
 
     const { etapa, setor, operador, requerRouter, encaminharRouter, requer_router, quantidadeAjustada, quantidadeFisica, quantidade_total } = req.body;
-    const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
-    const formatId = `OP ${cleanId}`;
+    const cleanId = normalizarIdOP(id);
+    const formatId = formatarNumeroOP(cleanId);
 
     const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
       .get(id, cleanId, formatId, cleanId);
@@ -1466,8 +1583,8 @@ app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req,
   const { etapa, setor, requerRouter, encaminharRouter, quantidadeAjustada, quantidadeFisica, quantidadeProduzida, quantidade_total } = req.body;
   if (!id) return res.status(400).json({ error: 'ID da ordem obrigatório' });
 
-  const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(id);
+  const formatId = formatarNumeroOP(cleanId);
 
   const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(id, cleanId, formatId, cleanId);
   if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
@@ -1596,8 +1713,8 @@ app.post(['/api/ordens/:identificador/reset', '/api/ordens/reset'], (req, res) =
   const identificador = req.params.identificador || req.body.id || req.body.opNumero;
   if (!identificador) return res.status(400).json({ error: 'Identificador de OP obrigatório' });
 
-  const cleanId = String(identificador).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(identificador);
+  const formatId = formatarNumeroOP(cleanId);
 
   // 1. Limpa todos os apontamentos vinculados a esta OP no SQLite
   db.prepare(`
@@ -1650,8 +1767,8 @@ app.put('/api/ordens/:identificador/reset', (req, res, next) => {
 // 5b. Função reutilizável e rota oficial de ESTORNO / RESET DE ETAPA de uma OP
 function executarResetEtapa(numeroRaw, etapaRaw) {
   if (!numeroRaw) throw new Error('Número da OP é obrigatório');
-  const cleanNumero = String(numeroRaw).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatNumero = `OP ${cleanNumero}`;
+  const cleanNumero = normalizarIdOP(numeroRaw);
+  const formatNumero = formatarNumeroOP(cleanNumero);
   const cleanEtapa = String(etapaRaw || '').trim();
 
   // 1. Limpa apontamentos ativos/em andamento ou sem hora_fim desta etapa no SQLite
@@ -1861,8 +1978,8 @@ function executarAtualizarLaser(identificadorRaw, requerLaserRaw) {
   if (!identificadorRaw) {
     throw new Error('Identificador da OP (numero/id/opNumero) é obrigatório');
   }
-  const cleanId = String(identificadorRaw || '').replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(identificadorRaw);
+  const formatId = formatarNumeroOP(cleanId);
   const laserBool = Boolean(requerLaserRaw);
   const valor = laserBool ? 1 : 0;
 
@@ -1960,8 +2077,8 @@ app.get('/api/apontamentos', (req, res) => {
 
 app.get('/api/ordens/:identificador/apontamentos', (req, res) => {
   const { identificador } = req.params;
-  const cleanId = String(identificador).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(identificador);
+  const formatId = formatarNumeroOP(cleanId);
   const rows = db.prepare(`
     SELECT * FROM apontamentos 
     WHERE op_numero = ? OR op_numero = ? OR op_numero = ?
@@ -1974,8 +2091,8 @@ app.post('/api/apontamentos', (req, res) => {
   const apt = req.body;
   if (!apt || !apt.id) return res.status(400).json({ error: 'Dados do apontamento obrigatórios' });
 
-  const cleanOp = String(apt.op_numero || apt.op || '').replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatOp = `OP ${cleanOp}`;
+  const cleanOp = normalizarIdOP(apt.op_numero || apt.op);
+  const formatOp = formatarNumeroOP(cleanOp);
 
   const nowIso = new Date().toISOString();
   const nowMs = Date.now();
@@ -2123,8 +2240,8 @@ app.get('/api/ocorrencias', (req, res) => {
 
 app.get('/api/ordens/:identificador/ocorrencias', (req, res) => {
   const { identificador } = req.params;
-  const cleanId = String(identificador).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(identificador);
+  const formatId = formatarNumeroOP(cleanId);
   const rows = db.prepare(`
     SELECT * FROM ocorrencias 
     WHERE op_numero = ? OR op_numero = ? OR op_numero = ?
@@ -2137,8 +2254,8 @@ app.post(['/api/ordens/:identificador/ocorrencias', '/api/ocorrencias'], (req, r
   const idParam = req.params.identificador;
   const body = req.body;
   const targetOp = body.opNumero || body.op_numero || idParam || '';
-  const cleanId = String(targetOp).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(targetOp);
+  const formatId = formatarNumeroOP(cleanId);
   const occId = String(body.id || Date.now());
 
   const stmt = db.prepare(`
@@ -2192,8 +2309,8 @@ app.post(['/api/ordens/:identificador/ocorrencias', '/api/ocorrencias'], (req, r
 // 9. Exclusão de ordens
 app.delete('/api/ordens/:id', (req, res) => {
   const { id } = req.params;
-  const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
-  const formatId = `OP ${cleanId}`;
+  const cleanId = normalizarIdOP(id);
+  const formatId = formatarNumeroOP(cleanId);
   db.prepare('DELETE FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').run(id, cleanId, formatId, cleanId);
   db.prepare('DELETE FROM apontamentos WHERE op_numero = ? OR op_numero = ? OR op_numero = ?').run(id, cleanId, formatId);
   db.prepare('DELETE FROM ocorrencias WHERE op_numero = ? OR op_numero = ? OR op_numero = ?').run(id, cleanId, formatId);
