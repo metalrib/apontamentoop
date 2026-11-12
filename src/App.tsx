@@ -775,6 +775,41 @@ export default function App() {
     }
   };
 
+  // Ajuste reativo e instantâneo da quantidade física da OP
+  const handleAdjustQuantity = useCallback(async (novaQtd: number) => {
+    if (!currentOp) return;
+    const cleanId = cleanOpId(currentOp.op_numero || currentOp.numero || '');
+    const formatId = formatOpNumber(cleanId);
+
+    // Atualização imediata do estado React para refletir em todos os componentes e botões
+    setOrders((prev) => {
+      const copy = { ...prev };
+      const target = copy[currentOp.op_numero] || copy[formatId] || copy[cleanId];
+      if (target) {
+        const updatedTarget = {
+          ...target,
+          quantidadeFisica: novaQtd,
+          quantidade_total: novaQtd,
+          quantidade: novaQtd
+        };
+        copy[currentOp.op_numero] = updatedTarget;
+        copy[formatId] = updatedTarget;
+        copy[cleanId] = updatedTarget;
+      }
+      return copy;
+    });
+
+    try {
+      await updateProductionOrder(currentOp.op_numero, {
+        quantidade_total: novaQtd,
+        quantidade: novaQtd,
+        quantidadeFisica: novaQtd
+      });
+    } catch (e) {
+      console.warn('Erro ao atualizar quantidade no storage:', e);
+    }
+  }, [currentOp]);
+
   // Iniciar Lote Completo
   const handleStartBatch = async (etapaRota: string, quantidadeTotal: number, encaminharRouter?: boolean) => {
     if (!currentOp || !selectedSector || !selectedOperator || !currentTerminal) return;
@@ -787,6 +822,7 @@ export default function App() {
       await startBatch({
         op_numero: opNum,
         quantidade_total: quantidadeTotal,
+        quantidadeAjustada: quantidadeTotal,
         setor: sector,
         etapa_rota: etapaRota,
         terminal_id: termId,
@@ -819,13 +855,13 @@ export default function App() {
   };
 
   // Finalizar Lote Completo
-  const handleFinishBatch = async (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean) => {
+  const handleFinishBatch = async (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean, quantidadeAjustada?: number) => {
     if (!currentOp || !selectedSector) return;
     setIsLoading(true);
     const opNum = currentOp.op_numero;
     const sector = selectedSector;
     try {
-      const finished = await finishBatch(apontamentoId, opNum, { quantidadeRefugo, encaminharRouter });
+      const finished = await finishBatch(apontamentoId, opNum, { quantidadeRefugo, encaminharRouter, quantidadeAjustada });
       playSuccessFinish();
       await loadData();
 
@@ -1100,6 +1136,7 @@ export default function App() {
               apontamentos={apontamentos}
               selectedSector={selectedSector}
               currentTerminal={currentTerminal}
+              onAdjustQuantity={handleAdjustQuantity}
             />
           </div>
         </div>
@@ -1139,6 +1176,7 @@ export default function App() {
             onStartBatch={handleStartBatch}
             onFinishBatch={handleFinishBatch}
             onCancelStart={handleCancelStart}
+            onAdjustQuantity={handleAdjustQuantity}
             isLoading={isLoading}
           />
         </div>

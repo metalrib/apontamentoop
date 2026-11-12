@@ -128,7 +128,9 @@ function broadcastUpdate() {
   if (typeof window !== 'undefined') {
     try {
       window.dispatchEvent(new CustomEvent('metalrib_data_updated'));
+      window.dispatchEvent(new CustomEvent('metalrib_orders_updated'));
       window.dispatchEvent(new CustomEvent('metalrib_operators_updated'));
+      window.dispatchEvent(new CustomEvent('metalrib_apontamentos_updated'));
     } catch {
       // silent
     }
@@ -2268,6 +2270,7 @@ export interface StartBatchParams {
   terminal_id: number;
   operador: string;
   requerRouter?: boolean;
+  quantidadeAjustada?: number;
 }
 
 /**
@@ -2295,7 +2298,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
   const routerVal = params.requerRouter;
   const hasRouter = routerVal !== undefined;
   const routerBool = Boolean(routerVal);
-  const totalUnits = Math.max(1, Math.round(params.quantidade_total || 1));
+  const totalUnits = Math.max(1, Math.round(params.quantidadeAjustada || params.quantidade_total || 1));
   const novoApontamento: Apontamento = {
     id: uniqueId,
     op_numero: cleanOp,
@@ -2352,8 +2355,6 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       }
     }
 
-    
-
     const opKey = toFirebaseKey(targetOrder?.op_numero || targetOrder?.numero || matchedOpKey);
 
     const opUpdates: Record<string, any> = {
@@ -2365,6 +2366,9 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
       postoSelecionado: params.setor,
       colaboradorIniciou: params.operador,
       operadorAtual: params.operador,
+      quantidadeFisica: totalUnits,
+      quantidade_total: totalUnits,
+      quantidade: totalUnits,
       dataInicio: nowIso,
       data_atualizacao: nowIso,
       ultimaAtualizacao: nowIso,
@@ -2381,16 +2385,19 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
         targetOrder.requer_router = routerBool;
         targetOrder.encaminhar_router = routerBool;
       }
+      targetOrder.quantidadeFisica = totalUnits;
+      targetOrder.quantidade_total = totalUnits;
+      targetOrder.quantidade = totalUnits;
+
       const { steps } = getRouteForOp(targetOrder);
-      const totalPadrao = Number(targetOrder.quantidade_total ?? targetOrder.quantidade ?? 1) || 1;
       if (!targetOrder.etapas) {
         targetOrder.etapas = {};
       }
       steps.forEach((s) => {
         if (!targetOrder.etapas![s]) {
-          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0, total: totalPadrao };
-        } else if (targetOrder.etapas![s].total === undefined) {
-          targetOrder.etapas![s].total = totalPadrao;
+          targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0, total: totalUnits };
+        } else {
+          targetOrder.etapas![s].total = totalUnits;
         }
       });
       const matchedStepKey = steps.find(s => matchStepName(s, params.etapa_rota) || doesSectorMatchStep(params.setor, s)) || params.etapa_rota;
@@ -2398,7 +2405,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
         ...targetOrder.etapas[matchedStepKey],
         status: 'EM_PRODUCAO',
         concluidas: targetOrder.etapas[matchedStepKey]?.concluidas || 0,
-        total: targetOrder.etapas[matchedStepKey]?.total ?? totalPadrao,
+        total: totalUnits,
         inicio: nowIso,
         horaInicio: nowIso,
         operador: params.operador,
@@ -2435,24 +2442,30 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
     try {
       const localUrl = getLocalServerUrl();
-      if (hasRouter) {
-        fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/iniciar-etapa`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            etapa: params.etapa_rota,
-            setor: params.setor,
-            operador: params.operador,
-            requerRouter: routerBool,
-            encaminharRouter: routerBool
-          })
-        }).catch(() => {});
-      }
+      fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/iniciar-etapa`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          etapa: params.etapa_rota,
+          setor: params.setor,
+          operador: params.operador,
+          requerRouter: routerBool,
+          encaminharRouter: routerBool,
+          quantidadeAjustada: totalUnits,
+          quantidadeFisica: totalUnits,
+          quantidade_total: totalUnits
+        })
+      }).catch(() => {});
+
       fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...(targetOrder || opUpdates),
+          quantidadeFisica: totalUnits,
+          quantidade_total: totalUnits,
+          quantidade: totalUnits,
+          quantidadeAjustada: totalUnits,
           ...(hasRouter ? {
             requerRouter: routerBool,
             requer_router: routerBool,
@@ -2480,7 +2493,7 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 export async function finishBatch(
   apontamentoId: string,
   opNumero: string,
-  options?: { quantidadeRefugo?: number; quantidadeProduzida?: number; encaminharRouter?: boolean }
+  options?: { quantidadeRefugo?: number; quantidadeProduzida?: number; encaminharRouter?: boolean; quantidadeAjustada?: number }
 ): Promise<Apontamento> {
   ensureInitialData();
   const cleanOp = opNumero.trim().toUpperCase();
@@ -2507,7 +2520,7 @@ export async function finishBatch(
   const duracaoLiquidaMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, nowMs) : 0;
   const diffMinutes = Math.max(0.1, Number((duracaoLiquidaMs / 60000).toFixed(1)));
   const diffMinutesInt = Math.max(1, Math.round(duracaoLiquidaMs / 60000));
-  const totalUnits = item.quantidade_lote || Math.max(1, Math.round(options?.quantidadeProduzida || 1));
+  const totalUnits = Math.max(1, Math.round(options?.quantidadeAjustada || options?.quantidadeProduzida || item.quantidade_lote || 1));
   const refugo = options?.quantidadeRefugo || 0;
   const nowIso = now.toISOString();
 
@@ -2573,13 +2586,19 @@ export async function finishBatch(
       }
 
       if (targetOrder) {
+        targetOrder.quantidadeFisica = totalUnits;
+        targetOrder.quantidade_total = totalUnits;
+        targetOrder.quantidade = totalUnits;
+
         const { steps } = getRouteForOp(targetOrder);
         if (!targetOrder.etapas) {
           targetOrder.etapas = {};
         }
         steps.forEach((s) => {
           if (!targetOrder.etapas![s]) {
-            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0 };
+            targetOrder.etapas![s] = { status: 'PENDENTE', concluidas: 0, total: totalUnits };
+          } else {
+            targetOrder.etapas![s].total = totalUnits;
           }
         });
 
@@ -2593,6 +2612,7 @@ export async function finishBatch(
           ...targetOrder.etapas[matchedStep],
           status: 'CONCLUIDO',
           concluidas: totalUnits,
+          total: totalUnits,
           timestampFim: nowMs,
           duracaoMs: duracaoLiquidaMs,
           duracaoMinutos: diffMinutesInt,
@@ -2603,6 +2623,7 @@ export async function finishBatch(
         targetOrder.progressoPostos[matchedStep] = {
           concluido: true,
           concluidas: totalUnits,
+          total: totalUnits,
           dataConclusao: new Date().toISOString(),
           duracaoMinutos: diffMinutesInt,
           duracaoMs: duracaoLiquidaMs
@@ -2644,7 +2665,8 @@ export async function finishBatch(
             if (targetOrder.etapas && typeof targetOrder.etapas === 'object' && !Array.isArray(targetOrder.etapas)) {
               targetOrder.etapas['Router'] = {
                 status: 'PENDENTE',
-                concluidas: 0
+                concluidas: 0,
+                total: totalUnits
               };
             }
 
@@ -2661,20 +2683,24 @@ export async function finishBatch(
               targetOrder.etapaAtual = nextStep;
               targetOrder.statusEtapa = `Aguardando Início em: ${nextStep}`;
               targetOrder.status = `Aguardando Início em: ${nextStep}`;
+              if (targetOrder.etapas[nextStep]) {
+                targetOrder.etapas[nextStep].total = totalUnits;
+              }
             } else {
               targetOrder.status = 'EM_PRODUCAO';
             }
             targetOrder.status_fabrica = 'Produzindo Hoje';
           }
         } else {
-          // As etapas subsequentes permanecem rigorosamente PENDENTES com 0 peças feitas
+          // As etapas subsequentes permanecem rigorosamente PENDENTES com total atualizado
           if (currentStepIndex >= 0) {
             for (let i = currentStepIndex + 1; i < steps.length; i++) {
               const nextStep = steps[i];
               if (!targetOrder.etapas[nextStep] || targetOrder.etapas[nextStep].status !== 'CONCLUIDO') {
                 targetOrder.etapas[nextStep] = {
                   status: targetOrder.etapas[nextStep]?.status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE',
-                  concluidas: targetOrder.etapas[nextStep]?.concluidas || 0
+                  concluidas: targetOrder.etapas[nextStep]?.concluidas || 0,
+                  total: totalUnits
                 };
               }
             }
@@ -2691,6 +2717,9 @@ export async function finishBatch(
               targetOrder.etapaAtual = nextStep;
               targetOrder.statusEtapa = `Aguardando Início em: ${nextStep}`;
               targetOrder.status = `Aguardando Início em: ${nextStep}`;
+              if (targetOrder.etapas[nextStep]) {
+                targetOrder.etapas[nextStep].total = totalUnits;
+              }
             } else {
               targetOrder.status = 'EM_PRODUCAO';
             }
@@ -2706,7 +2735,13 @@ export async function finishBatch(
           fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(targetOrder)
+            body: JSON.stringify({
+              ...targetOrder,
+              quantidadeFisica: totalUnits,
+              quantidade_total: totalUnits,
+              quantidade: totalUnits,
+              quantidadeAjustada: totalUnits
+            })
           }).catch(() => {});
           fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/concluir-etapa`, {
             method: 'POST',
@@ -2715,7 +2750,11 @@ export async function finishBatch(
               etapa: matchedStep,
               setor: item.setor,
               requerRouter: options?.encaminharRouter,
-              encaminharRouter: options?.encaminharRouter
+              encaminharRouter: options?.encaminharRouter,
+              quantidadeAjustada: totalUnits,
+              quantidadeFisica: totalUnits,
+              quantidade_total: totalUnits,
+              quantidadeProduzida: totalUnits
             })
           }).catch(() => {});
           fetch(`${localUrl}/api/apontamentos`, {
@@ -3371,6 +3410,22 @@ export async function updateProductionOrder(
     updated.rota = steps;
   }
 
+  // Sincroniza quantidade física nas etapas e nas propriedades da OP
+  const rawQtd = updates.quantidadeFisica ?? (updates as any).quantidadeAjustada ?? updates.quantidade_total ?? updates.quantidade;
+  if (rawQtd !== undefined && rawQtd !== null && !isNaN(Number(rawQtd))) {
+    const qNum = Math.max(1, Math.round(Number(rawQtd)));
+    updated.quantidadeFisica = qNum;
+    updated.quantidade_total = qNum;
+    updated.quantidade = qNum;
+    if (updated.etapas && typeof updated.etapas === 'object' && !Array.isArray(updated.etapas)) {
+      Object.keys(updated.etapas).forEach(k => {
+        if (updated.etapas[k] && typeof updated.etapas[k] === 'object') {
+          updated.etapas[k].total = qNum;
+        }
+      });
+    }
+  }
+
   orders[targetKey] = updated;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
 
@@ -3380,7 +3435,11 @@ export async function updateProductionOrder(
     const localUrl = getLocalServerUrl();
     const bodyPayload: any = {
       status: updated.status,
-      etapas: updated.etapas
+      etapas: updated.etapas,
+      quantidadeFisica: updated.quantidadeFisica ?? updated.quantidade_total ?? updated.quantidade,
+      quantidade_total: updated.quantidade_total ?? updated.quantidadeFisica ?? updated.quantidade,
+      quantidade: updated.quantidade ?? updated.quantidadeFisica ?? updated.quantidade_total,
+      quantidadeAjustada: updated.quantidadeFisica ?? updated.quantidade_total ?? updated.quantidade
     };
     if (hasLaserUpdate) {
       bodyPayload.requerLaser = Boolean(updated.requer_laser);

@@ -1038,6 +1038,11 @@ app.put('/api/ordens/:id', (req, res) => {
   const hasRouter = dados.requerRouter !== undefined || dados.requer_router !== undefined || dados.encaminhar_router !== undefined;
   const routerInt = hasRouter ? (Boolean(dados.requerRouter || dados.requer_router || dados.encaminhar_router) ? 1 : 0) : null;
 
+  const rawQtd = dados.quantidadeFisica ?? dados.quantidadeAjustada ?? dados.quantidade_total ?? dados.quantidade;
+  const qtdFisicaInt = (rawQtd !== undefined && rawQtd !== null && !isNaN(Number(rawQtd))) 
+    ? Math.max(1, Math.round(Number(rawQtd))) 
+    : null;
+
   let etapasJson = null;
   if (dados.etapas) {
     let etapasVal = typeof dados.etapas === 'string' ? JSON.parse(dados.etapas) : dados.etapas;
@@ -1058,13 +1063,37 @@ app.put('/api/ordens/:id', (req, res) => {
         etapasVal['Router'] = { status: 'PENDENTE', concluidas: 0 };
       }
     }
+    // Sincroniza total de todas as etapas se for objeto
+    if (qtdFisicaInt !== null && etapasVal && typeof etapasVal === 'object' && !Array.isArray(etapasVal)) {
+      Object.keys(etapasVal).forEach(k => {
+        if (etapasVal[k] && typeof etapasVal[k] === 'object') {
+          etapasVal[k].total = qtdFisicaInt;
+        }
+      });
+    }
     etapasJson = JSON.stringify(etapasVal);
+  } else if (qtdFisicaInt !== null) {
+    const opRow = db.prepare('SELECT etapas FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(id, cleanId, formatId, cleanId);
+    if (opRow && opRow.etapas) {
+      try {
+        let etapasVal = JSON.parse(opRow.etapas);
+        if (etapasVal && typeof etapasVal === 'object' && !Array.isArray(etapasVal)) {
+          Object.keys(etapasVal).forEach(k => {
+            if (etapasVal[k] && typeof etapasVal[k] === 'object') {
+              etapasVal[k].total = qtdFisicaInt;
+            }
+          });
+          etapasJson = JSON.stringify(etapasVal);
+        }
+      } catch {}
+    }
   }
 
   const stmt = db.prepare(`
     UPDATE ordens SET
       status = COALESCE(@status, status),
       etapas = COALESCE(@etapas, etapas),
+      quantidadeFisica = COALESCE(@qtdFisicaInt, quantidadeFisica),
       requerLaser = COALESCE(@laserInt, requerLaser),
       requer_laser = COALESCE(@laserInt, requer_laser),
       requerRouter = COALESCE(@routerInt, requerRouter),
@@ -1080,23 +1109,36 @@ app.put('/api/ordens/:id', (req, res) => {
     formatId,
     status: dados.status || null,
     etapas: etapasJson,
+    qtdFisicaInt,
     laserInt,
     routerInt,
     atualizadoEm: Date.now()
   });
+
+  // Se houver apontamento em andamento desta OP, atualiza a quantidade_lote
+  if (qtdFisicaInt !== null) {
+    try {
+      db.prepare(`
+        UPDATE apontamentos SET
+          quantidade_lote = ?,
+          unidade = 'Lote (' || ? || ' PC)'
+        WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?) AND status = 'EM_ANDAMENTO'
+      `).run(qtdFisicaInt, qtdFisicaInt, id, cleanId, formatId);
+    } catch {}
+  }
 
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
   res.json({ success: true });
 });
 
-// 4.0 Início de etapa oficial (com persistência de flags do lote como requerRouter)
+// 4.0 Início de etapa oficial (com persistência de flags do lote como requerRouter e quantidadeAjustada)
 app.post(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, res) => {
   try {
     const id = req.params.id || req.body.id || req.body.op_numero || req.body.numero;
     if (!id) return res.status(400).json({ error: 'ID da ordem obrigatório' });
 
-    const { etapa, setor, operador, requerRouter, encaminharRouter, requer_router } = req.body;
+    const { etapa, setor, operador, requerRouter, encaminharRouter, requer_router, quantidadeAjustada, quantidadeFisica, quantidade_total } = req.body;
     const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
     const formatId = `OP ${cleanId}`;
 
@@ -1108,29 +1150,64 @@ app.post(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, r
     const routerVal = hasRouterFlag ? (Boolean(requerRouter || encaminharRouter || requer_router) ? 1 : 0) : null;
     const nowMs = Date.now();
 
-    if (routerVal !== null) {
+    const rawQtd = quantidadeAjustada ?? quantidadeFisica ?? quantidade_total;
+    const qtdFisicaInt = (rawQtd !== undefined && rawQtd !== null && !isNaN(Number(rawQtd))) 
+      ? Math.max(1, Math.round(Number(rawQtd))) 
+      : (opRow.quantidadeFisica || 1);
+
+    // Atualiza etapas com o total correto
+    let etapasAtualizadas = opRow.etapas;
+    try {
+      let parsed = JSON.parse(opRow.etapas || '{}');
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        Object.keys(parsed).forEach(k => {
+          if (parsed[k] && typeof parsed[k] === 'object') {
+            parsed[k].total = qtdFisicaInt;
+          }
+        });
+        const etapaAlvo = etapa || setor;
+        if (etapaAlvo) {
+          const matchKey = Object.keys(parsed).find(k => k.toLowerCase() === etapaAlvo.toLowerCase()) || etapaAlvo;
+          parsed[matchKey] = {
+            ...(parsed[matchKey] || {}),
+            status: 'EM_PRODUCAO',
+            total: qtdFisicaInt,
+            concluidas: parsed[matchKey]?.concluidas || 0,
+            operador: operador || parsed[matchKey]?.operador || 'Operador',
+            inicio: new Date().toISOString()
+          };
+        }
+        etapasAtualizadas = JSON.stringify(parsed);
+      }
+    } catch {}
+
+    db.prepare(`
+      UPDATE ordens SET
+        status = 'EM_PRODUCAO',
+        etapas = ?,
+        quantidadeFisica = ?,
+        requerRouter = COALESCE(?, requerRouter),
+        requer_router = COALESCE(?, requer_router),
+        encaminhar_router = COALESCE(?, encaminhar_router),
+        atualizadoEm = ?
+      WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+    `).run(etapasAtualizadas, qtdFisicaInt, routerVal, routerVal, routerVal, nowMs, id, cleanId, formatId, cleanId);
+
+    // Se houver apontamento em andamento desta OP, atualiza a quantidade_lote
+    try {
       db.prepare(`
-        UPDATE ordens SET
-          requerRouter = ?,
-          requer_router = ?,
-          encaminhar_router = ?,
-          status = 'EM_PRODUCAO',
-          atualizadoEm = ?
-        WHERE id = ? OR id = ? OR numero = ? OR numero = ?
-      `).run(routerVal, routerVal, routerVal, nowMs, id, cleanId, formatId, cleanId);
-    } else {
-      db.prepare(`
-        UPDATE ordens SET
-          status = 'EM_PRODUCAO',
-          atualizadoEm = ?
-        WHERE id = ? OR id = ? OR numero = ? OR numero = ?
-      `).run(nowMs, id, cleanId, formatId, cleanId);
-    }
+        UPDATE apontamentos SET
+          quantidade_lote = ?,
+          unidade = 'Lote (' || ? || ' PC)'
+        WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?) AND status = 'EM_ANDAMENTO'
+      `).run(qtdFisicaInt, qtdFisicaInt, id, cleanId, formatId);
+    } catch {}
 
     const todas = obterTodasOrdens();
     io.emit('ordens_atualizadas', todas);
     return res.json({
       success: true,
+      quantidadeFisica: qtdFisicaInt,
       requerRouter: routerVal === 1,
       status: 'EM_PRODUCAO'
     });
@@ -1145,10 +1222,10 @@ app.put(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, re
   app._router.handle(req, res, next);
 });
 
-// 4.1 Conclusão de etapa oficial (com inserção dinâmica de Router sob demanda)
+// 4.1 Conclusão de etapa oficial (com inserção dinâmica de Router e propagação de quantidade para próximas etapas)
 app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req, res) => {
   const id = req.params.id || req.body.id || req.body.op_numero;
-  const { etapa, setor, requerRouter, encaminharRouter } = req.body;
+  const { etapa, setor, requerRouter, encaminharRouter, quantidadeAjustada, quantidadeFisica, quantidadeProduzida, quantidade_total } = req.body;
   if (!id) return res.status(400).json({ error: 'ID da ordem obrigatório' });
 
   const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
@@ -1156,6 +1233,11 @@ app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req,
 
   const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(id, cleanId, formatId, cleanId);
   if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+  const rawQtd = quantidadeAjustada ?? quantidadeFisica ?? quantidadeProduzida ?? quantidade_total;
+  const qtdFisicaInt = (rawQtd !== undefined && rawQtd !== null && !isNaN(Number(rawQtd))) 
+    ? Math.max(1, Math.round(Number(rawQtd))) 
+    : (opRow.quantidadeFisica || 1);
 
   const querRouter = Boolean(
     requerRouter ||
@@ -1174,28 +1256,93 @@ app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req,
   let updatedRow = opRow;
   if (querRouter && isInjecao) {
     updatedRow = inserirEtapaRouterNaOrdem(opRow, true);
-  } else {
-    try {
-      let parsed = JSON.parse(opRow.etapas || '[]');
-      if (Array.isArray(parsed) && etapa) {
-        const idx = parsed.findIndex(e => String(e).toLowerCase() === String(etapa).toLowerCase());
-        if (idx !== -1 && idx < parsed.length - 1) {
-          const prox = parsed[idx + 1];
-          const novoStatus = `Aguardando Início em: ${prox}`;
-          db.prepare('UPDATE ordens SET status = ?, atualizadoEm = ? WHERE id = ? OR numero = ?').run(novoStatus, Date.now(), opRow.id, opRow.numero);
-          updatedRow.status = novoStatus;
-        } else if (idx === parsed.length - 1) {
-          db.prepare('UPDATE ordens SET status = ?, atualizadoEm = ? WHERE id = ? OR numero = ?').run('FINALIZADA', Date.now(), opRow.id, opRow.numero);
-          updatedRow.status = 'FINALIZADA';
-        }
-      }
-    } catch {}
   }
 
+  // Atualiza etapas: marca etapa atual como concluída (concluidas = qtdFisicaInt, total = qtdFisicaInt)
+  // e propaga total = qtdFisicaInt para todas as etapas da OP (Dobra, Preparação, Injeção e Montagem)
+  try {
+    let parsed = JSON.parse(updatedRow.etapas || '[]');
+    let novoStatus = updatedRow.status;
+    const nowMs = Date.now();
+
+    if (Array.isArray(parsed) && etapa) {
+      const idx = parsed.findIndex(e => String(e).toLowerCase() === String(etapa).toLowerCase());
+      if (idx !== -1 && idx < parsed.length - 1) {
+        const prox = parsed[idx + 1];
+        novoStatus = `Aguardando Início em: ${prox}`;
+      } else if (idx === parsed.length - 1) {
+        novoStatus = 'FINALIZADA';
+      }
+    } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const etapaAlvo = etapa || setor;
+      const stepKeys = Object.keys(parsed);
+      const idx = stepKeys.findIndex(k => k.toLowerCase() === String(etapaAlvo).toLowerCase());
+      
+      // Propaga o novo total para todas as etapas da OP
+      stepKeys.forEach(k => {
+        if (parsed[k] && typeof parsed[k] === 'object') {
+          parsed[k].total = qtdFisicaInt;
+        }
+      });
+
+      if (idx !== -1) {
+        const currentKey = stepKeys[idx];
+        parsed[currentKey] = {
+          ...(parsed[currentKey] || {}),
+          status: 'CONCLUIDO',
+          concluidas: qtdFisicaInt,
+          total: qtdFisicaInt,
+          timestampFim: nowMs
+        };
+
+        if (idx < stepKeys.length - 1) {
+          const prox = stepKeys[idx + 1];
+          novoStatus = `Aguardando Início em: ${prox}`;
+          if (parsed[prox]) {
+            parsed[prox].status = parsed[prox].status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE';
+            parsed[prox].total = qtdFisicaInt;
+          }
+        } else {
+          novoStatus = 'FINALIZADA';
+        }
+      }
+    }
+
+    const etapasStr = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
+    db.prepare(`
+      UPDATE ordens SET
+        status = ?,
+        etapas = ?,
+        quantidadeFisica = ?,
+        atualizadoEm = ?
+      WHERE id = ? OR numero = ?
+    `).run(novoStatus, etapasStr, qtdFisicaInt, nowMs, opRow.id, opRow.numero);
+
+    updatedRow.status = novoStatus;
+    updatedRow.quantidadeFisica = qtdFisicaInt;
+    updatedRow.etapas = etapasStr;
+  } catch (err) {
+    console.error('[/api/ordens/concluir-etapa] Erro ao atualizar etapas:', err);
+  }
+
+  // Atualiza apontamento concluído no SQLite
+  try {
+    db.prepare(`
+      UPDATE apontamentos SET
+        quantidade_lote = ?,
+        unidade = 'Lote (' || ? || ' PC)'
+      WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?) AND (status = 'FINALIZADO' OR status = 'EM_ANDAMENTO')
+    `).run(qtdFisicaInt, qtdFisicaInt, id, cleanId, formatId);
+  } catch {}
+
   const todas = obterTodasOrdens();
+  const todosApts = db.prepare('SELECT * FROM apontamentos ORDER BY criadoEm DESC').all();
   io.emit('ordens_atualizadas', todas);
+  io.emit('apontamentos_atualizados', todosApts);
+
   res.json({
     success: true,
+    quantidadeFisica: qtdFisicaInt,
     status: updatedRow?.status || 'EM_PRODUCAO',
     etapas: typeof updatedRow?.etapas === 'string' ? JSON.parse(updatedRow.etapas || '[]') : updatedRow?.etapas
   });

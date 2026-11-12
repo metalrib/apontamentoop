@@ -161,7 +161,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
 
     playClick();
 
-    const qtdAtual = Number(targetOp.quantidadeFisica || targetOp.quantidade || 1);
+    const qtdAtual = Number(targetOp.quantidadeFisica ?? obterQuantidadeTotal(targetOp) ?? targetOp.quantidade ?? 1);
     const novaQtd = Math.max(1, qtdAtual + delta);
 
     if (novaQtd === qtdAtual) return;
@@ -399,17 +399,20 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
               <button
                 type="button"
                 onClick={(e) => handleAlterarQuantidadeFisica(e, op, -1)}
-                className="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold border border-slate-600 transition-all select-none cursor-pointer"
+                disabled={(op.quantidadeFisica ?? totalPhysicalUnits ?? 1) <= 1}
+                className="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 active:scale-95 text-white font-bold border border-slate-600 transition-all select-none cursor-pointer"
+                title="Diminuir peças físicas"
               >
                 -
               </button>
-              <span className="px-3 py-1 font-bold text-sm bg-slate-900 border border-slate-700 rounded text-amber-400 min-w-[36px] text-center select-none">
-                {op.quantidadeFisica || op.quantidade || 1}
+              <span className="px-3 py-1 font-bold text-sm bg-slate-900 border border-slate-700 rounded text-amber-400 min-w-[36px] text-center select-none shadow-inner">
+                {op.quantidadeFisica || totalPhysicalUnits || 1}
               </span>
               <button
                 type="button"
                 onClick={(e) => handleAlterarQuantidadeFisica(e, op, 1)}
                 className="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold border border-slate-600 transition-all select-none cursor-pointer"
+                title="Aumentar peças físicas"
               >
                 +
               </button>

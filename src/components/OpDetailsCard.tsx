@@ -12,13 +12,15 @@ interface OpDetailsCardProps {
   apontamentos: Apontamento[];
   selectedSector: string | null;
   currentTerminal: TerminalConfig | null;
+  onAdjustQuantity?: (novaQtd: number) => void;
 }
 
 export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
   order: propOrder,
   apontamentos = [],
   selectedSector,
-  currentTerminal
+  currentTerminal,
+  onAdjustQuantity
 }) => {
   const [showOccurrenceModal, setShowOccurrenceModal] = useState(false);
   const safeApontamentos = Array.isArray(apontamentos) ? apontamentos : [];
@@ -105,10 +107,14 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
 
     playClick();
 
-    const qtdAtual = Number(targetOp.quantidadeFisica || targetOp.quantidade || 1);
+    const qtdAtual = Number(targetOp.quantidadeFisica ?? obterQuantidadeTotal(targetOp) ?? targetOp.quantidade ?? 1);
     const novaQtd = Math.max(1, qtdAtual + delta);
 
     if (novaQtd === qtdAtual) return;
+
+    if (onAdjustQuantity) {
+      onAdjustQuantity(novaQtd);
+    }
 
     const opKey = String(targetOp.id || targetOp.numero || targetOp.op_numero || '').replace(/^OP\s*/i, '').trim();
     if (!opKey) return;
@@ -263,8 +269,8 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
               <button
                 type="button"
                 onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
-                disabled={(order.quantidadeFisica || order.quantidade || qtdTotal || 1) <= 1}
-                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95"
+                disabled={(order.quantidadeFisica ?? qtdTotal ?? 1) <= 1}
+                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95 select-none"
                 title="Diminuir peças físicas"
               >
                 -
@@ -272,7 +278,7 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
               <button
                 type="button"
                 onClick={(e) => handleAlterarQuantidadeFisica(e, order, 1)}
-                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95"
+                className="w-5 h-5 rounded bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs flex items-center justify-center cursor-pointer transition active:scale-95 select-none"
                 title="Aumentar peças físicas"
               >
                 +

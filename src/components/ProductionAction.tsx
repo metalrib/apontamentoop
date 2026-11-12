@@ -18,8 +18,9 @@ interface ProductionActionProps {
   onStartUnit: (unidadeNumero: number, etapaRota: string, encaminharRouter?: boolean) => void;
   onFinishUnit: (apontamentoId: string, encaminharRouter?: boolean) => void;
   onStartBatch?: (etapaRota: string, quantidadeTotal: number, encaminharRouter?: boolean) => void;
-  onFinishBatch?: (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean) => void;
+  onFinishBatch?: (apontamentoId: string, quantidadeRefugo?: number, encaminharRouter?: boolean, quantidadeAjustada?: number) => void;
   onCancelStart?: (apontamentoId: string, etapaRota: string) => void;
+  onAdjustQuantity?: (novaQtd: number) => void;
   isLoading?: boolean;
 }
 
@@ -34,6 +35,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   onStartBatch,
   onFinishBatch,
   onCancelStart,
+  onAdjustQuantity,
   isLoading = false
 }) => {
   // 1. Inicialização segura de estados no topo absoluto (elimina ReferenceError / TDZ)
@@ -45,6 +47,16 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   const [pausaAtiva, setPausaAtiva] = useState<IntervaloProgramado | null>(() => getPausaAtual());
   const [showOccurrenceModal, setShowOccurrenceModal] = useState<boolean>(false);
   const [showCancelModal, setShowCancelModal] = useState<boolean>(false);
+
+  // Estado local reativo de quantidade do lote (permite ajuste instantâneo e sincronização livre)
+  const [quantidadeLote, setQuantidadeLote] = useState<number>(() => {
+    return Number(order.quantidadeFisica ?? obterQuantidadeTotal(order) ?? order.quantidade ?? 1);
+  });
+
+  useEffect(() => {
+    const currentTotal = Number(order.quantidadeFisica ?? obterQuantidadeTotal(order) ?? order.quantidade ?? 1);
+    setQuantidadeLote(currentTotal);
+  }, [order.op_numero, order.quantidadeFisica, order.quantidade, order.quantidade_total]);
 
   // DETERMINAÇÃO DE ROTAS PERMITIDAS (MATRIZ OFICIAL METALRIB)
   const routeData = useMemo(() => {
@@ -65,7 +77,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   }, [order, apontamentos, steps]);
 
   const matchedStep = selectedSector ? findStepForSector(selectedSector, steps) : null;
-  const totalPhysicalUnits = obterQuantidadeTotal(order);
+  const totalPhysicalUnits = quantidadeLote || Math.max(1, Number(order.quantidadeFisica ?? obterQuantidadeTotal(order) ?? 1));
   const ocorrencias = obterOcorrenciasDaOp(order);
 
   // Identifica se a OP e o Setor utilizam Apontamento em Lote Completo ou Peça a Peça (Unitário)
@@ -225,10 +237,17 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
     playClick();
 
-    const qtdAtual = Number(targetOp.quantidadeFisica || targetOp.quantidade || 1);
+    const qtdAtual = quantidadeLote || Number(targetOp.quantidadeFisica ?? obterQuantidadeTotal(targetOp) ?? targetOp.quantidade ?? 1);
     const novaQtd = Math.max(1, qtdAtual + delta);
 
     if (novaQtd === qtdAtual) return;
+
+    // Atualiza estado local imediatamente para feedback visual instantâneo
+    setQuantidadeLote(novaQtd);
+
+    if (onAdjustQuantity) {
+      onAdjustQuantity(novaQtd);
+    }
 
     const opKey = String(targetOp.id || targetOp.numero || targetOp.op_numero || '').replace(/^OP\s*/i, '').trim();
     if (!opKey) return;
@@ -474,6 +493,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
           onCancelStart={onCancelStart}
           onOpenOccurrenceModal={() => setShowOccurrenceModal(true)}
           ocorrenciasCount={ocorrencias.length}
+          onAdjustQuantity={onAdjustQuantity}
         />
         <OpOccurrenceModal
           order={order}
@@ -491,12 +511,55 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
   if (!selectedOperator && !activeForCurrentOperator) {
     return (
       <div className="w-full bg-[#0e131f] border border-amber-500/30 rounded-xl p-3 text-center text-amber-300/80 shrink-0 mt-auto">
-        <User className="w-5 h-5 text-amber-400 mx-auto mb-1 inline" />
-        <span className="text-xs font-mono ml-2">
-          {isBatch
-            ? 'Toque no seu nome no Passo 2 acima para liberar o início do lote.'
-            : 'Toque no seu nome no Passo 2 acima para liberar o início da unidade.'}
-        </span>
+        {showPhysicalQuantitySelector && (
+          <div 
+            className="w-full mb-3 p-3 bg-slate-950/90 border border-amber-500/50 rounded-xl flex items-center justify-between gap-3 flex-wrap text-left"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex flex-col">
+              <span className="text-xs font-mono font-bold text-amber-300 select-none">
+                Qtde Física a Produzir no Lote:
+              </span>
+              <span className="text-[11px] font-mono text-slate-400 select-none">
+                {isDupla ? 'Porta Dupla (2 folhas físicas por conjunto)' : 'Selecione a quantidade de peças'}
+              </span>
+            </div>
+            <div 
+              className="flex items-center gap-2"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
+                disabled={totalPhysicalUnits <= 1 || isLoading}
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition select-none shadow-sm"
+                title="Diminuir peças físicas do lote"
+              >
+                -
+              </button>
+              <span className="px-3.5 py-1 bg-slate-900 border border-slate-700 rounded-lg font-mono font-black text-amber-400 text-base min-w-[38px] text-center select-none shadow-inner">
+                {totalPhysicalUnits}
+              </span>
+              <button
+                type="button"
+                onClick={(e) => handleAlterarQuantidadeFisica(e, order, 1)}
+                disabled={isLoading}
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition select-none shadow-sm"
+                title="Aumentar peças físicas do lote"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <User className="w-5 h-5 text-amber-400 shrink-0" />
+          <span className="text-xs font-mono">
+            {isBatch
+              ? 'Toque no seu nome no Passo 2 acima para liberar o início do lote.'
+              : 'Toque no seu nome no Passo 2 acima para liberar o início da unidade.'}
+          </span>
+        </div>
         <button
           type="button"
           onClick={() => {
@@ -629,6 +692,49 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
             </div>
           )}
 
+          {/* Seletor Rápido de Quantidade Física do Lote em Produção */}
+          {showPhysicalQuantitySelector && (
+            <div 
+              className="flex items-center justify-between px-3 py-2 bg-slate-950/90 border border-amber-500/40 rounded-xl mb-2 text-xs font-mono"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col">
+                <span className="text-amber-300 font-bold select-none text-xs">
+                  Qtde Física a Produzir no Lote:
+                </span>
+                <span className="text-[10px] text-slate-400 select-none">
+                  {isDupla ? 'Porta Dupla (2 folhas físicas por conjunto)' : 'Ajuste a quantidade física deste lote'}
+                </span>
+              </div>
+              <div 
+                className="flex items-center gap-1.5"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
+                  disabled={totalPhysicalUnits <= 1 || isLoading}
+                  className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-black font-mono text-sm flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition shadow-sm select-none"
+                  title="Diminuir peças físicas do lote"
+                >
+                  -
+                </button>
+                <span className="px-3 py-0.5 bg-slate-900 border border-slate-700 rounded font-mono font-black text-amber-400 text-sm min-w-[36px] text-center select-none shadow-inner">
+                  {totalPhysicalUnits}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => handleAlterarQuantidadeFisica(e, order, 1)}
+                  disabled={isLoading}
+                  className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-white font-black font-mono text-sm flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition shadow-sm select-none"
+                  title="Aumentar peças físicas do lote"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* AÇÕES DO LOTE EM ANDAMENTO (CONCLUIR + ESTORNAR LADO A LADO) */}
           <div className="flex items-center gap-2.5">
             <button
@@ -637,7 +743,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                 if (showRouterOption) {
                   setShowRouterModal(true);
                 } else if (onFinishBatch) {
-                  onFinishBatch(activeForCurrentOperator.id, refugoInput);
+                  onFinishBatch(activeForCurrentOperator.id, refugoInput, undefined, totalPhysicalUnits);
                 } else {
                   onFinishUnit(activeForCurrentOperator.id);
                 }
@@ -856,7 +962,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                       playClick();
                       setShowRouterModal(false);
                       if (onFinishBatch) {
-                        onFinishBatch(activeForCurrentOperator.id, refugoInput, encaminharRouter);
+                        onFinishBatch(activeForCurrentOperator.id, refugoInput, encaminharRouter, totalPhysicalUnits);
                       } else {
                         onFinishUnit(activeForCurrentOperator.id, encaminharRouter);
                       }
@@ -1493,7 +1599,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
         )}
 
         {/* Seletor de Quantidade Física a Produzir no Passo 3 do Lote */}
-        {showPhysicalQuantitySelector && isUnblocked && (
+        {showPhysicalQuantitySelector && (
           <div 
             className="w-full mb-3 p-3 bg-slate-900/90 border border-amber-500/50 rounded-xl flex items-center justify-between gap-3 flex-wrap"
             onClick={(e) => e.stopPropagation()}
@@ -1513,20 +1619,20 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
               <button
                 type="button"
                 onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
-                disabled={(order.quantidadeFisica || order.quantidade || totalPhysicalUnits || 1) <= 1 || isLoading}
-                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                disabled={totalPhysicalUnits <= 1 || isLoading}
+                className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition shadow-sm select-none"
                 title="Diminuir peças físicas do lote"
               >
                 -
               </button>
-              <span className="px-3 py-1 bg-slate-950 border border-slate-700 rounded-lg font-mono font-black text-amber-400 text-base min-w-[36px] text-center select-none">
-                {order.quantidadeFisica || order.quantidade || totalPhysicalUnits || 1}
+              <span className="px-3.5 py-1 bg-slate-950 border border-slate-700 rounded-lg font-mono font-black text-amber-400 text-base min-w-[38px] text-center select-none shadow-inner">
+                {totalPhysicalUnits}
               </span>
               <button
                 type="button"
                 onClick={(e) => handleAlterarQuantidadeFisica(e, order, 1)}
                 disabled={isLoading}
-                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition"
+                className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-black font-mono text-base flex items-center justify-center border border-slate-700 cursor-pointer active:scale-95 transition shadow-sm select-none"
                 title="Aumentar peças físicas do lote"
               >
                 +

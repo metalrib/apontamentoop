@@ -26,6 +26,7 @@ interface IndividualPieceCardsProps {
   pecasDisponiveisParaMontar?: number;
   onOpenOccurrenceModal?: () => void;
   ocorrenciasCount?: number;
+  onAdjustQuantity?: (novaQtd: number) => void;
 }
 
 export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.memo(({
@@ -46,7 +47,8 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.m
   qtdMontagemPronta = 0,
   pecasDisponiveisParaMontar = 0,
   onOpenOccurrenceModal,
-  ocorrenciasCount = 0
+  ocorrenciasCount = 0,
+  onAdjustQuantity
 }) => {
   // Timer reativo em tempo real para unidades em andamento com desconto automático de pausas
   const [now, setNow] = useState<number>(Date.now());
@@ -251,10 +253,14 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.m
 
     playClick();
 
-    const qtdAtual = Number(targetOp.quantidadeFisica || targetOp.quantidade || 1);
+    const qtdAtual = Number(targetOp.quantidadeFisica ?? obterQuantidadeTotal(targetOp) ?? targetOp.quantidade ?? 1);
     const novaQtd = Math.max(1, qtdAtual + delta);
 
     if (novaQtd === qtdAtual) return;
+
+    if (onAdjustQuantity) {
+      onAdjustQuantity(novaQtd);
+    }
 
     const opKey = String(targetOp.id || targetOp.numero || targetOp.op_numero || '').replace(/^OP\s*/i, '').trim();
     if (!opKey) return;
@@ -311,14 +317,14 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.m
                 <button
                   type="button"
                   onClick={(e) => handleAlterarQuantidadeFisica(e, order, -1)}
-                  disabled={(order.quantidadeFisica || order.quantidade || totalPhysicalUnits || 1) <= 1 || isLoading}
+                  disabled={(order.quantidadeFisica ?? totalPhysicalUnits ?? 1) <= 1 || isLoading}
                   className="w-7 h-7 flex items-center justify-center rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-40 active:scale-95 text-white font-bold border border-slate-600 transition-all select-none cursor-pointer"
                   title="Diminuir peças físicas da OP"
                 >
                   -
                 </button>
-                <span className="px-3 py-1 font-bold text-sm bg-slate-900 border border-slate-700 rounded text-amber-400 min-w-[36px] text-center select-none">
-                  {order.quantidadeFisica || order.quantidade || totalPhysicalUnits || 1}
+                <span className="px-3 py-1 font-bold text-sm bg-slate-900 border border-slate-700 rounded text-amber-400 min-w-[36px] text-center select-none shadow-inner">
+                  {order.quantidadeFisica || totalPhysicalUnits || 1}
                 </span>
                 <button
                   type="button"
