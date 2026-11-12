@@ -22,6 +22,7 @@ import {
   saveOperators,
   fetchLocalColaboradores
 } from './services/mesStorage';
+import { formatarNumeroOP } from './utils/nomusParser';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
 import { BarcodeScannerInput } from './components/BarcodeScannerInput';
@@ -214,6 +215,9 @@ export default function App() {
             quantidadeFisica: qtd,
             requer_laser: Boolean(item.requer_laser || item.requerLaser),
             requerLaser: Boolean(item.requer_laser || item.requerLaser),
+            requerRouter: Boolean(item.requerRouter || item.requer_router || item.encaminhar_router),
+            requer_router: Boolean(item.requerRouter || item.requer_router || item.encaminhar_router),
+            encaminhar_router: Boolean(item.requerRouter || item.requer_router || item.encaminhar_router),
             etapas: parsedEtapas
           });
           const processed = verificarECorrigirRotaOp(synced);
@@ -625,7 +629,7 @@ export default function App() {
 
       setToastData({
         message: `✔ Lote de ${quantidadeTotal} peças iniciado com sucesso por ${opNome}! Retornando ao totem...`,
-        details: `OP: ${opNum} · Setor: ${sector} · Terminal ${termId}`
+        details: `${formatarNumeroOP(opNum)} · Setor: ${sector} · Terminal ${termId}`
       });
 
       // Retorna imediatamente após 1 segundo limpando os estados para a tela inicial do totem
@@ -697,7 +701,7 @@ export default function App() {
 
       setToastData({
         message: `✔ Início da etapa ${sector} estornado com sucesso!`,
-        details: `OP: ${opNum} · Posto retornado para Pendente`
+        details: `${formatarNumeroOP(opNum)} · Posto retornado para Pendente`
       });
 
       // Retorna imediatamente à tela inicial de bipar mantendo o toast visível

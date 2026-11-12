@@ -26,12 +26,21 @@ app.use(express.json({ limit: '50mb' }));
 
 const db = new Database(path.join(__dirname, 'metalrib_mes.db'));
 
-// Garantir colunas de controle de processos sob demanda (Laser CNC) e ocorrências
+// Garantir colunas de controle de processos sob demanda (Laser CNC e Router) e ocorrências
 try {
   db.exec(`ALTER TABLE ordens ADD COLUMN requerLaser INTEGER DEFAULT 0;`);
 } catch (e) {}
 try {
   db.exec(`ALTER TABLE ordens ADD COLUMN requer_laser INTEGER DEFAULT 0;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN requerRouter INTEGER DEFAULT 0;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN requer_router INTEGER DEFAULT 0;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN encaminhar_router INTEGER DEFAULT 0;`);
 } catch (e) {}
 try {
   db.exec(`ALTER TABLE ordens ADD COLUMN ocorrencias TEXT;`);
@@ -340,6 +349,92 @@ function isRouterExclusivoSql(codigo, descricao) {
   return false;
 }
 
+function isEligibleForRouterSql(codigo, descricao, tipoOrdem) {
+  const desc = normalizarTextoSql(descricao);
+  const tipo = normalizarTextoSql(tipoOrdem);
+  const cod = String(codigo || '').trim();
+  const regex = /VAI[\s-]?E?[\s-]?VEM|OFFICE[\s-]?DOOR|\bVV\b/i;
+  if (regex.test(desc) || regex.test(tipo)) return true;
+  if (cod.startsWith('011.') || cod.startsWith('011') || desc.includes('VAI VEM')) return true;
+  if (cod.startsWith('009.') || cod.startsWith('009') || desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE DOOR')) return true;
+  if (cod.startsWith('010.') || cod.startsWith('010') || cod === '010.0008' || desc.includes('OFFICE DOOR COR')) return true;
+  return false;
+}
+
+function inserirEtapaRouterNaOrdem(opRow, requerRouter) {
+  if (!opRow) return null;
+  let etapasArr = [];
+  let isObj = false;
+  let etapasObj = {};
+
+  try {
+    const parsed = typeof opRow.etapas === 'string' ? JSON.parse(opRow.etapas || '[]') : (opRow.etapas || []);
+    if (Array.isArray(parsed)) {
+      etapasArr = [...parsed];
+    } else if (parsed && typeof parsed === 'object') {
+      isObj = true;
+      etapasObj = { ...parsed };
+      etapasArr = Object.keys(etapasObj);
+    }
+  } catch {
+    etapasArr = [];
+  }
+
+  const routerAtivo = requerRouter !== undefined 
+    ? Boolean(requerRouter) 
+    : Boolean(opRow.requerRouter || opRow.requer_router || opRow.encaminhar_router);
+
+  if (routerAtivo) {
+    const hasRouter = etapasArr.some(e => String(e).toLowerCase().includes('router'));
+    if (!hasRouter) {
+      const injIdx = etapasArr.findIndex(e => String(e).toLowerCase().includes('inje'));
+      if (injIdx !== -1) {
+        etapasArr.splice(injIdx + 1, 0, 'Router');
+      } else {
+        const montIdx = etapasArr.findIndex(e => String(e).toLowerCase().includes('montagem'));
+        if (montIdx !== -1) {
+          etapasArr.splice(montIdx, 0, 'Router');
+        } else {
+          etapasArr.push('Router');
+        }
+      }
+    }
+
+    if (isObj) {
+      if (!etapasObj['Router']) {
+        etapasObj['Router'] = {
+          status: 'PENDENTE',
+          concluidas: 0,
+          total: opRow.quantidadeFisica || opRow.quantidade || 1
+        };
+      }
+    }
+
+    const novasEtapasStr = JSON.stringify(isObj ? etapasObj : etapasArr);
+    const novoStatus = 'Aguardando Início em: Router';
+    const nowMs = Date.now();
+
+    db.prepare(`
+      UPDATE ordens SET
+        etapas = ?,
+        status = ?,
+        requerRouter = 1,
+        requer_router = 1,
+        encaminhar_router = 1,
+        atualizadoEm = ?
+      WHERE id = ? OR numero = ?
+    `).run(novasEtapasStr, novoStatus, nowMs, opRow.id, opRow.numero);
+
+    opRow.etapas = novasEtapasStr;
+    opRow.status = novoStatus;
+    opRow.requerRouter = 1;
+    opRow.requer_router = 1;
+    opRow.encaminhar_router = 1;
+  }
+
+  return opRow;
+}
+
 // Varredura retroativa nas ordens existentes
 try {
   const todasOrdens = db.prepare('SELECT * FROM ordens').all();
@@ -430,6 +525,9 @@ function obterTodasOrdens() {
     ...r,
     requerLaser: Boolean(r.requerLaser || r.requer_laser),
     requer_laser: Boolean(r.requerLaser || r.requer_laser),
+    requerRouter: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router),
+    requer_router: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router),
+    encaminhar_router: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router),
     etapas: JSON.parse(r.etapas || '[]'),
     ocorrencias: JSON.parse(r.ocorrencias || '[]')
   }));
@@ -519,6 +617,9 @@ app.get('/api/ordens/:identificador/status', (req, res) => {
     etapas: JSON.parse(opRow.etapas || '[]'),
     requerLaser: Boolean(opRow.requerLaser || opRow.requer_laser),
     requer_laser: Boolean(opRow.requerLaser || opRow.requer_laser),
+    requerRouter: Boolean(opRow.requerRouter || opRow.requer_router || opRow.encaminhar_router),
+    requer_router: Boolean(opRow.requerRouter || opRow.requer_router || opRow.encaminhar_router),
+    encaminhar_router: Boolean(opRow.requerRouter || opRow.requer_router || opRow.encaminhar_router),
     quantidadeFisica: opRow.quantidadeFisica,
     atualizadoEm: opRow.atualizadoEm,
     apontamentos: apts,
@@ -805,9 +906,9 @@ app.post('/api/ordens', (req, res) => {
   // UPSERT inteligente com ON CONFLICT(numero)
   const stmt = db.prepare(`
     INSERT INTO ordens (
-      id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica, requerLaser, requer_laser, criadoEm, atualizadoEm
+      id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica, requerLaser, requer_laser, requerRouter, requer_router, encaminhar_router, criadoEm, atualizadoEm
     ) VALUES (
-      @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica, @requerLaser, @requer_laser, @criadoEm, @atualizadoEm
+      @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica, @requerLaser, @requer_laser, @requerRouter, @requer_router, @encaminhar_router, @criadoEm, @atualizadoEm
     )
     ON CONFLICT(numero) DO UPDATE SET
       codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
@@ -817,6 +918,9 @@ app.post('/api/ordens', (req, res) => {
       quantidadeFisica = excluded.quantidadeFisica,
       requerLaser = CASE WHEN excluded.requerLaser = 1 THEN 1 ELSE ordens.requerLaser END,
       requer_laser = CASE WHEN excluded.requer_laser = 1 THEN 1 ELSE ordens.requer_laser END,
+      requerRouter = CASE WHEN excluded.requerRouter = 1 THEN 1 ELSE ordens.requerRouter END,
+      requer_router = CASE WHEN excluded.requer_router = 1 THEN 1 ELSE ordens.requer_router END,
+      encaminhar_router = CASE WHEN excluded.encaminhar_router = 1 THEN 1 ELSE ordens.encaminhar_router END,
       status = CASE 
         WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
         THEN excluded.status 
@@ -836,6 +940,7 @@ app.post('/api/ordens', (req, res) => {
       if (!rawNum) continue;
       const formattedNum = `OP ${rawNum}`;
       let laserVal = Boolean(item.requerLaser || item.requer_laser) ? 1 : 0;
+      let routerVal = Boolean(item.requerRouter || item.requer_router || item.encaminhar_router) ? 1 : 0;
       let etapasVal = item.etapas || [];
       let statusVal = item.status || 'pendente';
 
@@ -856,6 +961,7 @@ app.post('/api/ordens', (req, res) => {
         }
       } else if (isRouterExclusivoSql(codItem, descItem)) {
         etapasVal = ['Router'];
+        routerVal = 1;
         if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
           statusVal = 'Aguardando Início em: Router';
         }
@@ -873,6 +979,9 @@ app.post('/api/ordens', (req, res) => {
         quantidadeFisica: Number(item.quantidadeFisica || item.quantidade_total || item.quantidade || 1),
         requerLaser: laserVal,
         requer_laser: laserVal,
+        requerRouter: routerVal,
+        requer_router: routerVal,
+        encaminhar_router: routerVal,
         criadoEm: Number(item.criadoEm || Date.now()),
         atualizadoEm: Date.now()
       });
@@ -906,12 +1015,41 @@ app.put('/api/ordens/:id', (req, res) => {
   const hasLaser = dados.requerLaser !== undefined || dados.requer_laser !== undefined;
   const laserInt = hasLaser ? (Boolean(dados.requerLaser || dados.requer_laser) ? 1 : 0) : null;
 
+  const hasRouter = dados.requerRouter !== undefined || dados.requer_router !== undefined || dados.encaminhar_router !== undefined;
+  const routerInt = hasRouter ? (Boolean(dados.requerRouter || dados.requer_router || dados.encaminhar_router) ? 1 : 0) : null;
+
+  let etapasJson = null;
+  if (dados.etapas) {
+    let etapasVal = typeof dados.etapas === 'string' ? JSON.parse(dados.etapas) : dados.etapas;
+    if (routerInt === 1) {
+      if (Array.isArray(etapasVal) && !etapasVal.some(e => String(e).toLowerCase().includes('router'))) {
+        const injIdx = etapasVal.findIndex(e => String(e).toLowerCase().includes('inje'));
+        if (injIdx !== -1) {
+          etapasVal.splice(injIdx + 1, 0, 'Router');
+        } else {
+          const montIdx = etapasVal.findIndex(e => String(e).toLowerCase().includes('montagem'));
+          if (montIdx !== -1) {
+            etapasVal.splice(montIdx, 0, 'Router');
+          } else {
+            etapasVal.push('Router');
+          }
+        }
+      } else if (etapasVal && typeof etapasVal === 'object' && !Array.isArray(etapasVal) && !etapasVal['Router']) {
+        etapasVal['Router'] = { status: 'PENDENTE', concluidas: 0 };
+      }
+    }
+    etapasJson = JSON.stringify(etapasVal);
+  }
+
   const stmt = db.prepare(`
     UPDATE ordens SET
       status = COALESCE(@status, status),
       etapas = COALESCE(@etapas, etapas),
       requerLaser = COALESCE(@laserInt, requerLaser),
       requer_laser = COALESCE(@laserInt, requer_laser),
+      requerRouter = COALESCE(@routerInt, requerRouter),
+      requer_router = COALESCE(@routerInt, requer_router),
+      encaminhar_router = COALESCE(@routerInt, encaminhar_router),
       atualizadoEm = @atualizadoEm
     WHERE id = @id OR id = @cleanId OR numero = @id OR numero = @formatId OR numero = @cleanId
   `);
@@ -921,14 +1059,76 @@ app.put('/api/ordens/:id', (req, res) => {
     cleanId,
     formatId,
     status: dados.status || null,
-    etapas: dados.etapas ? (typeof dados.etapas === 'string' ? dados.etapas : JSON.stringify(dados.etapas)) : null,
+    etapas: etapasJson,
     laserInt,
+    routerInt,
     atualizadoEm: Date.now()
   });
 
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
   res.json({ success: true });
+});
+
+// 4.1 Conclusão de etapa oficial (com inserção dinâmica de Router sob demanda)
+app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req, res) => {
+  const id = req.params.id || req.body.id || req.body.op_numero;
+  const { etapa, setor, requerRouter, encaminharRouter } = req.body;
+  if (!id) return res.status(400).json({ error: 'ID da ordem obrigatório' });
+
+  const cleanId = String(id).replace(/^(\s*OP\s*)+/i, '').trim();
+  const formatId = `OP ${cleanId}`;
+
+  const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(id, cleanId, formatId, cleanId);
+  if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+  const querRouter = Boolean(
+    requerRouter ||
+    encaminharRouter ||
+    opRow.requerRouter ||
+    opRow.requer_router ||
+    opRow.encaminhar_router
+  );
+
+  const isInjecao = Boolean(
+    (etapa && /inje/i.test(etapa)) ||
+    (setor && /inje/i.test(setor)) ||
+    (opRow.status && /inje/i.test(opRow.status))
+  );
+
+  let updatedRow = opRow;
+  if (querRouter && isInjecao) {
+    updatedRow = inserirEtapaRouterNaOrdem(opRow, true);
+  } else {
+    try {
+      let parsed = JSON.parse(opRow.etapas || '[]');
+      if (Array.isArray(parsed) && etapa) {
+        const idx = parsed.findIndex(e => String(e).toLowerCase() === String(etapa).toLowerCase());
+        if (idx !== -1 && idx < parsed.length - 1) {
+          const prox = parsed[idx + 1];
+          const novoStatus = `Aguardando Início em: ${prox}`;
+          db.prepare('UPDATE ordens SET status = ?, atualizadoEm = ? WHERE id = ? OR numero = ?').run(novoStatus, Date.now(), opRow.id, opRow.numero);
+          updatedRow.status = novoStatus;
+        } else if (idx === parsed.length - 1) {
+          db.prepare('UPDATE ordens SET status = ?, atualizadoEm = ? WHERE id = ? OR numero = ?').run('FINALIZADA', Date.now(), opRow.id, opRow.numero);
+          updatedRow.status = 'FINALIZADA';
+        }
+      }
+    } catch {}
+  }
+
+  const todas = obterTodasOrdens();
+  io.emit('ordens_atualizadas', todas);
+  res.json({
+    success: true,
+    status: updatedRow?.status || 'EM_PRODUCAO',
+    etapas: typeof updatedRow?.etapas === 'string' ? JSON.parse(updatedRow.etapas || '[]') : updatedRow?.etapas
+  });
+});
+
+app.put('/api/ordens/:id/concluir-etapa', (req, res, next) => {
+  req.method = 'POST';
+  app._router.handle(req, res, next);
 });
 
 // 5. Rota oficial de RESET DE OP (limpar apontamentos daquela OP no banco e zerar status)
@@ -1385,6 +1585,21 @@ app.post('/api/apontamentos', (req, res) => {
     let novoStatus = opRow.status;
     if (apt.status === 'EM_ANDAMENTO') {
       novoStatus = 'EM_PRODUCAO';
+    } else if (apt.status === 'FINALIZADO') {
+      const isInjecaoApt = (apt.setor && /inje/i.test(apt.setor)) || (apt.etapa_rota && /inje/i.test(apt.etapa_rota));
+      const querRouter = Boolean(
+        apt.requerRouter ||
+        apt.encaminharRouter ||
+        req.body.requerRouter ||
+        req.body.encaminharRouter ||
+        opRow.requerRouter ||
+        opRow.requer_router ||
+        opRow.encaminhar_router
+      );
+      if (isInjecaoApt && querRouter) {
+        inserirEtapaRouterNaOrdem(opRow, true);
+        novoStatus = 'Aguardando Início em: Router';
+      }
     }
     db.prepare(`
       UPDATE ordens SET status = COALESCE(?, status), atualizadoEm = ?

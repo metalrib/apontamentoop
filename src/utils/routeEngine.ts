@@ -735,7 +735,9 @@ export function getRouteForOp(
   const temRouter = isEligible && (
     Boolean(opObj?.encaminhar_router) ||
     Boolean(opObj?.requer_router) ||
+    Boolean(opObj?.requerRouter) ||
     (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Router')) ||
+    (opObj?.etapas && typeof opObj.etapas === 'object' && 'Router' in opObj.etapas) ||
     opObj?.etapaAtual === 'Router'
   );
 
@@ -744,7 +746,12 @@ export function getRouteForOp(
     if (injIdx !== -1) {
       stepsCopy.splice(injIdx + 1, 0, 'Router');
     } else {
-      stepsCopy.push('Router');
+      const montIdx = stepsCopy.findIndex((s: string) => s.includes('Montagem'));
+      if (montIdx !== -1) {
+        stepsCopy.splice(montIdx, 0, 'Router');
+      } else {
+        stepsCopy.push('Router');
+      }
     }
   }
 

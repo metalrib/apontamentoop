@@ -315,20 +315,28 @@ export function isEligibleForRouter(op: any): boolean {
   if (!op) return false;
   const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
   const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+  const tipo = String(op?.tipoOrdem || op?.tipo || '').toUpperCase();
 
-  // 1. PORTA VAI E VEM
-  if (cod.startsWith('011.') || desc.includes('VAI VEM') || desc.includes('VAI-VEM')) {
+  // Validação abrangente por regex para qualquer modelo de Porta Vai-Vem ou Office Door
+  const regexVaiVemOffice = /VAI[\s-]?E?[\s-]?VEM|OFFICE[\s-]?DOOR|\bVV\b/i;
+  if (regexVaiVemOffice.test(desc) || regexVaiVemOffice.test(tipo)) {
     return true;
   }
 
-  // 2. OFFICE DOOR GIRATÓRIA
-  if (cod.startsWith('009.') || desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE DOOR')) {
+  // 1. PORTA VAI E VEM (Cód iniciando com 011.)
+  if (cod.startsWith('011.') || cod.startsWith('011') || desc.includes('VAI VEM') || desc.includes('VAI-VEM') || desc.includes('VAI E VEM')) {
     return true;
   }
 
-  // 3. OFFICE DOOR CORRER
+  // 2. OFFICE DOOR GIRATÓRIA (Cód iniciando com 009.)
+  if (cod.startsWith('009.') || cod.startsWith('009') || desc.includes('OFFICE DOOR GIR') || desc.includes('OFFICE DOOR')) {
+    return true;
+  }
+
+  // 3. OFFICE DOOR CORRER (Cód iniciando com 010.)
   if (
     cod.startsWith('010.') ||
+    cod.startsWith('010') ||
     cod === '010.0008' ||
     desc.includes('OFFICE DOOR COR') ||
     desc.includes('OFFICE-DOOR COR') ||
@@ -359,19 +367,30 @@ export function isOfficeDoorCorrer(op: any): boolean {
 
 /**
  * Identifica se a OP pertence à família Porta Vai-Vem ou Office Door:
- * 1. Vai-Vem: código iniciando por "011." ou contendo "VAI VEM" / "VAI-VEM"
+ * 1. Vai-Vem: código iniciando por "011." ou contendo "VAI VEM" / "VAI-VEM" / "VAI E VEM" / "VV"
  * 2. Office Door: descrição contendo "OFFICE DOOR" / "OFFICE-DOOR" ou códigos "009." / "010."
  */
 export function isVaiVemOuOfficeDoor(op: any): boolean {
   if (!op) return false;
   const cod = String(op?.codigoProduto || op?.cod || op?.codigo || op?.code || '').trim();
   const desc = String(op?.descricao || op?.produto || op?.description || '').toUpperCase();
+  const tipo = String(op?.tipoOrdem || op?.tipo || '').toUpperCase();
+
+  const regexVaiVemOffice = /VAI[\s-]?E?[\s-]?VEM|OFFICE[\s-]?DOOR|\bVV\b/i;
+  if (regexVaiVemOffice.test(desc) || regexVaiVemOffice.test(tipo)) {
+    return true;
+  }
+
   return (
     cod.startsWith('011.') ||
+    cod.startsWith('011') ||
     cod.startsWith('009.') ||
+    cod.startsWith('009') ||
     cod.startsWith('010.') ||
+    cod.startsWith('010') ||
     desc.includes('VAI VEM') ||
     desc.includes('VAI-VEM') ||
+    desc.includes('VAI E VEM') ||
     desc.includes('OFFICE DOOR') ||
     desc.includes('OFFICE-DOOR')
   );
@@ -1135,7 +1154,9 @@ export function obterEtapasDaRota(op: any): string[] {
   const temRouter = isEligible && (
     Boolean(op?.encaminhar_router) ||
     Boolean(op?.requer_router) ||
+    Boolean(op?.requerRouter) ||
     (Array.isArray(op?.etapas) && op.etapas.includes('Router')) ||
+    (op?.etapas && typeof op.etapas === 'object' && 'Router' in op.etapas) ||
     op?.etapaAtual === 'Router'
   );
 
@@ -1144,7 +1165,13 @@ export function obterEtapasDaRota(op: any): string[] {
     if (injIdx !== -1) {
       steps.splice(injIdx + 1, 0, 'Router');
     } else {
-      steps.push('Router');
+      // Se não achou Injeção, insere antes de Montagem
+      const montIdx = steps.findIndex((s: string) => s.includes('Montagem'));
+      if (montIdx !== -1) {
+        steps.splice(montIdx, 0, 'Router');
+      } else {
+        steps.push('Router');
+      }
     }
   }
 

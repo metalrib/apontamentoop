@@ -228,6 +228,39 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T): T {
     return op;
   }
 
+  // D) ROTA COM ROUTER SOB DEMANDA (Vai-Vem e Office Door)
+  if ((op as any).requerRouter || (op as any).requer_router || (op as any).encaminhar_router) {
+    (op as any).requerRouter = true;
+    (op as any).requer_router = true;
+    (op as any).encaminhar_router = true;
+    if (Array.isArray((op as any).etapas) && !(op as any).etapas.includes('Router')) {
+      const injIdx = (op as any).etapas.findIndex((e: any) => typeof e === 'string' ? (e.toLowerCase().includes('inje') || e.toLowerCase().includes('folha')) : false);
+      if (injIdx !== -1) {
+        (op as any).etapas.splice(injIdx + 1, 0, 'Router');
+      } else {
+        const montIdx = (op as any).etapas.findIndex((e: any) => typeof e === 'string' ? e.toLowerCase().includes('montagem') : false);
+        if (montIdx !== -1) {
+          (op as any).etapas.splice(montIdx, 0, 'Router');
+        } else {
+          (op as any).etapas.push('Router');
+        }
+      }
+    }
+    if (Array.isArray((op as any).rota) && !(op as any).rota.includes('Router')) {
+      const injIdx = (op as any).rota.findIndex((e: any) => typeof e === 'string' ? (e.toLowerCase().includes('inje') || e.toLowerCase().includes('folha')) : false);
+      if (injIdx !== -1) {
+        (op as any).rota.splice(injIdx + 1, 0, 'Router');
+      } else {
+        const montIdx = (op as any).rota.findIndex((e: any) => typeof e === 'string' ? e.toLowerCase().includes('montagem') : false);
+        if (montIdx !== -1) {
+          (op as any).rota.splice(montIdx, 0, 'Router');
+        } else {
+          (op as any).rota.push('Router');
+        }
+      }
+    }
+  }
+
   // Não intercepta subcomponentes (Batentes, Folhas avulsas, Trilhos, Âncoras, etc.)
   const ehSubcomponente =
     codNormalizado.startsWith('020') ||
@@ -2037,13 +2070,25 @@ export async function finishUnit(
             if (options?.encaminharRouter) {
               targetOrder.encaminhar_router = true;
               targetOrder.requer_router = true;
+              targetOrder.requerRouter = true;
+
+              if (Array.isArray(targetOrder.rota) && !targetOrder.rota.includes('Router')) {
+                const rIdx = targetOrder.rota.findIndex((r: string) => r.includes('Injeção') || r.includes('Injecao'));
+                if (rIdx !== -1) {
+                  targetOrder.rota.splice(rIdx + 1, 0, 'Router');
+                } else {
+                  targetOrder.rota.push('Router');
+                }
+              }
 
               if (Array.isArray(targetOrder.etapas)) {
                 const idx = targetOrder.etapas.findIndex((e: any) =>
-                  typeof e === 'string' ? e.includes('Injeção') : (e.nome || e.step || '').includes('Injeção')
+                  typeof e === 'string' ? (e.includes('Injeção') || e.includes('Injecao')) : (e.nome || e.step || '').includes('Injeção')
                 );
                 if (idx !== -1 && !targetOrder.etapas.includes('Router')) {
                   targetOrder.etapas.splice(idx + 1, 0, 'Router');
+                } else if (!targetOrder.etapas.includes('Router')) {
+                  targetOrder.etapas.push('Router');
                 }
               }
               if (targetOrder.etapas && typeof targetOrder.etapas === 'object' && !Array.isArray(targetOrder.etapas)) {
@@ -2060,6 +2105,7 @@ export async function finishUnit(
             } else {
               targetOrder.encaminhar_router = false;
               targetOrder.requer_router = false;
+              targetOrder.requerRouter = false;
               const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
               if (nextStep) {
                 targetOrder.etapaAtual = nextStep;
@@ -2120,10 +2166,24 @@ export async function finishUnit(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(targetOrder)
           }).catch(() => {});
+          fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/concluir-etapa`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              etapa: matchedStep,
+              setor: item.setor,
+              requerRouter: options?.encaminharRouter,
+              encaminharRouter: options?.encaminharRouter
+            })
+          }).catch(() => {});
           fetch(`${localUrl}/api/apontamentos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updated)
+            body: JSON.stringify({
+              ...updated,
+              requerRouter: options?.encaminharRouter,
+              encaminharRouter: options?.encaminharRouter
+            })
           }).catch(() => {});
         } catch {}
       }
@@ -2457,13 +2517,25 @@ export async function finishBatch(
           if (options?.encaminharRouter) {
             targetOrder.encaminhar_router = true;
             targetOrder.requer_router = true;
+            targetOrder.requerRouter = true;
+
+            if (Array.isArray(targetOrder.rota) && !targetOrder.rota.includes('Router')) {
+              const rIdx = targetOrder.rota.findIndex((r: string) => r.includes('Injeção') || r.includes('Injecao'));
+              if (rIdx !== -1) {
+                targetOrder.rota.splice(rIdx + 1, 0, 'Router');
+              } else {
+                targetOrder.rota.push('Router');
+              }
+            }
 
             if (Array.isArray(targetOrder.etapas)) {
               const idx = targetOrder.etapas.findIndex((e: any) =>
-                typeof e === 'string' ? e.includes('Injeção') : (e.nome || e.step || '').includes('Injeção')
+                typeof e === 'string' ? (e.includes('Injeção') || e.includes('Injecao')) : (e.nome || e.step || '').includes('Injeção')
               );
               if (idx !== -1 && !targetOrder.etapas.includes('Router')) {
                 targetOrder.etapas.splice(idx + 1, 0, 'Router');
+              } else if (!targetOrder.etapas.includes('Router')) {
+                targetOrder.etapas.push('Router');
               }
             }
             if (targetOrder.etapas && typeof targetOrder.etapas === 'object' && !Array.isArray(targetOrder.etapas)) {
@@ -2480,6 +2552,7 @@ export async function finishBatch(
           } else {
             targetOrder.encaminhar_router = false;
             targetOrder.requer_router = false;
+            targetOrder.requerRouter = false;
             const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
             if (nextStep) {
               targetOrder.etapaAtual = nextStep;
@@ -2532,10 +2605,24 @@ export async function finishBatch(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(targetOrder)
           }).catch(() => {});
+          fetch(`${localUrl}/api/ordens/${cleanOpId(matchedOpKey)}/concluir-etapa`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              etapa: matchedStep,
+              setor: item.setor,
+              requerRouter: options?.encaminharRouter,
+              encaminharRouter: options?.encaminharRouter
+            })
+          }).catch(() => {});
           fetch(`${localUrl}/api/apontamentos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updated)
+            body: JSON.stringify({
+              ...updated,
+              requerRouter: options?.encaminharRouter,
+              encaminharRouter: options?.encaminharRouter
+            })
           }).catch(() => {});
         } catch {}
       }

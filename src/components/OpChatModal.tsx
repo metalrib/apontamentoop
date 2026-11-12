@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ProductionOrder } from '../types/mes';
 import { addOpMessage } from '../services/mesStorage';
+import { formatarNumeroOP } from '../utils/nomusParser';
 import { playClick, playSuccessStart } from '../utils/audio';
 import { MessageSquare, X, Send, User, Shield, Clock } from 'lucide-react';
 
@@ -56,7 +57,7 @@ export const OpChatModal: React.FC<OpChatModalProps> = ({ order, onClose, onMess
               </div>
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <span>Conversa da OP {order.numero || order.op_numero}</span>
+                  <span>Conversa da {formatarNumeroOP(order.numero || order.op_numero)}</span>
                 </h3>
                 <p className="text-xs text-slate-400 line-clamp-1">
                   {order.descricao}

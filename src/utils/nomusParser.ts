@@ -12,6 +12,14 @@ import {
 } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
+/**
+ * Formata o número da OP garantindo prefixo único "OP XXXXXX-XX" sem duplicações (ex: "OP OP ...")
+ */
+export const formatarNumeroOP = (opNum?: string | null): string => {
+  const limpo = String(opNum || '').replace(/^(\s*OP\s*)+/i, '').trim();
+  return limpo ? `OP ${limpo}` : '';
+};
+
 export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string; quantidadeFisica?: number; quantidade?: number }): {
   familia: string;
   tipoMontagem: string;

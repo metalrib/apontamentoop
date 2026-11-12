@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
 import { getRouteForOp, getRouteEvaluation, findStepForSector, doesSectorMatchStep, isBatchTracking, matchStepName, obterQuantidadeTotal, validarPostoIndustrial, isEligibleForRouter, isModoUnitario, verificarRouterLiberada, verificarDobraLiberada, verificarPreparacaoFolhasLiberada, isFolhaOrder, isVaiVemOuOfficeDoor, verificarLiberacaoMontagemVaiVemOuOfficeDoor } from '../utils/routeEngine';
 import { updateProductionOrder, obterOcorrenciasDaOp, cleanOpId, getLocalSocket, purgeLocalAppointmentsForOp } from '../services/mesStorage';
+import { formatarNumeroOP } from '../utils/nomusParser';
 import { Play, Square, Lock, Clock, CheckCircle2, User, AlertTriangle, Check, Layers, X, RotateCcw } from 'lucide-react';
 import { playClick, playBlockedError } from '../utils/audio';
 import { calcularDuracaoLiquidaMs, getPausaAtual, IntervaloProgramado } from '../utils/workShiftUtils';
@@ -124,21 +125,26 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
       matchedStep.toLowerCase().includes('injeção') ||
       matchedStep.toLowerCase().includes('injecao') ||
       matchedStep.toLowerCase().includes('injetora')
+    )) ||
+    (order.etapaAtual && (
+      order.etapaAtual.toLowerCase().includes('injeção') ||
+      order.etapaAtual.toLowerCase().includes('injecao') ||
+      order.etapaAtual.toLowerCase().includes('injetora')
     ))
   );
 
   // Verifica se o produto pertence às famílias elegíveis para o Router
-  const isEligibleRouter = isEligibleForRouter(order);
+  const isEligibleRouter = isEligibleForRouter(order) || isVaiVemOuOfficeDoor(order);
   const showRouterOption = isInjecaoSector && isEligibleRouter;
 
   const [showRouterModal, setShowRouterModal] = useState<boolean>(false);
   const [encaminharRouter, setEncaminharRouter] = useState<boolean>(
-    Boolean(order.encaminhar_router || order.requer_router)
+    Boolean(order.requerRouter || order.encaminhar_router || order.requer_router)
   );
 
   useEffect(() => {
-    setEncaminharRouter(Boolean(order.encaminhar_router || order.requer_router));
-  }, [order.op_numero, order.encaminhar_router, order.requer_router]);
+    setEncaminharRouter(Boolean(order.requerRouter || order.encaminhar_router || order.requer_router));
+  }, [order.op_numero, order.requerRouter, order.encaminhar_router, order.requer_router]);
 
   // Identifica se o setor selecionado é o Corte no Terminal 1
   const isCorteSector = Boolean(
@@ -573,7 +579,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
             <div
               onClick={() => {
                 playClick();
-                setEncaminharRouter(!encaminharRouter);
+                const nextVal = !encaminharRouter;
+                setEncaminharRouter(nextVal);
+                updateProductionOrder(order.op_numero, {
+                  requerRouter: nextVal,
+                  requer_router: nextVal,
+                  encaminhar_router: nextVal
+                });
               }}
               className={`mb-2 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
                 encaminharRouter
@@ -685,7 +697,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                       Estornar Início de Lote
                     </h3>
                     <p className="text-xs text-slate-400 font-mono">
-                      OP {order.op_numero} • {selectedSector}
+                      {formatarNumeroOP(order.op_numero)} • {selectedSector}
                     </p>
                   </div>
                 </div>
@@ -733,7 +745,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                     </div>
                     <div>
                       <h3 className="text-lg font-bold text-white leading-tight">Encerramento da Injeção</h3>
-                      <p className="text-xs text-slate-400 font-mono">OP {order.op_numero} • {selectedSector || 'Injeção'}</p>
+                      <p className="text-xs text-slate-400 font-mono">{formatarNumeroOP(order.op_numero)} • {selectedSector || 'Injeção'}</p>
                     </div>
                   </div>
                   <button
@@ -763,7 +775,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                 <div
                   onClick={() => {
                     playClick();
-                    setEncaminharRouter(!encaminharRouter);
+                    const nextVal = !encaminharRouter;
+                    setEncaminharRouter(nextVal);
+                    updateProductionOrder(order.op_numero, {
+                      requerRouter: nextVal,
+                      requer_router: nextVal,
+                      encaminhar_router: nextVal
+                    });
                   }}
                   className={`p-4 rounded-xl border flex items-start gap-3.5 cursor-pointer select-none transition-all mb-6 ${
                     encaminharRouter
@@ -864,7 +882,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
           <div
             onClick={() => {
               playClick();
-              setEncaminharRouter(!encaminharRouter);
+              const nextVal = !encaminharRouter;
+              setEncaminharRouter(nextVal);
+              updateProductionOrder(order.op_numero, {
+                requerRouter: nextVal,
+                requer_router: nextVal,
+                encaminhar_router: nextVal
+              });
             }}
             className={`mb-2 px-3 py-2 rounded-lg border flex items-center justify-between gap-2.5 cursor-pointer select-none transition-all ${
               encaminharRouter
@@ -974,7 +998,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                     Estornar Início de Unidade
                   </h3>
                   <p className="text-xs text-slate-400 font-mono">
-                    OP {order.op_numero} • {selectedSector}
+                    {formatarNumeroOP(order.op_numero)} • {selectedSector}
                   </p>
                 </div>
               </div>
@@ -1022,7 +1046,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-white leading-tight">Encerramento da Injeção</h3>
-                    <p className="text-xs text-slate-400 font-mono">OP {order.op_numero} • {selectedSector || 'Injeção'}</p>
+                    <p className="text-xs text-slate-400 font-mono">{formatarNumeroOP(order.op_numero)} • {selectedSector || 'Injeção'}</p>
                   </div>
                 </div>
                 <button
@@ -1052,7 +1076,13 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
               <div
                 onClick={() => {
                   playClick();
-                  setEncaminharRouter(!encaminharRouter);
+                  const nextVal = !encaminharRouter;
+                  setEncaminharRouter(nextVal);
+                  updateProductionOrder(order.op_numero, {
+                    requerRouter: nextVal,
+                    requer_router: nextVal,
+                    encaminhar_router: nextVal
+                  });
                 }}
                 className={`p-4 rounded-xl border flex items-start gap-3.5 cursor-pointer select-none transition-all mb-6 ${
                   encaminharRouter

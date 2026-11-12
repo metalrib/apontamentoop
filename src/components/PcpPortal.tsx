@@ -9,7 +9,7 @@ import {
   checkOp100Percent
 } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas } from '../services/mesStorage';
-import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo } from '../utils/nomusParser';
+import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
 import { OpChatModal } from './OpChatModal';
@@ -1754,7 +1754,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
               </div>
               <div>
                 <h3 className="text-base font-black text-white font-mono">EXCLUIR APONTAMENTO</h3>
-                <p className="text-xs text-slate-400 font-mono">OP {apontamentoToDelete.op_numero} · Un #{apontamentoToDelete.unidade_numero}</p>
+                <p className="text-xs text-slate-400 font-mono">{formatarNumeroOP(apontamentoToDelete.op_numero)} · Un #{apontamentoToDelete.unidade_numero}</p>
               </div>
             </div>
 

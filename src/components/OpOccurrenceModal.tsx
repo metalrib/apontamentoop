@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ProductionOrder, OpOcorrencia, TerminalConfig } from '../types/mes';
 import { addOpOccurrence, obterOcorrenciasDaOp } from '../services/mesStorage';
+import { formatarNumeroOP } from '../utils/nomusParser';
 import { playClick, playSuccessStart } from '../utils/audio';
 import { AlertTriangle, X, Check, Clock, User, Shield, Tag, MessageSquare, History } from 'lucide-react';
 
@@ -39,7 +40,7 @@ export const OpOccurrenceModal: React.FC<OpOccurrenceModalProps> = ({
   if (!isOpen) return null;
 
   const ocorrenciasExistentes = obterOcorrenciasDaOp(order);
-  const opNumeroDisplay = (order.numero || order.op_numero || '').replace(/^(\s*OP\s*)+/i, 'OP ').trim();
+  const opNumeroDisplay = formatarNumeroOP(order.numero || order.op_numero);
 
   const handleChipClick = (chip: string) => {
     playClick();
@@ -89,7 +90,7 @@ export const OpOccurrenceModal: React.FC<OpOccurrenceModalProps> = ({
               </div>
               <div>
                 <h3 className="text-base font-bold text-white leading-tight">
-                  Registrar Ocorrência na OP {opNumeroDisplay}
+                  Registrar Ocorrência na {opNumeroDisplay}
                 </h3>
                 <p className="text-xs text-slate-400 font-mono mt-0.5 truncate max-w-xs">
                   {order.descricao}

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Apontamento, ProductionOrder } from '../types/mes';
+import { formatarNumeroOP } from '../utils/nomusParser';
 import { Search, Trash2, Download, Calendar, Filter, Clock } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
@@ -557,7 +558,7 @@ export const AppointmentsHistory: React.FC<AppointmentsHistoryProps> = ({
               <div>
                 <h3 className="text-base font-black text-white font-mono">EXCLUIR APONTAMENTO</h3>
                 <p className="text-xs text-slate-400 font-mono">
-                  OP {aptToDelete.op || aptToDelete.op_numero} · {aptToDelete.colaborador || aptToDelete.operador}
+                  {formatarNumeroOP(aptToDelete.op || aptToDelete.op_numero)} · {aptToDelete.colaborador || aptToDelete.operador}
                 </p>
               </div>
             </div>
