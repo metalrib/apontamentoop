@@ -1033,6 +1033,12 @@ export function obterEtapasDaRota(op: any): string[] {
       : ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Montagem Office de Correr'];
   }
   else if (isOfficeDoorGiro({ codigo: cod, descricao: desc, tipoOrdem: desc })) {
+    const temLaser = Boolean(
+      (op as any)?.requerLaser ||
+      (op as any)?.requer_laser ||
+      (Array.isArray((op as any)?.etapas) && (op as any).etapas.includes('Laser')) ||
+      ((op as any)?.etapas && typeof (op as any).etapas === 'object' && 'Laser' in (op as any).etapas)
+    );
     const temRouter = Boolean(
       (op as any)?.requerRouter ||
       (op as any)?.requer_router ||
@@ -1040,9 +1046,11 @@ export function obterEtapasDaRota(op: any): string[] {
       (Array.isArray((op as any)?.etapas) && (op as any).etapas.includes('Router')) ||
       ((op as any)?.etapas && typeof (op as any).etapas === 'object' && 'Router' in (op as any).etapas)
     );
-    steps = temRouter
-      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
-      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+    steps = ['Corte'];
+    if (temLaser) steps.push('Laser');
+    steps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    if (temRouter) steps.push('Router');
+    steps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
   }
 
   // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR)
@@ -1574,7 +1582,11 @@ export function isEtapaConcluida(op: any, etapaNome: string, apontamentos?: any[
       if (!matchOp) return false;
 
       const aptEtapa = a.etapa_rota || a.etapaRota || a.setor || a.setorFisico || '';
-      return normalizeValidationText(aptEtapa) === normEtapa && a.status === 'FINALIZADO';
+      const normApt = normalizeValidationText(aptEtapa);
+      const isMatch = normApt === normEtapa ||
+        ((normEtapa.includes('injecao') || normEtapa.includes('injetora')) && (normApt.includes('injecao') || normApt.includes('injetora'))) ||
+        (normEtapa.includes('preparacao') && !normEtapa.includes('batente') && !normEtapa.includes('vai vem') && normApt.includes('preparacao') && !normApt.includes('batente') && !normApt.includes('vai vem'));
+      return isMatch && a.status === 'FINALIZADO';
     });
     if (hasFinished) return true;
   }

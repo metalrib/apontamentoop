@@ -852,141 +852,140 @@ try {
     const isOdGiro = !isOdCorrer && isOfficeDoorGiroSql(o.codigo, o.descricao, o.tipoOrdem);
 
     if (isOdGiro && (podeAtualizar || o.status !== 'FINALIZADA')) {
-      const querRouter = Boolean(o.requerRouter || o.requer_router || o.encaminhar_router);
-      const targetSteps = querRouter
-        ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
-        : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+      const aptsOp = db.prepare('SELECT * FROM apontamentos WHERE op_numero = ? OR op_numero = ?').all(o.numero, o.id);
+      const hasLaserApt = aptsOp.some(a => a.etapa_rota === 'Laser' || a.setor === 'Laser');
+      const hasRouterApt = aptsOp.some(a => a.etapa_rota === 'Router' || a.setor === 'Router');
+
+      const querLaser = Boolean(o.requerLaser || o.requer_laser || hasLaserApt);
+      const querRouter = Boolean(o.requerRouter || o.requer_router || o.encaminhar_router || hasRouterApt);
+
+      const targetSteps = ['Corte'];
+      if (querLaser) targetSteps.push('Laser');
+      targetSteps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+      if (querRouter) targetSteps.push('Router');
+      targetSteps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
 
       let precisaAtualizar = false;
       let novasEtapas = targetSteps;
       let novoStatus = o.status;
 
-      try {
-        const parsed = JSON.parse(o.etapas || '[]');
-        if (Array.isArray(parsed)) {
-          if (JSON.stringify(parsed) !== JSON.stringify(targetSteps)) {
-            precisaAtualizar = true;
-            novasEtapas = targetSteps;
-          }
-        } else if (parsed && typeof parsed === 'object') {
-          const obj = { ...parsed };
+      let parsed = null;
+      try { parsed = JSON.parse(o.etapas || '[]'); } catch {}
 
-          // 1. Migrar etapas antigas ou indevidas de montagem para "Montagem de Office Door Giro"
-          const oldMontagemGiro =
-            obj['Montagem de Portas Giratória Padrão e Especial'] ||
-            obj['Montagem de Portas Giratórias'] ||
-            obj['Montagem Office Door Giratória'] ||
-            obj['Montagem Office Door'] ||
-            obj['Montagem Portas Office Door'];
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const obj = {};
+        for (const step of targetSteps) {
+          const aptAndamento = aptsOp.find(a =>
+            a.status === 'EM_ANDAMENTO' && (
+              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')))) ||
+              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje'))))
+            )
+          );
+          const aptFinalizado = aptsOp.find(a =>
+            a.status === 'FINALIZADO' && (
+              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')))) ||
+              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje'))))
+            )
+          );
 
-          if (oldMontagemGiro) {
-            if (!obj['Montagem de Office Door Giro'] || obj['Montagem de Office Door Giro'].status === 'PENDENTE') {
-              obj['Montagem de Office Door Giro'] = oldMontagemGiro;
-            }
-            delete obj['Montagem de Portas Giratória Padrão e Especial'];
-            delete obj['Montagem de Portas Giratórias'];
-            delete obj['Montagem Office Door Giratória'];
-            delete obj['Montagem Office Door'];
-            delete obj['Montagem Portas Office Door'];
-            precisaAtualizar = true;
+          if (aptAndamento) {
+            obj[step] = {
+              status: 'EM_PRODUCAO',
+              concluidas: 0,
+              total: o.quantidadeFisica || 1,
+              inicio: aptAndamento.hora_inicio,
+              horaInicio: aptAndamento.hora_inicio,
+              operador: aptAndamento.operador || aptAndamento.colaborador,
+              operadorNome: aptAndamento.operador || aptAndamento.colaborador
+            };
+          } else if (aptFinalizado) {
+            obj[step] = {
+              status: 'CONCLUIDA',
+              concluidas: o.quantidadeFisica || 1,
+              total: o.quantidadeFisica || 1
+            };
+          } else if (parsed[step]) {
+            obj[step] = parsed[step];
+          } else if (step === 'Injeção de Folhas' && parsed['Injeção']) {
+            obj[step] = parsed['Injeção'];
+          } else if (step === 'Montagem de Office Door Giro' && (parsed['Montagem de Portas Giratória Padrão e Especial'] || parsed['Montagem de Portas Giratórias'] || parsed['Montagem Office Door Giratória'] || parsed['Montagem Office Door'])) {
+            obj[step] = parsed['Montagem de Portas Giratória Padrão e Especial'] || parsed['Montagem de Portas Giratórias'] || parsed['Montagem Office Door Giratória'] || parsed['Montagem Office Door'];
+          } else {
+            obj[step] = {
+              status: 'PENDENTE',
+              concluidas: 0,
+              total: o.quantidadeFisica || 1
+            };
           }
-
-          // 2. Remover compulsoriamente etapas fabris de corte/laser/dobra/preparação/injeção
-          const etapasFabrisRemover = [
-            'Corte',
-            'Laser',
-            'Dobra',
-            'Preparação de Folha',
-            'Preparação',
-            'Injeção',
-            'Injeção de Folhas',
-            'Montagem de Portas Giratória Padrão e Especial',
-            'Montagem de Portas Giratórias'
-          ];
-          for (const etapaNome of etapasFabrisRemover) {
-            if (obj[etapaNome]) {
-              delete obj[etapaNome];
-              precisaAtualizar = true;
-            }
-          }
-
-          // 3. Garantir etapas oficiais no objeto
-          for (const step of targetSteps) {
-            if (!obj[step]) {
-              obj[step] = { status: 'PENDENTE', concluidas: 0, total: o.quantidadeFisica || 1 };
-              precisaAtualizar = true;
-            }
-          }
-
-          // 4. Remover Router se não for requerido
-          if (!querRouter && obj['Router'] && obj['Router'].status === 'PENDENTE') {
-            delete obj['Router'];
-            precisaAtualizar = true;
-          }
-
-          // 5. Preservar apontamentos reais da OP
-          try {
-            const aptsGaxeta = db.prepare("SELECT * FROM apontamentos WHERE op_numero = ? AND etapa_rota = 'Instalação de Gaxeta' AND status = 'FINALIZADO'").all(o.numero);
-            if (aptsGaxeta && aptsGaxeta.length > 0 && obj['Instalação de Gaxeta']) {
-              if (obj['Instalação de Gaxeta'].status !== 'CONCLUIDA') {
-                obj['Instalação de Gaxeta'] = {
-                  ...obj['Instalação de Gaxeta'],
-                  status: 'CONCLUIDA',
-                  concluidas: o.quantidadeFisica || 1
-                };
-                precisaAtualizar = true;
-              }
-            }
-            const aptsMontagem = db.prepare("SELECT * FROM apontamentos WHERE op_numero = ? AND (etapa_rota = 'Montagem de Office Door Giro' OR setor LIKE '%Office Door%' OR setor LIKE '%Girat%') AND status = 'EM_ANDAMENTO'").all(o.numero);
-            if (aptsMontagem && aptsMontagem.length > 0 && obj['Montagem de Office Door Giro']) {
-              const apt = aptsMontagem[0];
-              if (obj['Montagem de Office Door Giro'].status !== 'EM_PRODUCAO') {
-                obj['Montagem de Office Door Giro'] = {
-                  ...obj['Montagem de Office Door Giro'],
-                  status: 'EM_PRODUCAO',
-                  inicio: apt.hora_inicio,
-                  horaInicio: apt.hora_inicio,
-                  operador: apt.operador || apt.colaborador,
-                  operadorNome: apt.operador || apt.colaborador
-                };
-                precisaAtualizar = true;
-              }
-            }
-          } catch (errSync) {
-            console.warn(`[Office Door Migration] Erro ao sincronizar status da OP ${o.numero}:`, errSync);
-          }
-
-          if (precisaAtualizar) {
-            novasEtapas = obj;
-          }
-        } else {
-          precisaAtualizar = true;
-          novasEtapas = targetSteps;
         }
-      } catch {
-        precisaAtualizar = true;
+        novasEtapas = obj;
+        if (JSON.stringify(parsed) !== JSON.stringify(obj)) {
+          precisaAtualizar = true;
+        }
+      } else {
         novasEtapas = targetSteps;
+        if (!Array.isArray(parsed) || JSON.stringify(parsed) !== JSON.stringify(targetSteps)) {
+          precisaAtualizar = true;
+        }
       }
 
-      const isPendenteOuAguardando = !o.status || o.status === 'pendente' || o.status.toLowerCase().startsWith('aguardando início') || o.status.toLowerCase().startsWith('aguardando inicio');
-      if (isPendenteOuAguardando && semApontamento) {
-        novoStatus = 'Aguardando Início em: Instalação de Gaxeta';
-      } else if (novasEtapas && typeof novasEtapas === 'object' && !Array.isArray(novasEtapas)) {
-        if (novasEtapas['Montagem de Office Door Giro'] && (novasEtapas['Montagem de Office Door Giro'].status === 'EM_PRODUCAO' || novasEtapas['Montagem de Office Door Giro'].status === 'EM_ANDAMENTO')) {
-          novoStatus = 'EM_PRODUCAO';
+      // Determinar o status atual da OP
+      const temAndamento = aptsOp.some(a => a.status === 'EM_ANDAMENTO');
+      if (temAndamento) {
+        novoStatus = 'EM_PRODUCAO';
+      } else if (aptsOp.length === 0) {
+        novoStatus = 'AGUARDANDO INÍCIO EM: CORTE';
+      } else if (o.status === 'FINALIZADA') {
+        novoStatus = 'FINALIZADA';
+      } else {
+        // Encontrar a primeira etapa da rota que ainda não foi concluída
+        const primeiraPendente = targetSteps.find(step => {
+          return !aptsOp.some(a =>
+            a.status === 'FINALIZADO' && (
+              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')))) ||
+              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje'))))
+            )
+          );
+        });
+
+        if (!primeiraPendente) {
+          novoStatus = 'FINALIZADA';
+        } else if (primeiraPendente === 'Corte') {
+          novoStatus = 'AGUARDANDO INÍCIO EM: CORTE';
+        } else {
+          novoStatus = `Aguardando Início em: ${primeiraPendente}`;
         }
+      }
+
+      if (novoStatus !== o.status) {
+        precisaAtualizar = true;
       }
 
       if (precisaAtualizar) {
         db.prepare(`
           UPDATE ordens 
           SET etapas = ?,
-              status = COALESCE(?, status),
+              status = ?,
+              requerLaser = ?,
+              requer_laser = ?,
+              requerRouter = ?,
+              requer_router = ?,
+              encaminhar_router = ?,
               atualizadoEm = ?
           WHERE id = ?
-        `).run(JSON.stringify(novasEtapas), novoStatus, Date.now(), o.id);
+        `).run(
+          JSON.stringify(novasEtapas),
+          novoStatus,
+          querLaser ? 1 : 0,
+          querLaser ? 1 : 0,
+          querRouter ? 1 : 0,
+          querRouter ? 1 : 0,
+          querRouter ? 1 : 0,
+          Date.now(),
+          o.id
+        );
         ordensAtualizadasCount++;
-        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) saneada para rota oficial Office Door Giro`);
+        console.log(`[SQLite Migration] OP ${o.numero} (${o.codigo}) atualizada para rota completa Office Door Giro (status: ${novoStatus})`);
       }
     } else if (isOdCorrer && (podeAtualizar || o.status !== 'FINALIZADA')) {
       const querRouter = Boolean(o.requerRouter || o.requer_router || o.encaminhar_router);
@@ -1737,6 +1736,18 @@ app.post('/api/ordens', (req, res) => {
         routerVal = 1;
         if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
           statusVal = 'Aguardando Início em: Router';
+        }
+      } else if (isOfficeDoorGiroSql(codItem, descItem, item.tipoOrdem)) {
+        const querLaser = laserVal === 1;
+        const querRouter = routerVal === 1;
+        const targetSteps = ['Corte'];
+        if (querLaser) targetSteps.push('Laser');
+        targetSteps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+        if (querRouter) targetSteps.push('Router');
+        targetSteps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
+        etapasVal = targetSteps;
+        if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
+          statusVal = 'AGUARDANDO INÍCIO EM: CORTE';
         }
       }
 
@@ -2587,6 +2598,17 @@ function executarAtualizarLaser(identificadorRaw, requerLaserRaw) {
           const laserIdx = etapasAtuais.findIndex(e => String(typeof e === 'string' ? e : (e?.nome || '')).toLowerCase().includes('laser'));
           if (laserIdx >= 0) {
             etapasAtuais.splice(laserIdx, 1);
+          }
+        }
+        novasEtapas = JSON.stringify(etapasAtuais);
+      } else if (etapasAtuais && typeof etapasAtuais === 'object') {
+        if (laserBool) {
+          if (!etapasAtuais['Laser']) {
+            etapasAtuais['Laser'] = { status: 'PENDENTE', concluidas: 0, total: opRow.quantidadeFisica || 1 };
+          }
+        } else {
+          if (etapasAtuais['Laser'] && etapasAtuais['Laser'].status === 'PENDENTE') {
+            delete etapasAtuais['Laser'];
           }
         }
         novasEtapas = JSON.stringify(etapasAtuais);

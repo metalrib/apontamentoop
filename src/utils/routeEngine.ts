@@ -357,15 +357,23 @@ function resolveBaseRoute(
 
   // 0.1 Office Door de Giro (código 009.xxxx ou descrição com OFFICE DOOR GIR / OFFICE DOOR)
   if (isOfficeDoorGiro(opObj || { codigo: code, descricao: desc, tipoOrdem: desc })) {
+    const temLaser = Boolean(
+      opObj?.requerLaser || opObj?.requer_laser ||
+      (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Laser')) ||
+      (opObj?.etapas && typeof opObj.etapas === 'object' && 'Laser' in opObj.etapas) ||
+      opObj?.etapaAtual === 'Laser'
+    );
     const temRouter = Boolean(
       opObj?.requerRouter || opObj?.requer_router || opObj?.encaminhar_router ||
       (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Router')) ||
       (opObj?.etapas && typeof opObj.etapas === 'object' && 'Router' in opObj.etapas) ||
       opObj?.etapaAtual === 'Router'
     );
-    const steps = temRouter
-      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
-      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+    const steps: string[] = ['Corte'];
+    if (temLaser) steps.push('Laser');
+    steps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    if (temRouter) steps.push('Router');
+    steps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
     const rule: RouteRule = {
       keyword: 'OFFICE DOOR GIR',
       label: 'Porta Office Door de Giro',

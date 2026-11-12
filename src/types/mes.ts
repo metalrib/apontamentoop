@@ -382,7 +382,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "OFFICE DOOR GIR",
     label: "Porta Office Door de Giro",
-    steps: ["Instalação de Gaxeta", "Montagem de Office Door Giro"],
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção de Folhas", "Instalação de Gaxeta", "Montagem de Office Door Giro"],
     badge: "Office Door Giro",
     isStandardLine: false
   },
@@ -396,7 +396,7 @@ export const ROUTE_RULES: RouteRule[] = [
   {
     keyword: "OFFICE DOOR",
     label: "Porta Office Door de Giro",
-    steps: ["Instalação de Gaxeta", "Montagem de Office Door Giro"],
+    steps: ["Corte", "Dobra", "Preparação de Folha", "Injeção de Folhas", "Instalação de Gaxeta", "Montagem de Office Door Giro"],
     badge: "Office Door Giro",
     isStandardLine: false
   },

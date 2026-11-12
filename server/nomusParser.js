@@ -379,15 +379,18 @@ function processarRotaProduto(op) {
 
   // 7. Office Door de Giro (Família 009 / OFFICE DOOR GIRO)
   if (isOfficeDoorGiro(codRaw, desc, tipoOrdem)) {
+    const querLaser = Boolean(op.requerLaser || op.requer_laser);
     const querRouter = Boolean(op.requerRouter || op.requer_router || op.encaminhar_router);
-    const rota = querRouter
-      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
-      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+    const rota = ['Corte'];
+    if (querLaser) rota.push('Laser');
+    rota.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    if (querRouter) rota.push('Router');
+    rota.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
     return {
       familia: 'Porta Office Door de Giro',
       tipoMontagem: 'Porta Office Door de Giro',
       rota,
-      statusAtual: 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta'
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
     };
   }
 

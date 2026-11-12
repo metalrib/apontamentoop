@@ -136,15 +136,18 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
   }
 
   if (isOfficeDoorGiro(op)) {
+    const querLaser = Boolean((op as any)?.requerLaser || (op as any)?.requer_laser);
     const querRouter = Boolean((op as any)?.requerRouter || (op as any)?.requer_router || (op as any)?.encaminhar_router);
-    const rota = querRouter
-      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
-      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+    const rota = ['Corte'];
+    if (querLaser) rota.push('Laser');
+    rota.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    if (querRouter) rota.push('Router');
+    rota.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
     return {
       familia: 'Porta Office Door de Giro',
       tipoMontagem: 'Porta Office Door de Giro',
       rota,
-      statusAtual: 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta'
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
     };
   }
 
