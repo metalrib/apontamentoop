@@ -61,6 +61,23 @@ const TERMINAL_DETAILS: Record<string, { label: string; desc: string }> = {
   T5: { label: 'Terminal 5', desc: 'Router, Elétrica, Solda & Acessórios' },
 };
 
+export const normalizeSecNameClean = (s: string): string => {
+  const st = String(s || '').trim();
+  if (!st) return '';
+  const norm = st.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (
+    norm === 'preparacao de folha' ||
+    norm === 'preparacao de folhas' ||
+    (norm.startsWith('prepara') && norm.endsWith('folha')) ||
+    (norm.startsWith('prepara') && norm.endsWith('folhas')) ||
+    st.includes('\uFFFD') ||
+    /preparao/i.test(st)
+  ) {
+    return 'Preparação de Folha';
+  }
+  return st;
+};
+
 interface OperatorTableRowProps {
   op: Operator;
   isCurrentlyEditing: boolean;
@@ -161,7 +178,7 @@ const OperatorTableRow = React.memo<OperatorTableRowProps>(({
                       className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1"
                     >
                       <span className="text-cyan-400 font-mono font-bold text-[9px]">{tKey}</span>
-                      <span>{sec}</span>
+                      <span>{normalizeSecNameClean(sec)}</span>
                     </span>
                   );
                 });
@@ -176,7 +193,7 @@ const OperatorTableRow = React.memo<OperatorTableRowProps>(({
                   key={`op_${op.id}_sec_${sec}_${sIdx}`}
                   className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800"
                 >
-                  {sec}
+                  {normalizeSecNameClean(sec)}
                 </span>
               ));
             }
@@ -320,12 +337,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
       const termId = parseInt(tKey.replace('T', ''), 10);
       const term = sourceList.find((t) => t.id === termId);
       if (term && Array.isArray(term.sectors)) {
-        const cleaned = term.sectors.map((s) => {
-          const st = String(s || '').trim();
-          return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
-            ? 'Preparação de Folha'
-            : st;
-        }).filter(Boolean);
+        const cleaned = term.sectors.map(normalizeSecNameClean).filter(Boolean);
         map[tKey] = Array.from(new Set(cleaned));
       } else {
         map[tKey] = [];
@@ -339,13 +351,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
   const availableRoutesList = useMemo(() => {
     const set = new Set<string>();
 
-    const normalize = (s: string) => {
-      const st = String(s || '').trim();
-      if (!st) return '';
-      return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
-        ? 'Preparação de Folha'
-        : st;
-    };
+    const normalize = (s: string) => normalizeSecNameClean(s);
 
     // 1. Setores dos terminais dinâmicos
     terminals.forEach((t) => {
@@ -466,12 +472,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
       T5: []
     };
 
-    const normalizeSecName = (s: string) => {
-      const st = String(s || '').trim();
-      return (st.toLowerCase() === 'preparação de folhas' || st.toLowerCase() === 'preparacao de folhas')
-        ? 'Preparação de Folha'
-        : st;
-    };
+    const normalizeSecName = (s: string) => normalizeSecNameClean(s);
 
     if (op.setoresPorTerminal && typeof op.setoresPorTerminal === 'object') {
       ALL_TERMINAIS.forEach((tKey) => {
@@ -565,14 +566,10 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
       return;
     }
     playClick();
-    const clean = (sector.trim().toLowerCase() === 'preparação de folhas' || sector.trim().toLowerCase() === 'preparacao de folhas')
-      ? 'Preparação de Folha'
-      : sector.trim();
+    const clean = normalizeSecNameClean(sector);
     setFormSetoresPorTerminal((prev) => {
       const currentList = prev[terminalKey] || [];
-      const matchFolha = (s: string) =>
-        s.trim().toLowerCase() === clean.toLowerCase() ||
-        (clean === 'Preparação de Folha' && (s.trim().toLowerCase() === 'preparação de folhas' || s.trim().toLowerCase() === 'preparacao de folhas'));
+      const matchFolha = (s: string) => normalizeSecNameClean(s).toLowerCase() === clean.toLowerCase();
       const exists = currentList.some(matchFolha);
       const nextList = exists
         ? currentList.filter((s) => !matchFolha(s))
@@ -1000,7 +997,8 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
         opSectors.add(op.setor.trim());
       }
       for (const sec of opSectors) {
-        counts[sec] = (counts[sec] || 0) + 1;
+        const cleanSec = normalizeSecNameClean(sec);
+        counts[cleanSec] = (counts[cleanSec] || 0) + 1;
       }
     }
 
@@ -1433,15 +1431,14 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                             {/* Grid de Botões dos Setores em 4 ou 5 colunas para aproveitamento total da tela */}
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                               {sectorsOfTerminal.map((sectorName) => {
-                                const compositeKey = `${tKey}_${sectorName}`;
+                                const cleanSecName = normalizeSecNameClean(sectorName);
+                                const compositeKey = `${tKey}_${cleanSecName}`;
                                 const isChecked =
                                   isTerminalActive &&
                                   selectedInThisTerm.some((s) => {
-                                    const a = s.trim().toLowerCase();
-                                    const b = sectorName.trim().toLowerCase();
-                                    return a === b ||
-                                      (b === 'preparação de folha' && (a === 'preparação de folhas' || a === 'preparacao de folhas')) ||
-                                      (b === 'preparação de folhas' && (a === 'preparação de folha' || a === 'preparacao de folha'));
+                                    const a = normalizeSecNameClean(s).toLowerCase();
+                                    const b = cleanSecName.toLowerCase();
+                                    return a === b;
                                   });
 
                                 return (
@@ -1449,7 +1446,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                                     type="button"
                                     key={`btn_sec_${compositeKey}`}
                                     disabled={!isTerminalActive}
-                                    onClick={() => handleToggleSector(tKey, sectorName)}
+                                    onClick={() => handleToggleSector(tKey, cleanSecName)}
                                     className={`flex items-center gap-2 p-2 rounded-lg border text-xs transition select-none text-left ${
                                       !isTerminalActive
                                         ? 'bg-slate-950/30 border-slate-900 text-slate-600 cursor-not-allowed opacity-40'
@@ -1469,7 +1466,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                                     >
                                       {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                                     </div>
-                                    <span className="truncate">{sectorName}</span>
+                                    <span className="truncate">{cleanSecName}</span>
                                   </button>
                                 );
                               })}
@@ -1499,25 +1496,28 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                         {ALL_TERMINAIS.flatMap((tKey) => {
                           if (!formTerminais.includes(tKey)) return [];
                           const termSectors = formSetoresPorTerminal[tKey] || [];
-                          return termSectors.map((secName, sIdx) => (
+                          return termSectors.map((secName, sIdx) => {
+                            const cleanSec = normalizeSecNameClean(secName);
+                            return (
                             <span
-                              key={`chip_selected_${tKey}_${secName}_${sIdx}`}
+                              key={`chip_selected_${tKey}_${cleanSec}_${sIdx}`}
                               className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-600/25 text-blue-100 border border-blue-400/50 rounded-lg text-xs font-mono font-bold shadow-sm"
                             >
                               <span className="px-1.5 py-0.2 bg-cyan-950/90 text-cyan-300 border border-cyan-800 rounded text-[10px] font-bold">
                                 {tKey}
                               </span>
-                              <span>{secName}</span>
+                              <span>{cleanSec}</span>
                               <button
                                 type="button"
-                                onClick={() => handleRemoveSpecificSector(tKey, secName)}
-                                title={`Remover ${secName} do ${tKey}`}
+                                onClick={() => handleRemoveSpecificSector(tKey, cleanSec)}
+                                title={`Remover ${cleanSec} do ${tKey}`}
                                 className="w-3.5 h-3.5 rounded-full bg-blue-950 hover:bg-rose-900 text-blue-300 hover:text-white flex items-center justify-center transition cursor-pointer"
                               >
                                 <X className="w-2.5 h-2.5 stroke-[2.5]" />
                               </button>
                             </span>
-                          ));
+                          );
+                          });
                         })}
                       </div>
                     </div>
@@ -1833,16 +1833,17 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                           </div>
                         ) : (
                           Array.from(new Set(term.sectors || [])).map((sec, secIdx) => {
-                            const assignedCount = (sectorAssignedCounts.counts[sec.trim()] || 0) + sectorAssignedCounts.roamingCount;
+                            const cleanSec = normalizeSecNameClean(sec);
+                            const assignedCount = (sectorAssignedCounts.counts[cleanSec.trim()] || sectorAssignedCounts.counts[sec.trim()] || 0) + sectorAssignedCounts.roamingCount;
 
                             return (
                               <div
-                                key={`terminal_${term.id}_sector_${sec}_${secIdx}`}
+                                key={`terminal_${term.id}_sector_${cleanSec}_${secIdx}`}
                                 className="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 hover:border-slate-700 transition"
                               >
                                 <div className="flex-1 mr-2 min-w-0">
                                   <div className="text-xs font-bold text-white truncate">
-                                    {sec}
+                                    {cleanSec}
                                   </div>
                                   <div className="text-[10px] font-mono text-slate-400">
                                     {assignedCount} colaboradores habilitados
@@ -1855,10 +1856,10 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                                     type="button"
                                     onClick={() => {
                                       playClick();
-                                      setRenamingSector({ oldName: sec, newName: sec });
+                                      setRenamingSector({ oldName: cleanSec, newName: cleanSec });
                                     }}
                                     className="p-1.5 rounded-lg bg-blue-950 hover:bg-blue-900 text-blue-300 border border-blue-800/40 text-xs transition cursor-pointer"
-                                    title={`Renomear setor "${sec}"`}
+                                    title={`Renomear setor "${cleanSec}"`}
                                   >
                                     <Edit2 className="w-3.5 h-3.5" />
                                   </button>
@@ -1868,10 +1869,10 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                                     type="button"
                                     onClick={() => {
                                       playClick();
-                                      setSectorToDelete({ terminalId: term.id, sectorName: sec });
+                                      setSectorToDelete({ terminalId: term.id, sectorName: cleanSec });
                                     }}
                                     className="p-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/40 text-xs transition cursor-pointer"
-                                    title={`Excluir setor "${sec}" do Terminal ${term.id}`}
+                                    title={`Excluir setor "${cleanSec}" do Terminal ${term.id}`}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>

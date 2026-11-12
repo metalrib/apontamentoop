@@ -549,7 +549,7 @@ export default function App() {
         if (ts === norm) return true;
         // Aliases específicos e seguros para variações conhecidas da fábrica
         if ((norm === 'laser' || norm === 'laser cnc') && (ts === 'laser' || ts === 'laser cnc')) return true;
-        if (norm.startsWith('preparacao de folha') && ts.startsWith('preparacao de folha')) return true;
+        if ((norm.startsWith('preparacao de folha') || norm.startsWith('preparao de folha')) && (ts.startsWith('preparacao de folha') || ts.startsWith('preparao de folha'))) return true;
         if (norm.startsWith('injecao') && !norm.includes('batente') && ts.startsWith('injecao') && !ts.includes('batente')) return true;
         if (norm.includes('vai vem') && ts.includes('vai vem') && norm.includes('montagem') && ts.includes('montagem')) return true;
         if (norm.includes('corte') && norm.includes('aluminio') && ts.includes('corte') && ts.includes('aluminio')) return true;

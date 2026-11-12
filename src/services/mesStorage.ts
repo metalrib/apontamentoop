@@ -890,9 +890,18 @@ export function fetchOperators(): Operator[] {
           }
         }
 
-        // Padronização compulsória: qualquer "Preparação de Folha" (com 's') é migrada para "Preparação de Folha" (no singular)
+        // Padronização compulsória: qualquer "Preparação de Folha" (com 's' ou encoding corrompido) é migrada para "Preparação de Folha" (no singular e UTF-8 limpo)
         for (let i = 0; i < uniqueSectors.length; i++) {
-          if (uniqueSectors[i].trim().toLowerCase() === 'preparação de folhas' || uniqueSectors[i].trim().toLowerCase() === 'preparacao de folhas') {
+          const s = uniqueSectors[i].trim();
+          const norm = s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+          if (
+            norm === 'preparacao de folhas' ||
+            norm === 'preparacao de folha' ||
+            (norm.startsWith('prepara') && norm.endsWith('folha')) ||
+            (norm.startsWith('prepara') && norm.endsWith('folhas')) ||
+            s.includes('\uFFFD') ||
+            /preparao/i.test(s)
+          ) {
             uniqueSectors[i] = 'Preparação de Folha';
           }
         }
@@ -1282,10 +1291,23 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       changed = true;
     }
 
-    // Padronização compulsória de "Preparação de Folha" para "Preparação de Folha" (no singular)
-    const hasPluralFolhas = sectors.some((s) => s.trim().toLowerCase() === 'preparação de folhas' || s.trim().toLowerCase() === 'preparacao de folhas');
-    if (hasPluralFolhas) {
-      sectors = sectors.map((s) => (s.trim().toLowerCase() === 'preparação de folhas' || s.trim().toLowerCase() === 'preparacao de folhas') ? 'Preparação de Folha' : s);
+    // Padronização compulsória de "Preparação de Folha" para "Preparação de Folha" (no singular e UTF-8 limpo)
+    const isCorruptedOrPluralFolha = (s: string) => {
+      const trimmed = s.trim();
+      const norm = trimmed.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      return (
+        norm === 'preparacao de folhas' ||
+        norm === 'preparacao de folha' ||
+        (norm.startsWith('prepara') && norm.endsWith('folha')) ||
+        (norm.startsWith('prepara') && norm.endsWith('folhas')) ||
+        trimmed.includes('\uFFFD') ||
+        /preparao/i.test(trimmed)
+      );
+    };
+
+    const hasBadFolha = sectors.some((s) => isCorruptedOrPluralFolha(s) && s !== 'Preparação de Folha');
+    if (hasBadFolha) {
+      sectors = sectors.map((s) => isCorruptedOrPluralFolha(s) ? 'Preparação de Folha' : s);
       sectors = Array.from(new Set(sectors));
       changed = true;
     }

@@ -320,6 +320,95 @@ try {
   console.warn('[SQLite] Erro ao inicializar terminais padrão:', e);
 }
 
+// Função global para normalização e saneamento de encoding de setores (UTF-8 limpo)
+function sanitizeSectorEncoding(name) {
+  if (!name || typeof name !== 'string') return name;
+  const trimmed = name.trim();
+  const normalized = trimmed.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (
+    normalized === 'preparacao de folha' ||
+    normalized === 'preparacao de folhas' ||
+    /preparao/i.test(trimmed) ||
+    (trimmed.includes('\uFFFD') && /folha/i.test(trimmed)) ||
+    (/^prepara.*folha/i.test(normalized))
+  ) {
+    return 'Preparação de Folha';
+  }
+  return trimmed;
+}
+
+// Sanitização compulsória de encoding UTF-8 no SQLite na inicialização do servidor
+try {
+  const allTerms = db.prepare('SELECT id, sectors FROM terminais').all();
+  for (const t of allTerms) {
+    if (!t.sectors) continue;
+    try {
+      const secs = JSON.parse(t.sectors);
+      if (Array.isArray(secs)) {
+        let changed = false;
+        const cleanSecs = secs.map(s => {
+          const clean = sanitizeSectorEncoding(s);
+          if (clean !== s) changed = true;
+          return clean;
+        });
+        if (changed) {
+          db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?')
+            .run(JSON.stringify(Array.from(new Set(cleanSecs))), Date.now(), t.id);
+          console.log(`[SQLite] Terminal ${t.id} sanitizado com sucesso para UTF-8 limpo.`);
+        }
+      }
+    } catch {}
+  }
+
+  const allColabs = db.prepare('SELECT id, setores, dados FROM colaboradores').all();
+  for (const c of allColabs) {
+    let changed = false;
+    let cleanSetores = null;
+    let cleanDados = null;
+    if (c.setores) {
+      try {
+        const secs = JSON.parse(c.setores);
+        if (Array.isArray(secs)) {
+          const mapped = secs.map(s => {
+            const clean = sanitizeSectorEncoding(s);
+            if (clean !== s) changed = true;
+            return clean;
+          });
+          if (changed) cleanSetores = JSON.stringify(Array.from(new Set(mapped)));
+        }
+      } catch {}
+    }
+    if (c.dados) {
+      try {
+        const d = JSON.parse(c.dados);
+        if (d.setoresPorTerminal && typeof d.setoresPorTerminal === 'object') {
+          for (const key of Object.keys(d.setoresPorTerminal)) {
+            if (Array.isArray(d.setoresPorTerminal[key])) {
+              const mapped = d.setoresPorTerminal[key].map(s => {
+                const clean = sanitizeSectorEncoding(s);
+                if (clean !== s) changed = true;
+                return clean;
+              });
+              d.setoresPorTerminal[key] = Array.from(new Set(mapped));
+            }
+          }
+          if (changed) cleanDados = JSON.stringify(d);
+        }
+      } catch {}
+    }
+    if (changed) {
+      if (cleanSetores && cleanDados) {
+        db.prepare('UPDATE colaboradores SET setores = ?, dados = ?, atualizadoEm = ? WHERE id = ?').run(cleanSetores, cleanDados, Date.now(), c.id);
+      } else if (cleanSetores) {
+        db.prepare('UPDATE colaboradores SET setores = ?, atualizadoEm = ? WHERE id = ?').run(cleanSetores, Date.now(), c.id);
+      }
+      console.log(`[SQLite] Colaborador ${c.id} sanitizado com sucesso para UTF-8 limpo.`);
+    }
+  }
+} catch (err) {
+  console.warn('[SQLite] Erro na rotina de sanitização UTF-8:', err);
+}
+
 // Lista oficial e padronizada de Colaboradores da Fábrica Metalrib
 const COLABORADORES_PADRAO = [
   // TERMINAL 1
@@ -1159,14 +1248,23 @@ app.delete('/api/colaboradores/:id', (req, res) => {
 
 function obterTerminais() {
   const rows = db.prepare('SELECT * FROM terminais ORDER BY id ASC').all();
-  return rows.map(r => ({
-    id: r.id,
-    name: r.name,
-    label: r.label,
-    sectors: JSON.parse(r.sectors || '[]'),
-    setores: JSON.parse(r.sectors || '[]'),
-    atualizadoEm: r.atualizadoEm
-  }));
+  return rows.map(r => {
+    let secs = [];
+    try {
+      secs = JSON.parse(r.sectors || '[]');
+    } catch {}
+    const cleanSecs = Array.isArray(secs)
+      ? Array.from(new Set(secs.map(sanitizeSectorEncoding).filter(Boolean)))
+      : [];
+    return {
+      id: r.id,
+      name: r.name,
+      label: r.label,
+      sectors: cleanSecs,
+      setores: cleanSecs,
+      atualizadoEm: r.atualizadoEm
+    };
+  });
 }
 
 app.get('/api/terminais', (req, res) => {
@@ -1196,7 +1294,8 @@ app.post(['/api/terminais', '/api/configuracoes/terminais'], (req, res) => {
     const now = Date.now();
     const tx = db.transaction((terms) => {
       for (const t of terms) {
-        const secs = Array.isArray(t.sectors) ? t.sectors : (Array.isArray(t.setores) ? t.setores : []);
+        const rawSecs = Array.isArray(t.sectors) ? t.sectors : (Array.isArray(t.setores) ? t.setores : []);
+        const secs = Array.from(new Set(rawSecs.map(sanitizeSectorEncoding).filter(Boolean)));
         stmt.run({
           id: Number(t.id),
           name: String(t.name || `Terminal ${t.id}`),
@@ -1222,7 +1321,8 @@ app.put('/api/terminais/:id', (req, res) => {
   try {
     const termId = Number(req.params.id);
     const { name, label, sectors, setores } = req.body;
-    const secs = Array.isArray(sectors) ? sectors : (Array.isArray(setores) ? setores : []);
+    const rawSecs = Array.isArray(sectors) ? sectors : (Array.isArray(setores) ? setores : []);
+    const secs = Array.from(new Set(rawSecs.map(sanitizeSectorEncoding).filter(Boolean)));
 
     const existing = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
     const now = Date.now();
@@ -1279,17 +1379,20 @@ app.post('/api/terminais/:id/setores', (req, res) => {
   try {
     const termId = Number(req.params.id);
     const { sectorName, setor } = req.body;
-    const clean = String(sectorName || setor || '').trim();
-    if (!clean) return res.status(400).json({ error: 'Nome do setor obrigatório' });
+    const rawClean = String(sectorName || setor || '').trim();
+    if (!rawClean) return res.status(400).json({ error: 'Nome do setor obrigatório' });
+    const clean = sanitizeSectorEncoding(rawClean);
 
     const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
     let sectors = [];
     if (row) {
       sectors = JSON.parse(row.sectors || '[]');
     }
+    sectors = sectors.map(sanitizeSectorEncoding);
     if (!sectors.some(s => s.toLowerCase() === clean.toLowerCase())) {
       sectors.push(clean);
     }
+    sectors = Array.from(new Set(sectors));
 
     const now = Date.now();
     db.prepare(`
@@ -2665,15 +2768,18 @@ io.on('connection', (socket) => {
   socket.on('criar_setor', (data) => {
     if (!data) return;
     const termId = Number(data.terminalId || 1);
-    const clean = String(data.sectorName || data.setor || '').trim();
-    if (!clean) return;
+    const rawClean = String(data.sectorName || data.setor || '').trim();
+    if (!rawClean) return;
+    const clean = sanitizeSectorEncoding(rawClean);
     const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
     let sectors = [];
     if (row) {
       sectors = JSON.parse(row.sectors || '[]');
     }
+    sectors = sectors.map(sanitizeSectorEncoding);
     if (!sectors.some(s => s.toLowerCase() === clean.toLowerCase())) {
       sectors.push(clean);
+      sectors = Array.from(new Set(sectors));
       db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = ?')
         .run(JSON.stringify(sectors), Date.now(), termId);
       const atualizados = obterTerminais();
@@ -2696,7 +2802,8 @@ io.on('connection', (socket) => {
     const now = Date.now();
     const tx = db.transaction((list) => {
       for (const t of list) {
-        const secs = Array.isArray(t.sectors) ? t.sectors : (Array.isArray(t.setores) ? t.setores : []);
+        const rawSecs = Array.isArray(t.sectors) ? t.sectors : (Array.isArray(t.setores) ? t.setores : []);
+        const secs = Array.from(new Set(rawSecs.map(sanitizeSectorEncoding).filter(Boolean)));
         stmt.run({
           id: Number(t.id),
           name: String(t.name || `Terminal ${t.id}`),
