@@ -1,4 +1,4 @@
-import { spawnSync } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import http from 'http';
@@ -137,5 +137,82 @@ req.on('error', () => {
 });
 req.write(postData);
 req.end();
+
+// Reiniciar processo do servidor na porta 3000 em modo de produção
+function restartPort3000() {
+  console.log('🔄 [Atomic Build] Reiniciando processo do servidor na porta 3000 (vite preview)...');
+  try {
+    const pids = new Set();
+    if (process.platform === 'win32') {
+      const netstat = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' }).stdout || '';
+      const lines = netstat.split('\r\n');
+      for (const line of lines) {
+        if (line.includes(':3000') && line.includes('LISTENING')) {
+          const parts = line.trim().split(/\s+/);
+          const pid = Number(parts[parts.length - 1]);
+          if (!isNaN(pid) && pid > 0 && pid !== process.pid) {
+            pids.add(pid);
+          }
+        }
+      }
+    } else {
+      const lsof = spawnSync('lsof', ['-ti', ':3000'], { encoding: 'utf8' }).stdout || '';
+      lsof.trim().split('\n').forEach((p) => {
+        const pid = Number(p.trim());
+        if (!isNaN(pid) && pid > 0 && pid !== process.pid) pids.add(pid);
+      });
+    }
+
+    // Encerrar processo(s) atual(is) na porta 3000
+    for (const pid of pids) {
+      console.log(`[Atomic Build] Finalizando processo anterior na porta 3000 (PID ${pid})...`);
+      try {
+        if (process.platform === 'win32') {
+          spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore' });
+        } else {
+          process.kill(pid, 'SIGKILL');
+        }
+      } catch (_) {}
+    }
+
+    // Pausa para liberação completa do socket
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 1000) {}
+
+    // Verificar se já reiniciou (por exemplo via loop do iniciar_sistema_local.bat)
+    let isListening = false;
+    if (process.platform === 'win32') {
+      const check = spawnSync('netstat', ['-ano', '-p', 'TCP'], { encoding: 'utf8' }).stdout || '';
+      const lines = check.split('\r\n');
+      isListening = lines.some((l) => l.includes(':3000') && l.includes('LISTENING'));
+    } else {
+      const lsof = spawnSync('lsof', ['-ti', ':3000'], { encoding: 'utf8' }).stdout || '';
+      isListening = lsof.trim().length > 0;
+    }
+
+    if (!isListening) {
+      console.log('[Atomic Build] Subindo novo processo em modo de produção na porta 3000 (vite preview --host 0.0.0.0 --port 3000)...');
+      if (process.platform === 'win32') {
+        spawnSync('cmd.exe', ['/c', 'start', '/min', 'npm', 'start'], {
+          cwd: rootDir,
+          stdio: 'ignore'
+        });
+      } else {
+        const child = spawn('npm', ['start'], {
+          cwd: rootDir,
+          detached: true,
+          stdio: 'ignore'
+        });
+        child.unref();
+      }
+    }
+
+    console.log('✅ [Atomic Build] Servidor de produção na porta 3000 reiniciado com sucesso!');
+  } catch (err) {
+    console.warn('[Atomic Build] Aviso ao reiniciar servidor na porta 3000:', err.message);
+  }
+}
+
+restartPort3000();
 
 process.exit(0);

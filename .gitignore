@@ -4,6 +4,8 @@ node_modules
 .env.*
 !.env.example
 dist
+dist_temp
+dist_backup
 build
 .next
 coverage
