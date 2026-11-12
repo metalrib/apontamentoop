@@ -13,17 +13,37 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
+const { parseNomusHtml } = require('./nomusParser');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS']
   }
 });
 
-app.use(cors());
+// Configuração robusta de CORS e limites de payload (30MB+ suportando JSON, texto puro e formulário)
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['*']
+}));
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, *');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.text({ limit: '50mb', type: ['text/*', 'application/xhtml+xml', 'application/xml'] }));
 
 // =========================================================================
 // ZERO-DOWNTIME: SERVIR BUILD DE PRODUÇÃO (DIST) E WATCH DE AUTO-ATUALIZAÇÃO
@@ -94,6 +114,30 @@ try {
 } catch (e) {}
 try {
   db.exec(`ALTER TABLE ordens ADD COLUMN ocorrencias TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN data_entrega TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN prazoEntrega TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN lote TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN observacao TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN observacoes TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN status_nomus TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN statusNomus TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN dados TEXT;`);
 } catch (e) {}
 
 // Tabela de Apontamentos para histórico e rastreabilidade industrial
@@ -814,16 +858,21 @@ try {
 
 // Helper para formatar ordens
 function obterTodasOrdens() {
-  return db.prepare('SELECT * FROM ordens').all().map(r => ({
-    ...r,
-    requerLaser: Boolean(r.requerLaser || r.requer_laser),
-    requer_laser: Boolean(r.requerLaser || r.requer_laser),
-    requerRouter: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router),
-    requer_router: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router),
-    encaminhar_router: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router),
-    etapas: JSON.parse(r.etapas || '[]'),
-    ocorrencias: JSON.parse(r.ocorrencias || '[]')
-  }));
+  return db.prepare('SELECT * FROM ordens').all().map(r => {
+    let extra = {};
+    try { if (r.dados) extra = JSON.parse(r.dados); } catch {}
+    return {
+      ...extra,
+      ...r,
+      requerLaser: Boolean(r.requerLaser || r.requer_laser || extra.requerLaser || extra.requer_laser),
+      requer_laser: Boolean(r.requerLaser || r.requer_laser || extra.requerLaser || extra.requer_laser),
+      requerRouter: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router || extra.requerRouter || extra.requer_router),
+      requer_router: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router || extra.requerRouter || extra.requer_router),
+      encaminhar_router: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router || extra.encaminhar_router),
+      etapas: typeof r.etapas === 'string' ? JSON.parse(r.etapas || '[]') : (r.etapas || []),
+      ocorrencias: typeof r.ocorrencias === 'string' ? JSON.parse(r.ocorrencias || '[]') : (r.ocorrencias || [])
+    };
+  });
 }
 
 // Rotas da API REST
@@ -1395,6 +1444,145 @@ app.post('/api/ordens', (req, res) => {
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
   res.json({ success: true, count: todas.length });
+});
+
+// =========================================================================
+// 3.1 ENDPOINT RECEPTOR AUTOMÁTICO DO NOMUS (TAMPERMONKEY USERSCRIPT)
+// =========================================================================
+app.options('/api/importar-nomus-auto', cors());
+
+app.post('/api/importar-nomus-auto', (req, res) => {
+  try {
+    const rawHtml = (typeof req.body === 'string' ? req.body : req.body?.html) || '';
+    if (!rawHtml || !rawHtml.trim()) {
+      return res.status(400).json({ ok: false, error: 'HTML do Nomus não informado no payload (esperado req.body.html)' });
+    }
+
+    console.log(`[Nomus Auto] Recebida requisição de importação automática do Nomus (${rawHtml.length} bytes)...`);
+    const { orders, warnings } = parseNomusHtml(rawHtml);
+
+    if (!orders || orders.length === 0) {
+      console.warn('[Nomus Auto] Nenhuma OP válida encontrada no HTML recebido.');
+      return res.json({ ok: true, processadas: 0, aviso: 'Nenhuma OP válida encontrada no relatório HTML.' });
+    }
+
+    console.log(`[Nomus Auto] Parsed com sucesso: ${orders.length} OPs válidas.`);
+
+    const upsertStmt = db.prepare(`
+      INSERT INTO ordens (
+        id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica,
+        requerLaser, requer_laser, requerRouter, requer_router, encaminhar_router,
+        lote, observacao, observacoes, data_entrega, prazoEntrega, status_nomus, statusNomus,
+        dados, criadoEm, atualizadoEm
+      ) VALUES (
+        @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica,
+        @requerLaser, @requer_laser, @requerRouter, @requer_router, @encaminhar_router,
+        @lote, @observacao, @observacoes, @data_entrega, @prazoEntrega, @status_nomus, @statusNomus,
+        @dados, @criadoEm, @atualizadoEm
+      )
+      ON CONFLICT(numero) DO UPDATE SET
+        id = excluded.id,
+        codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
+        descricao = CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE ordens.descricao END,
+        cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
+        tipoOrdem = CASE WHEN excluded.tipoOrdem != '' THEN excluded.tipoOrdem ELSE ordens.tipoOrdem END,
+        lote = CASE WHEN excluded.lote != '' AND excluded.lote != '—' THEN excluded.lote ELSE ordens.lote END,
+        observacao = CASE WHEN excluded.observacao != '' THEN excluded.observacao ELSE ordens.observacao END,
+        observacoes = CASE WHEN excluded.observacoes != '' THEN excluded.observacoes ELSE ordens.observacoes END,
+        data_entrega = CASE WHEN excluded.data_entrega != '' THEN excluded.data_entrega ELSE ordens.data_entrega END,
+        prazoEntrega = CASE WHEN excluded.prazoEntrega != '' THEN excluded.prazoEntrega ELSE ordens.prazoEntrega END,
+        status_nomus = CASE WHEN excluded.status_nomus != '' THEN excluded.status_nomus ELSE ordens.status_nomus END,
+        statusNomus = CASE WHEN excluded.statusNomus != '' THEN excluded.statusNomus ELSE ordens.statusNomus END,
+        dados = excluded.dados,
+        quantidadeFisica = CASE 
+          WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
+          THEN excluded.quantidadeFisica 
+          ELSE ordens.quantidadeFisica 
+        END,
+        requerLaser = CASE WHEN excluded.requerLaser = 1 THEN 1 ELSE ordens.requerLaser END,
+        requer_laser = CASE WHEN excluded.requer_laser = 1 THEN 1 ELSE ordens.requer_laser END,
+        requerRouter = CASE WHEN excluded.requerRouter = 1 THEN 1 ELSE ordens.requerRouter END,
+        requer_router = CASE WHEN excluded.requer_router = 1 THEN 1 ELSE ordens.requer_router END,
+        encaminhar_router = CASE WHEN excluded.encaminhar_router = 1 THEN 1 ELSE ordens.encaminhar_router END,
+        status = CASE 
+          WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
+          THEN excluded.status 
+          ELSE ordens.status 
+        END,
+        etapas = CASE 
+          WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
+          THEN excluded.etapas 
+          ELSE ordens.etapas 
+        END,
+        atualizadoEm = excluded.atualizadoEm
+    `);
+
+    const now = Date.now();
+    const tx = db.transaction((lista) => {
+      for (const op of lista) {
+        const canonicalNum = formatarNumeroOP(op.numero_normalizado || op.numero || op.id);
+        if (!canonicalNum) continue;
+
+        upsertStmt.run({
+          id: canonicalNum,
+          numero: canonicalNum,
+          codigo: op.codigo || op.codigoProduto || '',
+          descricao: op.descricao || '',
+          cliente: op.cliente || 'Nomus ERP',
+          tipoOrdem: op.tipoOrdem || op.familia || 'Padrão',
+          status: op.status || 'Aguardando Início em: Corte',
+          etapas: JSON.stringify(op.etapas || op.rota || ['Corte']),
+          quantidadeFisica: Number(op.quantidadeFisica || op.quantidade || 1),
+          requerLaser: op.requerLaser ? 1 : 0,
+          requer_laser: op.requerLaser ? 1 : 0,
+          requerRouter: op.requerRouter ? 1 : 0,
+          requer_router: op.requerRouter ? 1 : 0,
+          encaminhar_router: op.requerRouter ? 1 : 0,
+          lote: op.lote || '—',
+          observacao: op.observacao || op.observacoes || '',
+          observacoes: op.observacoes || op.observacao || '',
+          data_entrega: op.data_entrega || op.prazoEntrega || '',
+          prazoEntrega: op.prazoEntrega || op.data_entrega || '',
+          status_nomus: op.status_nomus || op.statusNomus || 'Liberada',
+          statusNomus: op.statusNomus || op.status_nomus || 'Liberada',
+          dados: JSON.stringify(op),
+          criadoEm: op.criadoEm || now,
+          atualizadoEm: now
+        });
+      }
+    });
+
+    tx(orders);
+
+    // Limpeza preventiva pós-importação
+    const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();
+    const seenNorm = new Set();
+    const idsParaExcluir = [];
+    for (const row of todasOrdensBrutas) {
+      const clean = normalizarIdOP(row.numero || row.id);
+      if (!clean || seenNorm.has(clean)) {
+        idsParaExcluir.push(row.rowid);
+      } else {
+        seenNorm.add(clean);
+      }
+    }
+    if (idsParaExcluir.length > 0) {
+      const delStmt = db.prepare('DELETE FROM ordens WHERE rowid = ?');
+      const delTx = db.transaction((list) => {
+        for (const rid of list) delStmt.run(rid);
+      });
+      delTx(idsParaExcluir);
+    }
+
+    const ordensAtualizadas = obterTodasOrdens();
+    console.log(`[Nomus Auto] Emitindo 'ordens_atualizadas' com ${ordensAtualizadas.length} ordens.`);
+    io.emit('ordens_atualizadas', ordensAtualizadas);
+
+    return res.json({ ok: true, processadas: orders.length });
+  } catch (err) {
+    console.error('[Nomus Auto] Erro ao processar importação automática:', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // 4. Atualização de ordem por ID / Número (com proteção anti-loop de idempotência)
