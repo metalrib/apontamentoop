@@ -76,7 +76,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   onOrdersUpdated,
   onClearOrders
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'apontamentos' | 'productivity' | 'tv_status'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'apontamentos' | 'productivity' | 'tv_status' | 'equipe'>('dashboard');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EM_PRODUCAO' | 'FINALIZADA'>('ALL');
   const [orderViewMode, setOrderViewMode] = useState<'cards' | 'table'>('cards');
@@ -112,6 +112,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
   const handleCloseTeamModal = useCallback(() => {
     setShowTeamModal(false);
+    setActiveTab((prev) => (prev === 'equipe' ? 'dashboard' : prev));
   }, []);
 
   const handleOperatorsUpdated = useCallback(() => {
@@ -490,6 +491,17 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     link.click();
     URL.revokeObjectURL(url);
   };
+
+  // Visualização de Tela Inteira Dedicada: Gestão de Colaboradores & Setores (Zero overhead no dashboard)
+  if (showTeamModal || activeTab === 'equipe') {
+    return (
+      <TeamManagementModal
+        isOpen={true}
+        onClose={handleCloseTeamModal}
+        onOperatorsUpdated={handleOperatorsUpdated}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#070B16] text-slate-100 flex flex-col font-sans relative">
@@ -1793,13 +1805,6 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           </div>
         </div>
       )}
-
-      {/* Modal de Gestão de Colaboradores e Escala de Setores */}
-      <TeamManagementModal
-        isOpen={showTeamModal}
-        onClose={handleCloseTeamModal}
-        onOperatorsUpdated={handleOperatorsUpdated}
-      />
     </div>
   );
 };

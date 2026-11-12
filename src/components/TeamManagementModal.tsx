@@ -61,6 +61,171 @@ const TERMINAL_DETAILS: Record<string, { label: string; desc: string }> = {
   T5: { label: 'Terminal 5', desc: 'Router, Elétrica, Solda & Acessórios' },
 };
 
+interface OperatorTableRowProps {
+  op: Operator;
+  isCurrentlyEditing: boolean;
+  onEdit: (op: Operator) => void;
+  onDelete: (op: Operator) => void;
+}
+
+const OperatorTableRow = React.memo<OperatorTableRowProps>(({
+  op,
+  isCurrentlyEditing,
+  onEdit,
+  onDelete
+}) => {
+  const opTerminais = Array.isArray(op.terminais) ? op.terminais : [];
+  const opSectors = Array.isArray(op.setores)
+    ? op.setores
+    : Array.isArray(op.sectors)
+    ? op.sectors
+    : op.setor ? [op.setor] : [];
+
+  return (
+    <tr
+      className={`border-b border-slate-800/80 ${
+        isCurrentlyEditing
+          ? 'bg-amber-950/30 border-l-4 border-l-amber-400 font-bold'
+          : 'hover:bg-slate-900/50'
+      }`}
+    >
+      <td className="py-3 px-4">
+        <div className="flex items-center gap-3">
+          <div
+            className={`w-8 h-8 rounded-xl border flex items-center justify-center font-bold text-xs ${
+              isCurrentlyEditing
+                ? 'bg-amber-500 text-black border-amber-300'
+                : 'bg-slate-800 border-slate-700 text-slate-200'
+            }`}
+          >
+            {op.initials}
+          </div>
+          <div>
+            <div className="font-bold text-white text-xs flex items-center gap-1.5 flex-wrap">
+              <span>{op.nome || op.name}</span>
+              {op.especialista && (
+                <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 rounded font-bold">
+                  ★ ESPECIALISTA
+                </span>
+              )}
+              {isCurrentlyEditing && (
+                <span className="text-[9px] bg-amber-400 text-black font-bold px-1.5 py-0.2 rounded">
+                  EM EDIÇÃO
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </td>
+
+      <td className="py-3 px-4">
+        <div className="flex flex-wrap gap-1">
+          {opTerminais.length > 0 ? (
+            opTerminais.map((term) => (
+              <span
+                key={`term_${op.id}_${term}`}
+                className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-800 px-1.5 py-0.5 rounded font-bold font-mono"
+              >
+                {term}
+              </span>
+            ))
+          ) : (
+            <span className="text-[10px] text-slate-600 italic">-</span>
+          )}
+        </div>
+      </td>
+
+      <td className="py-3 px-4 font-bold text-slate-300">
+        {op.badge || op.codigo || '-'}
+      </td>
+
+      <td className="py-3 px-4 text-slate-400">
+        {op.role || '-'}
+      </td>
+
+      <td className="py-3 px-4">
+        <div className="flex flex-wrap gap-1 max-w-xl">
+          {op.isRoaming ? (
+            <span className="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">
+              Todos os setores da fábrica
+            </span>
+          ) : (() => {
+            const chips: React.ReactNode[] = [];
+            if (op.setoresPorTerminal && typeof op.setoresPorTerminal === 'object') {
+              ALL_TERMINAIS.forEach((tKey) => {
+                const list = op.setoresPorTerminal?.[tKey] || [];
+                list.forEach((sec, sIdx) => {
+                  chips.push(
+                    <span
+                      key={`table_op_${op.id}_${tKey}_${sec}_${sIdx}`}
+                      className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1"
+                    >
+                      <span className="text-cyan-400 font-mono font-bold text-[9px]">{tKey}</span>
+                      <span>{sec}</span>
+                    </span>
+                  );
+                });
+              });
+            }
+            if (chips.length > 0) {
+              return chips;
+            }
+            if (opSectors.length > 0) {
+              return Array.from(new Set(opSectors)).map((sec, sIdx) => (
+                <span
+                  key={`op_${op.id}_sec_${sec}_${sIdx}`}
+                  className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800"
+                >
+                  {sec}
+                </span>
+              ));
+            }
+            return (
+              <span className="text-[10px] text-slate-600 italic">
+                Sem setores vinculados
+              </span>
+            );
+          })()}
+        </div>
+      </td>
+
+      <td className="py-3 px-4 text-right">
+        <div className="flex items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit(op);
+            }}
+            className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 ${
+              isCurrentlyEditing
+                ? 'bg-amber-500 text-black border-amber-300'
+                : 'bg-blue-950/80 hover:bg-blue-800 text-blue-300 hover:text-white border-blue-700/60'
+            }`}
+            title="Editar terminais e setores deste colaborador"
+          >
+            <Edit2 className="w-3.5 h-3.5" />
+            <span>{isCurrentlyEditing ? 'Editando' : 'Editar'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(op);
+            }}
+            className="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/60 transition flex items-center gap-1 cursor-pointer active:scale-95"
+            title="Excluir este colaborador da fábrica"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Excluir</span>
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
+
 export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.memo(({
   isOpen,
   onClose,
@@ -73,7 +238,16 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
   const [operators, setOperators] = useState<Operator[]>([]);
   const [terminals, setTerminals] = useState<TerminalConfig[]>([]);
   const setTerminais = setTerminals;
-  const [searchTerm, setSearchTerm] = useState<string>('');
+  // Busca com debounce de 150ms para digitação e resposta instantânea
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [debouncedSearch, setDebouncedSearch] = useState<string>('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
   const [filterTerminal, setFilterTerminal] = useState<string>('all');
   const [filterSector, setFilterSector] = useState<string>('all');
 
@@ -270,7 +444,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
     setIsSaving(false);
   };
 
-  const handleEditClick = (op: Operator) => {
+  const handleEditClick = useCallback((op: Operator) => {
     playClick();
     setEditingId(op.id);
     setFormName(op.nome || op.name);
@@ -358,7 +532,12 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
     setTimeout(() => {
       nameInputRef.current?.focus();
     }, 150);
-  };
+  }, [terminals]);
+
+  const handleDeleteOperatorClick = useCallback((op: Operator) => {
+    playClick();
+    setOperatorToDelete(op);
+  }, []);
 
   // Alterna terminal autorizado
   const handleToggleTerminal = (termKey: string) => {
@@ -778,9 +957,9 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
       const name = (op.nome || op.name || '').toLowerCase();
       const badge = (op.badge || op.codigo || '').toLowerCase();
       const role = (op.role || '').toLowerCase();
-      const s = searchTerm.toLowerCase();
+      const s = debouncedSearch.toLowerCase().trim();
 
-      const matchesSearch = name.includes(s) || badge.includes(s) || role.includes(s);
+      const matchesSearch = !s || name.includes(s) || badge.includes(s) || role.includes(s);
       if (!matchesSearch) return false;
 
       // Filtro por Terminal
@@ -801,7 +980,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
         : op.setor ? [op.setor] : [];
       return opSectors.some((sec) => sec.trim().toLowerCase() === filterSector.toLowerCase());
     });
-  }, [operators, searchTerm, filterTerminal, filterSector]);
+  }, [operators, debouncedSearch, filterTerminal, filterSector]);
 
   // Mapa de contagem de colaboradores habilitados por setor (memoizado para rolagem e renderização ultra-rápidas)
   const sectorAssignedCounts = useMemo(() => {
@@ -831,124 +1010,140 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/90 flex items-center justify-center p-3 sm:p-6 overflow-y-auto">
-      <div className="bg-[#0b1122] border-2 border-blue-900/80 w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] my-auto relative">
-        {/* Cabeçalho do Modal */}
-        <div className="bg-[#0e172e] border-b border-blue-900/80 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-[#1C2F8A] selection:text-white">
+      {/* Cabeçalho da Página em Tela Cheia */}
+      <div className="bg-[#0e172e] border-b border-blue-900/80 px-4 sm:px-8 py-3.5 flex flex-col lg:flex-row items-center justify-between gap-4 sticky top-0 z-30 shadow-xl">
+        <div className="flex items-center gap-4 w-full lg:w-auto justify-between lg:justify-start">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 hover:border-slate-500 font-mono text-xs font-bold transition active:scale-95 flex items-center gap-2 cursor-pointer shadow-sm shrink-0"
+            title="Voltar ao Dashboard do Portal PCP"
+          >
+            <ArrowLeft className="w-4 h-4 text-blue-400" />
+            <span>← Voltar ao Portal PCP</span>
+          </button>
+
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center font-bold">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center justify-center font-bold shrink-0">
               {activeTab === 'operators' ? <Users className="w-5 h-5" /> : <FolderTree className="w-5 h-5" />}
             </div>
             <div>
-              <h2 className="text-lg font-black text-white tracking-wide font-mono flex items-center gap-2">
-                <span>GESTÃO DE COLABORADORES & SETORES (PCP)</span>
+              <h2 className="text-base sm:text-lg font-black text-white tracking-wide font-mono flex items-center gap-2">
+                <span>GESTÃO DE COLABORADORES & SETORES</span>
+                <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded font-mono font-bold hidden sm:inline">
+                  TELA DEDICADA
+                </span>
               </h2>
-              <p className="text-xs text-slate-400 font-mono">
+              <p className="text-xs text-slate-400 font-mono hidden sm:block">
                 {activeTab === 'operators'
                   ? 'Configure terminais e setores oficiais com sincronização em tempo real'
                   : 'Gerencie a lista de setores ativos distribuídos pelos 5 terminais'}
               </p>
             </div>
           </div>
-
-          {/* Alternador de Abas e Ações */}
-          <div className="flex items-center gap-2">
-            <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  playClick();
-                  setActiveTab('operators');
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === 'operators'
-                    ? 'bg-[#1C2F8A] text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Colaboradores ({operators.length})</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  playClick();
-                  setActiveTab('sectors');
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                  activeTab === 'sectors'
-                    ? 'bg-amber-600 text-white shadow-md'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <FolderTree className="w-3.5 h-3.5" />
-                <span>Setores da Fábrica ({allFactorySectors.length})</span>
-              </button>
-            </div>
-
-            {/* Exportar / Importar JSON */}
-            <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={handleExportBackup}
-                title="Exportar backup JSON da configuração da fábrica"
-                className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-slate-300 hover:text-emerald-300 hover:bg-emerald-950/40 border border-transparent hover:border-emerald-800 transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <Download className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="hidden sm:inline">Exportar</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                title="Importar backup JSON da configuração da fábrica"
-                className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-slate-300 hover:text-cyan-300 hover:bg-cyan-950/40 border border-transparent hover:border-cyan-800 transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <Upload className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="hidden sm:inline">Importar</span>
-              </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleImportBackup}
-                accept=".json"
-                className="hidden"
-              />
-            </div>
-
-            <button
-              onClick={onClose}
-              className="w-9 h-9 rounded-xl bg-slate-900 hover:bg-rose-950/60 text-slate-400 hover:text-rose-300 border border-slate-700 flex items-center justify-center font-bold text-sm transition cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
         </div>
 
-        {/* Notificação Toast */}
-        {successToast && (
-          <div className="bg-emerald-950/90 border-b border-emerald-500/50 px-6 py-2.5 text-xs font-mono font-bold text-emerald-300 flex items-center gap-2 animate-in fade-in">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            <span>{successToast}</span>
-          </div>
-        )}
+        {/* Alternador de Abas e Ações */}
+        <div className="flex items-center gap-2 flex-wrap justify-end w-full lg:w-auto">
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                playClick();
+                setActiveTab('operators');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'operators'
+                  ? 'bg-[#1C2F8A] text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Colaboradores ({operators.length})</span>
+            </button>
 
-        <div ref={scrollContainerRef} className="p-6 overflow-y-auto space-y-6 flex-1">
-          {/* ======================================================== */}
-          {/* ABA 1: COLABORADORES E ESCALA */}
-          {/* ======================================================== */}
-          {activeTab === 'operators' && (
-            <>
-              {/* Formulário de Cadastro / Edição de Colaborador */}
-              <div
-                ref={formContainerRef}
-                className={`border-2 rounded-2xl p-5 shadow-lg transition-all ${
-                  editingId
-                    ? 'bg-amber-950/20 border-amber-500/70 ring-2 ring-amber-500/30'
-                    : 'bg-[#070b16] border-slate-800'
-                }`}
-              >
+            <button
+              type="button"
+              onClick={() => {
+                playClick();
+                setActiveTab('sectors');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                activeTab === 'sectors'
+                  ? 'bg-amber-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <FolderTree className="w-3.5 h-3.5" />
+              <span>Setores da Fábrica ({allFactorySectors.length})</span>
+            </button>
+          </div>
+
+          {/* Exportar / Importar JSON */}
+          <div className="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={handleExportBackup}
+              title="Exportar backup JSON da configuração da fábrica"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-slate-300 hover:text-emerald-300 hover:bg-emerald-950/40 border border-transparent hover:border-emerald-800 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Exportar</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Importar backup JSON da configuração da fábrica"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-mono font-bold text-slate-300 hover:text-cyan-300 hover:bg-cyan-950/40 border border-transparent hover:border-cyan-800 transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Importar</span>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImportBackup}
+              accept=".json"
+              className="hidden"
+            />
+          </div>
+
+          <button
+            onClick={onClose}
+            className="px-3 py-2 rounded-xl bg-slate-900 hover:bg-rose-950/60 text-slate-300 hover:text-rose-300 border border-slate-700 flex items-center gap-1.5 font-bold text-xs font-mono transition cursor-pointer"
+            title="Fechar e retornar ao Portal PCP"
+          >
+            <X className="w-4 h-4" />
+            <span className="hidden sm:inline">Fechar</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Notificação Toast */}
+      {successToast && (
+        <div className="bg-emerald-950/90 border-b border-emerald-500/50 px-6 py-2.5 text-xs font-mono font-bold text-emerald-300 flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span>{successToast}</span>
+        </div>
+      )}
+
+      <div ref={scrollContainerRef} className="w-full flex-1 overflow-y-auto p-4 sm:p-8 space-y-6 max-w-[1700px] mx-auto">
+        {/* ======================================================== */}
+        {/* ABA 1: COLABORADORES E ESCALA */}
+        {/* ======================================================== */}
+        {activeTab === 'operators' && (
+          <>
+            {/* Formulário de Cadastro / Edição de Colaborador */}
+            <div
+              ref={formContainerRef}
+              className={`border-2 rounded-2xl p-5 shadow-lg ${
+                editingId
+                  ? 'bg-amber-950/20 border-amber-500/70 ring-2 ring-amber-500/30'
+                  : 'bg-[#070b16] border-slate-800'
+              }`}
+            >
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-black text-white font-mono flex items-center gap-2">
                     {editingId ? (
@@ -1235,8 +1430,8 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                               </div>
                             </div>
 
-                            {/* Grid de Botões dos Setores */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5">
+                            {/* Grid de Botões dos Setores em 4 ou 5 colunas para aproveitamento total da tela */}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
                               {sectorsOfTerminal.map((sectorName) => {
                                 const compositeKey = `${tKey}_${sectorName}`;
                                 const isChecked =
@@ -1377,9 +1572,9 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                   <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-500" />
                   <input
                     type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar colaborador ou crachá..."
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    placeholder="Buscar colaborador ou crachá (resposta instantânea)..."
                     className="w-full pl-9 pr-3 py-1.5 bg-slate-950 border border-slate-800 rounded-xl text-white text-xs font-mono focus:outline-none focus:border-blue-400"
                   />
                 </div>
@@ -1450,163 +1645,15 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                           </td>
                         </tr>
                       ) : (
-                        filteredOperators.map((op) => {
-                          const isCurrentlyEditing = editingId === op.id;
-                          const opTerminais = Array.isArray(op.terminais) ? op.terminais : [];
-                          const opSectors = Array.isArray(op.setores)
-                            ? op.setores
-                            : Array.isArray(op.sectors)
-                            ? op.sectors
-                            : op.setor ? [op.setor] : [];
-
-                          return (
-                            <tr
-                              key={op.id}
-                              className={`transition ${
-                                isCurrentlyEditing
-                                  ? 'bg-amber-950/30 border-l-4 border-l-amber-400 font-bold'
-                                  : 'hover:bg-slate-900/50'
-                              }`}
-                            >
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-3">
-                                  <div
-                                    className={`w-8 h-8 rounded-xl border flex items-center justify-center font-bold text-xs ${
-                                      isCurrentlyEditing
-                                        ? 'bg-amber-500 text-black border-amber-300'
-                                        : 'bg-slate-800 border-slate-700 text-slate-200'
-                                    }`}
-                                  >
-                                    {op.initials}
-                                  </div>
-                                  <div>
-                                    <div className="font-bold text-white text-xs flex items-center gap-1.5 flex-wrap">
-                                      <span>{op.nome || op.name}</span>
-                                      {op.especialista && (
-                                        <span className="text-[9px] bg-purple-500/20 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 rounded font-bold">
-                                          ★ ESPECIALISTA
-                                        </span>
-                                      )}
-                                      {isCurrentlyEditing && (
-                                        <span className="text-[9px] bg-amber-400 text-black font-bold px-1.5 py-0.2 rounded">
-                                          EM EDIÇÃO
-                                        </span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-                              </td>
-
-                              <td className="py-3 px-4">
-                                <div className="flex flex-wrap gap-1">
-                                  {opTerminais.length > 0 ? (
-                                    opTerminais.map((term) => (
-                                      <span
-                                        key={`term_${op.id}_${term}`}
-                                        className="text-[10px] bg-cyan-950/90 text-cyan-300 border border-cyan-800 px-1.5 py-0.5 rounded font-bold font-mono"
-                                      >
-                                        {term}
-                                      </span>
-                                    ))
-                                  ) : (
-                                    <span className="text-[10px] text-slate-600 italic">-</span>
-                                  )}
-                                </div>
-                              </td>
-
-                              <td className="py-3 px-4 font-bold text-slate-300">
-                                {op.badge || op.codigo || '-'}
-                              </td>
-
-                              <td className="py-3 px-4 text-slate-400">
-                                {op.role || '-'}
-                              </td>
-
-                              <td className="py-3 px-4">
-                                <div className="flex flex-wrap gap-1 max-w-md">
-                                  {op.isRoaming ? (
-                                    <span className="text-[10px] bg-blue-950 text-blue-300 px-2 py-0.5 rounded border border-blue-800">
-                                      Todos os setores da fábrica
-                                    </span>
-                                  ) : (() => {
-                                    const chips: React.ReactNode[] = [];
-                                    if (op.setoresPorTerminal && typeof op.setoresPorTerminal === 'object') {
-                                      ALL_TERMINAIS.forEach((tKey) => {
-                                        const list = op.setoresPorTerminal?.[tKey] || [];
-                                        list.forEach((sec, sIdx) => {
-                                          chips.push(
-                                            <span
-                                              key={`table_op_${op.id}_${tKey}_${sec}_${sIdx}`}
-                                              className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800 flex items-center gap-1"
-                                            >
-                                              <span className="text-cyan-400 font-mono font-bold text-[9px]">{tKey}</span>
-                                              <span>{sec}</span>
-                                            </span>
-                                          );
-                                        });
-                                      });
-                                    }
-                                    if (chips.length > 0) {
-                                      return chips;
-                                    }
-                                    if (opSectors.length > 0) {
-                                      return Array.from(new Set(opSectors)).map((sec, sIdx) => (
-                                        <span
-                                          key={`op_${op.id}_sec_${sec}_${sIdx}`}
-                                          className="text-[10px] bg-slate-900 text-slate-300 px-2 py-0.5 rounded border border-slate-800"
-                                        >
-                                          {sec}
-                                        </span>
-                                      ));
-                                    }
-                                    return (
-                                      <span className="text-[10px] text-slate-600 italic">
-                                        Sem setores vinculados
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
-                              </td>
-
-                              <td className="py-3 px-4 text-right">
-                                <div className="flex items-center justify-end gap-1.5">
-                                  {/* Botão Editar */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEditClick(op);
-                                    }}
-                                    className={`px-2.5 py-1.5 rounded-lg border text-xs font-bold transition flex items-center gap-1 cursor-pointer active:scale-95 ${
-                                      isCurrentlyEditing
-                                        ? 'bg-amber-500 text-black border-amber-300'
-                                        : 'bg-blue-950/80 hover:bg-blue-800 text-blue-300 hover:text-white border-blue-700/60'
-                                    }`}
-                                    title="Editar terminais e setores deste colaborador"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                    <span>{isCurrentlyEditing ? 'Editando' : 'Editar'}</span>
-                                  </button>
-
-                                  {/* Botão Excluir */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      playClick();
-                                      setOperatorToDelete(op);
-                                    }}
-                                    className="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 hover:text-white border border-rose-800/60 transition flex items-center gap-1 cursor-pointer active:scale-95"
-                                    title="Excluir este colaborador da fábrica"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    <span>Excluir</span>
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
+                        filteredOperators.map((op) => (
+                          <OperatorTableRow
+                            key={op.id}
+                            op={op}
+                            isCurrentlyEditing={editingId === op.id}
+                            onEdit={handleEditClick}
+                            onDelete={handleDeleteOperatorClick}
+                          />
+                        ))
                       )}
                     </tbody>
                   </table>
@@ -1759,7 +1806,7 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                   {terminals.map((term) => (
                     <div
                       key={term.id}
@@ -2050,7 +2097,6 @@ export const TeamManagementModal: React.FC<TeamManagementModalProps> = React.mem
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 });
