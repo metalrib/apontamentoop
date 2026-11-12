@@ -378,6 +378,28 @@ export function isOfficeDoorGiro(op: any): boolean {
 }
 
 export const ROUTE_RULES: RouteRule[] = [
+  // Office Door (Giro e Correr) - Prioridade Máxima sobre regras genéricas de PT GIR / PT COR
+  {
+    keyword: "OFFICE DOOR GIR",
+    label: "Porta Office Door de Giro",
+    steps: ["Instalação de Gaxeta", "Montagem de Office Door Giro"],
+    badge: "Office Door Giro",
+    isStandardLine: false
+  },
+  {
+    keyword: "OFFICE DOOR COR",
+    label: "Porta Office Door de Correr",
+    steps: ["Corte", "Corte Alumínio", "Preparação Office Door Correr", "Injeção", "Montagem Office de Correr"],
+    badge: "Office Door Correr",
+    isStandardLine: false
+  },
+  {
+    keyword: "OFFICE DOOR",
+    label: "Porta Office Door de Giro",
+    steps: ["Instalação de Gaxeta", "Montagem de Office Door Giro"],
+    badge: "Office Door Giro",
+    isStandardLine: false
+  },
   // Rota 15 - Porta Giratória Padrão (Whitelist Exclusiva - Terminal 4: Montagem Direta)
   {
     keyword: "PT GIR PADRAO",
@@ -460,21 +482,6 @@ export const ROUTE_RULES: RouteRule[] = [
     keyword: "ANCORA",
     label: "Âncora / Fixação",
     steps: ["Corte", "Laser", "Dobra", "Solda e Montagem"]
-  },
-  {
-    keyword: "OFFICE DOOR COR",
-    label: "Porta Office Door de Correr",
-    steps: ["Corte", "Corte Alumínio", "Preparação Office Door Correr", "Injeção", "Montagem Office de Correr"]
-  },
-  {
-    keyword: "OFFICE DOOR GIR",
-    label: "Porta Office Door de Giro",
-    steps: ["Corte", "Laser", "Dobra", "Preparação de Folha", "Injeção", "Instalação de Gaxeta", "Montagem de Office Door Giro"]
-  },
-  {
-    keyword: "OFFICE DOOR",
-    label: "Porta Office Door de Giro",
-    steps: ["Corte", "Laser", "Dobra", "Preparação de Folha", "Injeção", "Instalação de Gaxeta", "Montagem de Office Door Giro"]
   },
   {
     keyword: "PT VAI VEM",

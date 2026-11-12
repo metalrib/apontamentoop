@@ -364,8 +364,8 @@ function resolveBaseRoute(
       opObj?.etapaAtual === 'Router'
     );
     const steps = temRouter
-      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Router', 'Instalação de Gaxeta', 'Montagem de Office Door Giro']
-      : ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
+      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
     const rule: RouteRule = {
       keyword: 'OFFICE DOOR GIR',
       label: 'Porta Office Door de Giro',
@@ -539,16 +539,21 @@ function resolveBaseRoute(
     }
   }
 
-  // 5. Portas Giratórias (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO)
+  // 5. Portas Giratórias (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR)
   const isGiro =
-    norm.includes('PT GIR') ||
-    norm.includes('PORTA GIRATORIA') ||
-    norm.includes('PORTA GIRATÓRIA') ||
-    norm.includes('PORTA GIR') ||
-    norm.includes('GIRATORIA') ||
-    norm.includes('GIRATÓRIA') ||
-    norm.includes('GIRO') ||
-    (code && (code.startsWith('001.') || code.startsWith('003.')));
+    !isOfficeDoorGiro(opObj || { codigo: code, descricao: desc, tipoOrdem: desc }) &&
+    !norm.includes('OFFICE DOOR') &&
+    !norm.includes('OFFICE-DOOR') &&
+    (
+      norm.includes('PT GIR') ||
+      norm.includes('PORTA GIRATORIA') ||
+      norm.includes('PORTA GIRATÓRIA') ||
+      norm.includes('PORTA GIR') ||
+      norm.includes('GIRATORIA') ||
+      norm.includes('GIRATÓRIA') ||
+      norm.includes('GIRO') ||
+      (code && (code.startsWith('001.') || code.startsWith('003.')))
+    );
 
   if (isGiro) {
     const codLimpo = normalizarCodigo(code || '');
@@ -887,6 +892,13 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     return normSector.includes('MONTAGEM') && !normSector.includes('ESTANTE') && !normSector.includes('TRILHO') && !normSector.includes('ABRIGO');
   }
 
+  // Isolamento estrito entre Office Door e Portas Convencionais (evita que giratória convencional case com office e vice-versa)
+  const isStepOffice = normStep.includes('OFFICE');
+  const isSectorOffice = normSector.includes('OFFICE');
+  if (isStepOffice !== isSectorOffice) {
+    return false;
+  }
+
   if (normStep.includes('MONTAGEM') && (normStep.includes('OFFICE DOOR') || normStep.includes('OFFICE'))) {
     const isStepCorrer = normStep.includes('CORRER') || normStep.includes('COR ');
     const isSectorCorrer = normSector.includes('CORRER') || normSector.includes('COR ');
@@ -898,8 +910,8 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
     if (isStepGiro && (isSectorCorrer || normSector.includes('CORRER') || normSector.includes('COR '))) return false;
 
     if (isStepCorrer && isSectorCorrer && normSector.includes('MONTAGEM')) return true;
-    if (isStepGiro && (isSectorGiro || normSector.includes('OFFICE DOOR') || normSector.includes('OFFICE')) && !isSectorCorrer && normSector.includes('MONTAGEM')) return true;
-    if (normSector.includes('MONTAGEM') && normSector.includes('OFFICE DOOR') && !isSectorCorrer && !isStepCorrer) return true;
+    if (isStepGiro && isSectorGiro && normSector.includes('MONTAGEM')) return true;
+    if (normSector.includes('MONTAGEM') && normSector.includes('OFFICE') && !isSectorCorrer && !isStepCorrer) return true;
     return false;
   }
 

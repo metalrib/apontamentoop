@@ -381,27 +381,32 @@ function processarRotaProduto(op) {
   if (isOfficeDoorGiro(codRaw, desc, tipoOrdem)) {
     const querRouter = Boolean(op.requerRouter || op.requer_router || op.encaminhar_router);
     const rota = querRouter
-      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Router', 'Instalação de Gaxeta', 'Montagem de Office Door Giro']
-      : ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
+      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
     return {
       familia: 'Porta Office Door de Giro',
       tipoMontagem: 'Porta Office Door de Giro',
       rota,
-      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+      statusAtual: 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta'
     };
   }
 
-  // 8. Portas Giratórias
+  // 8. Portas Giratórias (Exclui Office Door)
   const ehGiratoria =
-    desc.includes('PT GIR') ||
-    desc.includes('PORTA GIR') ||
-    desc.includes('GIRATORIA') ||
-    desc.includes('GIRATÓRIA') ||
-    desc.includes('GIRO') ||
-    codNormalizado.startsWith('001') ||
-    codNormalizado.startsWith('002') ||
-    codNormalizado.startsWith('003') ||
-    codNormalizado.startsWith('004');
+    !isOfficeDoorGiro(codRaw, desc, tipoOrdem) &&
+    !desc.includes('OFFICE DOOR') &&
+    !desc.includes('OFFICE-DOOR') &&
+    (
+      desc.includes('PT GIR') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('GIRATORIA') ||
+      desc.includes('GIRATÓRIA') ||
+      desc.includes('GIRO') ||
+      codNormalizado.startsWith('001') ||
+      codNormalizado.startsWith('002') ||
+      codNormalizado.startsWith('003') ||
+      codNormalizado.startsWith('004')
+    );
 
   if (ehGiratoria) {
     const ehPadrao = CODIGOS_PORTAS_GIRO_PADRAO.has(codRaw) || CODIGOS_PORTAS_GIRO_PADRAO.has(codNormalizado);
@@ -428,19 +433,24 @@ function processarRotaProduto(op) {
     };
   }
 
-  // 9. Portas de Correr
+  // 9. Portas de Correr (Exclui Office Door)
   const ehCorrer =
-    desc.includes('PT COR') ||
-    desc.includes('PORTA CORRER') ||
-    desc.includes('PORTA DE CORRER') ||
-    desc.includes('CORRER') ||
-    desc.includes('EMENDAD') ||
-    codNormalizado.startsWith('005') ||
-    codNormalizado.startsWith('006') ||
-    codNormalizado.startsWith('007') ||
-    codNormalizado.startsWith('008') ||
-    codNormalizado.startsWith('029') ||
-    codNormalizado.startsWith('025');
+    !isOfficeDoorCorrer(codRaw, desc, tipoOrdem) &&
+    !desc.includes('OFFICE DOOR') &&
+    !desc.includes('OFFICE-DOOR') &&
+    (
+      desc.includes('PT COR') ||
+      desc.includes('PORTA CORRER') ||
+      desc.includes('PORTA DE CORRER') ||
+      desc.includes('CORRER') ||
+      desc.includes('EMENDAD') ||
+      codNormalizado.startsWith('005') ||
+      codNormalizado.startsWith('006') ||
+      codNormalizado.startsWith('007') ||
+      codNormalizado.startsWith('008') ||
+      codNormalizado.startsWith('029') ||
+      codNormalizado.startsWith('025')
+    );
 
   if (ehCorrer) {
     const ehInox = desc.includes('INOX') || desc.includes('I304') || desc.includes('I430') || codNormalizado.startsWith('006') || codNormalizado.startsWith('008');

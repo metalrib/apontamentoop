@@ -121,17 +121,49 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     };
   }
 
-  // 1. FAMÍLIA PORTA GIRATÓRIA (PADRÃO VS ESPECIAL)
+  // 0. FAMÍLIA OFFICE DOOR (GIRO E CORRER)
+  if (isOfficeDoorCorrer(op)) {
+    const querRouter = Boolean((op as any)?.requerRouter || (op as any)?.requer_router || (op as any)?.encaminhar_router);
+    const rota = querRouter
+      ? ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Router', 'Montagem Office de Correr']
+      : ['Corte', 'Corte Alumínio', 'Preparação Office Door Correr', 'Injeção', 'Montagem Office de Correr'];
+    return {
+      familia: 'Porta Office Door de Correr',
+      tipoMontagem: 'Porta Office Door de Correr',
+      rota,
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+    };
+  }
+
+  if (isOfficeDoorGiro(op)) {
+    const querRouter = Boolean((op as any)?.requerRouter || (op as any)?.requer_router || (op as any)?.encaminhar_router);
+    const rota = querRouter
+      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
+      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+    return {
+      familia: 'Porta Office Door de Giro',
+      tipoMontagem: 'Porta Office Door de Giro',
+      rota,
+      statusAtual: 'AGUARDANDO INÍCIO EM: Instalação de Gaxeta'
+    };
+  }
+
+  // 1. FAMÍLIA PORTA GIRATÓRIA (PADRÃO VS ESPECIAL - EXCLUI OFFICE DOOR)
   const ehGiratoria =
-    desc.includes('PT GIR') ||
-    desc.includes('PORTA GIR') ||
-    desc.includes('GIRATORIA') ||
-    desc.includes('GIRATÓRIA') ||
-    desc.includes('GIRO') ||
-    codNormalizado.startsWith('001') ||
-    codNormalizado.startsWith('002') ||
-    codNormalizado.startsWith('003') ||
-    codNormalizado.startsWith('004');
+    !isOfficeDoorGiro(op) &&
+    !desc.includes('OFFICE DOOR') &&
+    !desc.includes('OFFICE-DOOR') &&
+    (
+      desc.includes('PT GIR') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('GIRATORIA') ||
+      desc.includes('GIRATÓRIA') ||
+      desc.includes('GIRO') ||
+      codNormalizado.startsWith('001') ||
+      codNormalizado.startsWith('002') ||
+      codNormalizado.startsWith('003') ||
+      codNormalizado.startsWith('004')
+    );
 
   if (ehGiratoria) {
     // REGRA RESTRITIVA (WHITELIST POR CÓDIGO NORMALIZADO):

@@ -1041,21 +1041,26 @@ export function obterEtapasDaRota(op: any): string[] {
       ((op as any)?.etapas && typeof (op as any).etapas === 'object' && 'Router' in (op as any).etapas)
     );
     steps = temRouter
-      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Router', 'Instalação de Gaxeta', 'Montagem de Office Door Giro']
-      : ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção', 'Instalação de Gaxeta', 'Montagem de Office Door Giro'];
+      ? ['Instalação de Gaxeta', 'Router', 'Montagem de Office Door Giro']
+      : ['Instalação de Gaxeta', 'Montagem de Office Door Giro'];
   }
 
-  // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO)
+  // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR)
   else if (
-    cod.startsWith('001.') ||
-    cod.startsWith('002.') ||
-    cod.startsWith('003.') ||
-    cod.startsWith('004.') ||
-    desc.includes('PT GIR') ||
-    desc.includes('PORTA GIR') ||
-    desc.includes('GIRATORIA') ||
-    desc.includes('GIRATÓRIA') ||
-    desc.includes('GIRO')
+    !isOfficeDoorGiro({ codigo: cod, descricao: desc, tipoOrdem: desc }) &&
+    !desc.includes('OFFICE DOOR') &&
+    !desc.includes('OFFICE-DOOR') &&
+    (
+      cod.startsWith('001.') ||
+      cod.startsWith('002.') ||
+      cod.startsWith('003.') ||
+      cod.startsWith('004.') ||
+      desc.includes('PT GIR') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('GIRATORIA') ||
+      desc.includes('GIRATÓRIA') ||
+      desc.includes('GIRO')
+    )
   ) {
     const codLimpo = normalizarCodigo(cod);
     const ehCodigoPadrao = Boolean(
@@ -1265,19 +1270,40 @@ export function definirRotaProduto(op: {
     };
   }
 
-  // 1. Verifica se é da família Giratória
+  // 0. Office Door (Giro e Correr) - Prioridade Máxima sobre portas convencionais
+  if (isOfficeDoorCorrer(op)) {
+    return {
+      familia: 'Porta Office Door de Correr',
+      rota: obterEtapasDaRota(op)
+    };
+  }
+
+  if (isOfficeDoorGiro(op)) {
+    return {
+      familia: 'Porta Office Door de Giro',
+      rota: obterEtapasDaRota(op)
+    };
+  }
+
+  // 1. Verifica se é da família Giratória (Exclui Office Door)
   const ehFamiliaGiratoria =
-    desc.includes('PT GIR') ||
-    desc.includes('PORTA GIRATORIA') ||
-    desc.includes('PORTA GIRATÓRIA') ||
-    desc.includes('PORTA GIR') ||
-    desc.includes('GIRATÓRIA') ||
-    desc.includes('GIRATORIA') ||
-    desc.includes('GIRO') ||
-    codLimpo.startsWith('001') ||
-    codLimpo.startsWith('002') ||
-    codLimpo.startsWith('003') ||
-    codLimpo.startsWith('004');
+    !isOfficeDoorGiro(op) &&
+    !isOfficeDoorCorrer(op) &&
+    !desc.includes('OFFICE DOOR') &&
+    !desc.includes('OFFICE-DOOR') &&
+    (
+      desc.includes('PT GIR') ||
+      desc.includes('PORTA GIRATORIA') ||
+      desc.includes('PORTA GIRATÓRIA') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('GIRATÓRIA') ||
+      desc.includes('GIRATORIA') ||
+      desc.includes('GIRO') ||
+      codLimpo.startsWith('001') ||
+      codLimpo.startsWith('002') ||
+      codLimpo.startsWith('003') ||
+      codLimpo.startsWith('004')
+    );
 
   if (ehFamiliaGiratoria) {
     const ehCodigoPadrao = Boolean(
@@ -1705,6 +1731,19 @@ export function validarPostoIndustrial(
       if (normStep.includes('MONTAGEM') && normPosto.includes('MONTAGEM')) {
         if (normStep.includes('VAI VEM') || normPosto.includes('VAI VEM')) {
           return normStep.includes('VAI VEM') && normPosto.includes('VAI VEM');
+        }
+        if (normStep.includes('OFFICE') || normPosto.includes('OFFICE')) {
+          const stepCorrer = normStep.includes('CORRER') || normStep.includes('COR ');
+          const postoCorrer = normPosto.includes('CORRER') || normPosto.includes('COR ');
+          const stepGiro = normStep.includes('GIRO') || normStep.includes('GIRAT');
+          const postoGiro = normPosto.includes('GIRO') || normPosto.includes('GIRAT');
+          if (stepCorrer || postoCorrer) {
+            return stepCorrer && postoCorrer && normStep.includes('OFFICE') && normPosto.includes('OFFICE');
+          }
+          if (stepGiro || postoGiro) {
+            return stepGiro && postoGiro && normStep.includes('OFFICE') && normPosto.includes('OFFICE');
+          }
+          return normStep.includes('OFFICE') && normPosto.includes('OFFICE');
         }
         return true;
       }
