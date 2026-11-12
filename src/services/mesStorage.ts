@@ -825,6 +825,14 @@ export function initLocalSocketListeners(): void {
       }
     });
 
+    socket.on('nomus_sync_status', (data: any) => {
+      console.log('[Socket.io] Evento nomus_sync_status recebido do backend:', data);
+      if (data && typeof window !== 'undefined') {
+        localStorage.setItem('mes_nomus_sync_status', JSON.stringify(data));
+        window.dispatchEvent(new CustomEvent('metalrib_nomus_sync_status', { detail: data }));
+      }
+    });
+
     socket.on('connect_error', () => {
       isLocalApiActive = false;
     });
@@ -4081,7 +4089,8 @@ export async function saveMultipleOrders(
       body: JSON.stringify({
         ordens: ordensArray,
         replaceAll,
-        modoImportacao: replaceAll ? 'substituir' : 'mesclar'
+        modoImportacao: replaceAll ? 'substituir' : 'mesclar',
+        origem: 'manual'
       })
     }).catch(() => {});
   } catch {}
@@ -4115,6 +4124,30 @@ export async function limparOrdensDuplicadas(): Promise<{ success: boolean; remo
     return data;
   } catch (err: any) {
     return { success: false, removidas: 0, total: 0 };
+  }
+}
+
+export interface NomusSyncStatus {
+  timestamp: string | null;
+  totalProcessadas: number;
+  origem: string | null;
+}
+
+/**
+ * Busca o status da última sincronização com o Nomus ERP no backend SQLite
+ */
+export async function fetchNomusSyncStatus(): Promise<NomusSyncStatus | null> {
+  try {
+    const localUrl = getLocalServerUrl();
+    const res = await fetch(`${localUrl}/api/sync-status`);
+    if (!res.ok) return null;
+    const data: NomusSyncStatus = await res.json();
+    if (data && typeof window !== 'undefined') {
+      localStorage.setItem('mes_nomus_sync_status', JSON.stringify(data));
+    }
+    return data;
+  } catch {
+    return null;
   }
 }
 

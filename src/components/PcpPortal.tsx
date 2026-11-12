@@ -8,7 +8,7 @@ import {
   isOpEmProducao,
   checkOp100Percent
 } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas, fetchNomusSyncStatus, NomusSyncStatus, getLocalSocket } from '../services/mesStorage';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
@@ -128,6 +128,70 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       window.removeEventListener('metalrib_operators_updated', handleUpdate);
     };
   }, []);
+
+  // Status da última sincronização do Nomus ERP
+  const [nomusSyncStatus, setNomusSyncStatus] = useState<NomusSyncStatus | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('mes_nomus_sync_status');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    // 1. Carga inicial via API REST
+    fetchNomusSyncStatus().then((status) => {
+      if (status && status.timestamp) {
+        setNomusSyncStatus(status);
+      }
+    });
+
+    // 2. Escuta de eventos personalizados disparados pelo mesStorage
+    const handleCustomSyncEvent = (e: any) => {
+      if (e.detail && e.detail.timestamp) {
+        setNomusSyncStatus(e.detail);
+      }
+    };
+    window.addEventListener('metalrib_nomus_sync_status', handleCustomSyncEvent);
+
+    // 3. Escuta direta do Socket.io em tempo real
+    let socket: any = null;
+    try {
+      socket = getLocalSocket();
+      if (socket) {
+        const onSyncStatus = (data: any) => {
+          if (data && data.timestamp) {
+            setNomusSyncStatus(data);
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('mes_nomus_sync_status', JSON.stringify(data));
+            }
+          }
+        };
+        socket.on('nomus_sync_status', onSyncStatus);
+        return () => {
+          window.removeEventListener('metalrib_nomus_sync_status', handleCustomSyncEvent);
+          socket.off('nomus_sync_status', onSyncStatus);
+        };
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener('metalrib_nomus_sync_status', handleCustomSyncEvent);
+    };
+  }, []);
+
+  const formatarHoraSync = (isoString?: string | null): string => {
+    if (!isoString) return '';
+    try {
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return '';
+      return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  };
 
   // Modal Confirmação Limpar Lista
   const [showClearConfirmModal, setShowClearConfirmModal] = useState<boolean>(false);
@@ -536,6 +600,27 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Badge em tempo real da última sincronização do Nomus */}
+          {nomusSyncStatus?.timestamp ? (
+            <div
+              className="px-3 py-2 bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 rounded-xl flex items-center gap-2 text-xs font-semibold shadow-sm transition-all"
+              title={`Última sincronização Nomus: ${new Date(nomusSyncStatus.timestamp).toLocaleString('pt-BR')} (${nomusSyncStatus.totalProcessadas} OPs, origem: ${nomusSyncStatus.origem || 'automática'})`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse inline-block shadow-sm shadow-emerald-400/50"></span>
+              <span className="text-emerald-200 font-mono tracking-tight">
+                Sync Nomus: {formatarHoraSync(nomusSyncStatus.timestamp)} ({nomusSyncStatus.totalProcessadas} {nomusSyncStatus.totalProcessadas === 1 ? 'OP' : 'OPs'})
+              </span>
+            </div>
+          ) : (
+            <div
+              className="px-3 py-2 bg-slate-900/80 border border-slate-700/60 text-slate-400 rounded-xl flex items-center gap-2 text-xs font-medium shadow-sm"
+              title="Aguardando primeira sincronização com o Nomus ERP"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block"></span>
+              <span className="text-slate-300 font-mono tracking-tight">Aguardando Sync Nomus</span>
+            </div>
+          )}
+
           {/* Botão Deduplicar OPs */}
           <button
             onClick={handleLimparDuplicadas}

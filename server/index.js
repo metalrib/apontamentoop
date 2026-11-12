@@ -216,6 +216,49 @@ db.exec(`
   );
 `);
 
+// Tabela de status de sincronização com o Nomus ERP
+db.exec(`
+  CREATE TABLE IF NOT EXISTS sync_status (
+    chave TEXT PRIMARY KEY,
+    dados TEXT,
+    atualizadoEm INTEGER
+  );
+`);
+
+let ultimaSyncNomus = null;
+try {
+  const row = db.prepare("SELECT dados FROM sync_status WHERE chave = 'nomus'").get();
+  if (row && row.dados) {
+    ultimaSyncNomus = JSON.parse(row.dados);
+    console.log('[Sync Status] Último status de sync recuperado do SQLite:', ultimaSyncNomus);
+  }
+} catch (e) {
+  console.warn('[Sync Status] Aviso ao recuperar status do banco:', e.message);
+}
+
+function registrarSyncNomus(totalProcessadas, origem = 'tampermonkey') {
+  const syncObj = {
+    timestamp: new Date().toISOString(),
+    totalProcessadas: Number(totalProcessadas || 0),
+    origem: String(origem || 'manual')
+  };
+  ultimaSyncNomus = syncObj;
+  try {
+    db.prepare(`
+      INSERT INTO sync_status (chave, dados, atualizadoEm)
+      VALUES ('nomus', ?, ?)
+      ON CONFLICT(chave) DO UPDATE SET
+        dados = excluded.dados,
+        atualizadoEm = excluded.atualizadoEm
+    `).run(JSON.stringify(syncObj), Date.now());
+  } catch (e) {
+    console.warn('[Sync Status] Erro ao persistir sync_status no SQLite:', e.message);
+  }
+  io.emit('nomus_sync_status', syncObj);
+  console.log(`[Nomus Sync] Emitido 'nomus_sync_status': ${JSON.stringify(syncObj)}`);
+  return syncObj;
+}
+
 // Inicialização com os 5 terminais oficiais caso esteja vazio
 try {
   const countTerms = db.prepare('SELECT COUNT(*) as count FROM terminais').get();
@@ -933,8 +976,17 @@ function obterColaboradores() {
   });
 }
 
+// 1.0 Status da última sincronização do Nomus ERP (em tempo real)
+app.get('/api/sync-status', (req, res) => {
+  res.json(ultimaSyncNomus || { timestamp: null, totalProcessadas: 0, origem: null });
+});
+
 // 1. Listagem de ordens
 app.get('/api/ordens', (req, res) => {
+  if (ultimaSyncNomus) {
+    res.setHeader('X-Nomus-Sync-Timestamp', ultimaSyncNomus.timestamp || '');
+    res.setHeader('X-Nomus-Sync-Total', String(ultimaSyncNomus.totalProcessadas || 0));
+  }
   res.json(obterTodasOrdens());
 });
 
@@ -1443,6 +1495,7 @@ app.post('/api/ordens', (req, res) => {
   
   const todas = obterTodasOrdens();
   io.emit('ordens_atualizadas', todas);
+  registrarSyncNomus(ordens.length, req.body.origem || (deveSubstituir ? 'substituir' : 'manual'));
   res.json({ success: true, count: todas.length });
 });
 
@@ -1577,6 +1630,7 @@ app.post('/api/importar-nomus-auto', (req, res) => {
     const ordensAtualizadas = obterTodasOrdens();
     console.log(`[Nomus Auto] Emitindo 'ordens_atualizadas' com ${ordensAtualizadas.length} ordens.`);
     io.emit('ordens_atualizadas', ordensAtualizadas);
+    registrarSyncNomus(orders.length, req.body.origem || 'tampermonkey');
 
     return res.json({ ok: true, processadas: orders.length });
   } catch (err) {
@@ -2586,6 +2640,14 @@ io.on('connection', (socket) => {
     }
   } catch (err) {
     console.warn('[Socket connection] Erro ao emitir ordens:', err);
+  }
+
+  try {
+    if (ultimaSyncNomus) {
+      socket.emit('nomus_sync_status', ultimaSyncNomus);
+    }
+  } catch (err) {
+    console.warn('[Socket connection] Erro ao emitir nomus_sync_status:', err);
   }
 
   socket.on('resetar_etapa', (data) => {
