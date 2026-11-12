@@ -13,6 +13,7 @@ interface HeaderProps {
   onResetScreen: () => void;
   manterOpAberta?: boolean;
   onToggleManterOpAberta?: (val: boolean) => void;
+  atualizacaoPendente?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -23,7 +24,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenMobile,
   onResetScreen,
   manterOpAberta = false,
-  onToggleManterOpAberta
+  onToggleManterOpAberta,
+  atualizacaoPendente = false
 }) => {
   const [time, setTime] = useState<string>('');
   const [date, setDate] = useState<string>('');
@@ -129,6 +131,18 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Relógio e Ações Rápidas */}
       <div className="flex items-center gap-3">
+        {/* Indicador de Atualização Pendente (Zero-Downtime) */}
+        {atualizacaoPendente && (
+          <div
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[11px] font-mono font-bold animate-in fade-in"
+            title="Nova versão pronta no servidor. O terminal atualizará automaticamente ao concluir este lote."
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <span className="hidden lg:inline">ATUALIZAÇÃO AGENDADA (AO CONCLUIR LOTE)</span>
+            <span className="lg:hidden">ATUALIZANDO...</span>
+          </div>
+        )}
+
         {/* Relógio em tempo real */}
         <div className="hidden sm:flex flex-col items-end font-mono">
           <div className="text-xs text-slate-400 flex items-center gap-1">

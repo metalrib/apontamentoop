@@ -81,7 +81,7 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
       <div className="flex justify-between items-center w-full max-w-5xl mx-auto py-2 gap-3">
         <div className="flex items-center gap-2.5 flex-wrap">
           <span className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5 shadow-sm">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
             <span>{terminalLabel}</span>
           </span>
           {onSwitchTerminal && (

@@ -51,6 +51,13 @@ export default function App() {
     return list[0] || TERMINALS[0]; // Padrão: Terminal 1
   });
   const [showTerminalModal, setShowTerminalModal] = useState<boolean>(false);
+  const showTerminalModalRef = useRef<boolean>(false);
+  showTerminalModalRef.current = showTerminalModal;
+
+  // Zero-Downtime: Controle de Auto-Atualização Segura do Frontend
+  const [atualizacaoPendente, setAtualizacaoPendente] = useState<boolean>(false);
+  const atualizacaoPendenteRef = useRef<boolean>(false);
+  atualizacaoPendenteRef.current = atualizacaoPendente;
 
   // Dados da Fábrica (Sincronizados em tempo real)
   const [orders, setOrders] = useState<Record<string, ProductionOrder>>({});
@@ -98,7 +105,12 @@ export default function App() {
     return 'totem';
   });
   const [showSupervisor, setShowSupervisor] = useState<boolean>(false);
+  const showSupervisorRef = useRef<boolean>(false);
+  showSupervisorRef.current = showSupervisor;
+
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
+  const showPinModalRef = useRef<boolean>(false);
+  showPinModalRef.current = showPinModal;
   const [pinInput, setPinInput] = useState<string>('');
   const [pinError, setPinError] = useState<string | null>(null);
 
@@ -329,11 +341,31 @@ export default function App() {
         window.dispatchEvent(new CustomEvent('metalrib_operators_updated', { detail: colabs }));
       };
 
+      const handleSistemaAtualizado = (info: any) => {
+        console.log('[Zero-Downtime] Evento sistema_atualizado recebido via Socket.io:', info);
+        const isIdle = (
+          !selectedOpNumberRef.current &&
+          !showTerminalModalRef.current &&
+          !showSupervisorRef.current &&
+          !showPinModalRef.current
+        );
+
+        if (isIdle) {
+          console.log('[Zero-Downtime] Terminal ocioso na tela inicial. Recarregando frontend agora...');
+          window.location.reload();
+        } else {
+          console.log('[Zero-Downtime] Terminal em produção/modal aberto. Atualização agendada para retorno à tela inicial.');
+          atualizacaoPendenteRef.current = true;
+          setAtualizacaoPendente(true);
+        }
+      };
+
       socket.on('ordens_atualizadas', handleAtualizacao);
       socket.on('op_resetada', handleOpResetada);
       socket.on('ordem_resetada', handleOrdemResetada);
       socket.on('ordem_apontada', handleOrdemApontada);
       socket.on('colaboradores_atualizados', handleColaboradoresAtualizados);
+      socket.on('sistema_atualizado', handleSistemaAtualizado);
 
       // Listener para eventos locais disparados na mesma sessão
       const handleWindowReset = () => {
@@ -353,6 +385,7 @@ export default function App() {
         socket.off('ordem_resetada', handleOrdemResetada);
         socket.off('ordem_apontada', handleOrdemApontada);
         socket.off('colaboradores_atualizados', handleColaboradoresAtualizados);
+        socket.off('sistema_atualizado', handleSistemaAtualizado);
         window.removeEventListener('metalrib_ordem_resetada', handleWindowResetada);
         window.removeEventListener('metalrib_op_resetada', handleWindowResetada);
         window.removeEventListener('metalrib_orders_updated', handleWindowReset);
@@ -459,7 +492,30 @@ export default function App() {
     if (keepToast !== true) {
       setToastData(null);
     }
+
+    // Zero-Downtime: se houver atualização pendente do sistema, recarrega de forma segura ao voltar à tela inicial
+    if (atualizacaoPendenteRef.current) {
+      console.log('[Zero-Downtime] Terminal voltou à tela inicial. Executando atualização pendente...');
+      setTimeout(() => {
+        window.location.reload();
+      }, 500);
+    }
   }, []);
+
+  // Zero-Downtime: auto-reload caso o terminal volte a ficar ocioso com atualização pendente
+  useEffect(() => {
+    if (atualizacaoPendente && !selectedOpNumber && !showTerminalModal && !showSupervisor && !showPinModal) {
+      console.log('[Zero-Downtime] Terminal ocioso com atualização pendente detectada. Recarregando...');
+      setToastData({
+        message: '🔄 Atualizando Terminal',
+        details: 'Uma nova versão do sistema foi disponibilizada. O terminal está recarregando...'
+      });
+      const timer = setTimeout(() => {
+        window.location.reload();
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [atualizacaoPendente, selectedOpNumber, showTerminalModal, showSupervisor, showPinModal]);
 
   // Lotes em andamento vinculados aos postos do terminal ativo
   const activeBatchesInTerminal = useMemo<ActiveBatchItem[]>(() => {
@@ -1108,6 +1164,7 @@ export default function App() {
         onResetScreen={handleResetScreen}
         manterOpAberta={manterOpAberta}
         onToggleManterOpAberta={handleToggleManterOpAberta}
+        atualizacaoPendente={atualizacaoPendente}
       />
 
       {/* Notificação Toast Flutuante Discreta (2.5 segundos) */}

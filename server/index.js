@@ -10,6 +10,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const app = express();
@@ -23,6 +24,55 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// =========================================================================
+// ZERO-DOWNTIME: SERVIR BUILD DE PRODUÇÃO (DIST) E WATCH DE AUTO-ATUALIZAÇÃO
+// =========================================================================
+const distPath = path.resolve(__dirname, '..', 'dist');
+const distIndexPath = path.join(distPath, 'index.html');
+
+// Servir frontend compilado estático
+app.use(express.static(distPath));
+
+let watchDebounceTimer = null;
+let lastVersionEmitted = 0;
+
+function notificarSistemaAtualizado(origem = 'watch') {
+  const now = Date.now();
+  if (now - lastVersionEmitted < 2000) return;
+  lastVersionEmitted = now;
+  console.log(`[Zero-Downtime] Emitindo 'sistema_atualizado' (${origem})... Versão: ${now}`);
+  io.emit('sistema_atualizado', { versao: now, timestamp: new Date().toISOString() });
+}
+
+function initDistWatcher() {
+  try {
+    if (!fs.existsSync(distPath)) {
+      fs.mkdirSync(distPath, { recursive: true });
+    }
+    fs.watch(distPath, (eventType, filename) => {
+      if (filename && (filename.toLowerCase().includes('index.html') || filename.toLowerCase().includes('assets'))) {
+        if (watchDebounceTimer) clearTimeout(watchDebounceTimer);
+        watchDebounceTimer = setTimeout(() => {
+          if (fs.existsSync(distIndexPath)) {
+            notificarSistemaAtualizado(`fs.watch:${eventType}:${filename}`);
+          }
+        }, 2000); // Debounce de 2 segundos após o build concluir
+      }
+    });
+    console.log(`[Zero-Downtime] fs.watch ativo em ${distPath}`);
+  } catch (wErr) {
+    console.warn(`[Zero-Downtime] Aviso ao iniciar fs.watch em ${distPath}:`, wErr.message);
+  }
+}
+initDistWatcher();
+
+// Endpoint chamado pelo script de build atômico para emissão imediata
+app.post('/api/sistema-atualizado', (req, res) => {
+  notificarSistemaAtualizado('api-build');
+  res.json({ ok: true, versao: lastVersionEmitted });
+});
+// =========================================================================
 
 const db = new Database(path.join(__dirname, 'metalrib_mes.db'));
 
@@ -2411,6 +2461,18 @@ io.on('connection', (socket) => {
     io.emit('terminais_atualizados', atualizados);
     io.emit('setores_atualizados', atualizados);
   });
+});
+
+// SPA Fallback: Qualquer rota GET que não seja /api ou /socket.io serve o index.html compilado
+app.use((req, res, next) => {
+  if (req.method !== 'GET') return next();
+  if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
+    return next();
+  }
+  if (fs.existsSync(distIndexPath)) {
+    return res.sendFile(distIndexPath);
+  }
+  next();
 });
 
 const PORT = process.env.PORT || 3001;
