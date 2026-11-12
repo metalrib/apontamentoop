@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Search, CornerDownLeft, Delete, AlertCircle } from 'lucide-react';
 import { playBarcodeBeep, playClick, playBlockedError } from '../utils/audio';
 import { TerminalConfig } from '../types/mes';
+import { ActiveBatchesPanel, ActiveBatchItem } from './ActiveBatchesPanel';
 
 interface BarcodeScannerInputProps {
   onSearchOp: (opNumero: string) => void;
@@ -11,6 +12,10 @@ interface BarcodeScannerInputProps {
   onSwitchTerminal?: () => void;
   onOpenPcp?: () => void;
   onOpenMobile?: () => void;
+  manterOpAberta?: boolean;
+  onToggleManterOpAberta?: (val: boolean) => void;
+  activeBatches?: ActiveBatchItem[];
+  onSelectActiveBatch?: (batch: ActiveBatchItem) => void;
 }
 
 export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
@@ -20,7 +25,11 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
   currentTerminal = null,
   onSwitchTerminal,
   onOpenPcp,
-  onOpenMobile
+  onOpenMobile,
+  manterOpAberta = false,
+  onToggleManterOpAberta,
+  activeBatches,
+  onSelectActiveBatch
 }) => {
   const [opValue, setOpValue] = useState<string>('');
   const [showKeypad, setShowKeypad] = useState<boolean>(false);
@@ -70,7 +79,7 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
     <div className="min-h-screen w-full bg-[#030712] flex flex-col justify-between p-4 md:p-6 text-slate-100 antialiased selection:bg-[#1C2F8A] selection:text-white">
       {/* Topo: Identificação discreta do Terminal */}
       <div className="flex justify-between items-center w-full max-w-5xl mx-auto py-2 gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5 flex-wrap">
           <span className="text-xs font-semibold px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5 shadow-sm">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>{terminalLabel}</span>
@@ -85,6 +94,23 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
             >
               (Trocar)
             </button>
+          )}
+
+          {/* Toggle Manter OP aberta após iniciar */}
+          {onToggleManterOpAberta && (
+            <label
+              className="flex items-center gap-2 cursor-pointer select-none bg-slate-900 border border-slate-700/80 hover:border-slate-600 px-2.5 py-1 rounded-lg text-xs text-slate-300 transition shadow-inner"
+              title="Se marcado, a OP permanece na tela após clicar em 'INICIAR LOTE' permitindo conclusão direta sem bipar novamente"
+            >
+              <input
+                type="checkbox"
+                checked={manterOpAberta}
+                onChange={(e) => onToggleManterOpAberta(e.target.checked)}
+                className="w-3.5 h-3.5 rounded text-blue-500 accent-blue-500 cursor-pointer"
+              />
+              <span className="font-mono text-[11px] hidden sm:inline">Manter OP aberta após iniciar</span>
+              <span className="font-mono text-[11px] sm:hidden">Manter aberta</span>
+            </label>
           )}
         </div>
 
@@ -116,7 +142,7 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
       </div>
 
       {/* Centro: Logo + Título + Input de Busca */}
-      <div className="flex-1 flex flex-col items-center justify-center max-w-2xl w-full mx-auto gap-6 my-auto py-6">
+      <div className="flex-1 flex flex-col items-center justify-center max-w-5xl w-full mx-auto gap-6 my-auto py-6">
         <div className="flex flex-col items-center gap-2">
           {/* Logo Metalrib */}
           <div className="border-2 border-blue-600 rounded-xl px-6 py-2 bg-blue-950/40 text-center shadow-lg shadow-blue-950/50">
@@ -138,7 +164,7 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
         </div>
 
         {/* Campo de Entrada + Botão Localizar */}
-        <div className="w-full bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
+        <div className="w-full max-w-2xl bg-slate-900/90 border border-slate-800 rounded-2xl p-4 shadow-2xl flex flex-col gap-3">
           <div className="flex flex-col sm:flex-row items-center gap-2">
             <input
               ref={inputRef}
@@ -224,6 +250,16 @@ export const BarcodeScannerInput: React.FC<BarcodeScannerInputProps> = ({
             </div>
           )}
         </div>
+
+        {/* Painel: Lotes em Execução Neste Terminal */}
+        {activeBatches && activeBatches.length > 0 && onSelectActiveBatch && (
+          <div className="w-full mt-2">
+            <ActiveBatchesPanel
+              items={activeBatches}
+              onSelectBatch={onSelectActiveBatch}
+            />
+          </div>
+        )}
       </div>
 
       {/* Rodapé: Fixado no fluxo normal inferior, NUNCA sobreposto */}

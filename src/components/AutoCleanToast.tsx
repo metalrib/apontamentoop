@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, ArrowRight, Sparkles } from 'lucide-react';
+import { CheckCircle2, X } from 'lucide-react';
 import { playClick } from '../utils/audio';
 
 interface AutoCleanToastProps {
@@ -12,7 +12,7 @@ interface AutoCleanToastProps {
 export const AutoCleanToast: React.FC<AutoCleanToastProps> = ({
   message,
   details,
-  durationMs = 3000,
+  durationMs = 2500,
   onClean
 }) => {
   const [timeLeftMs, setTimeLeftMs] = useState<number>(durationMs);
@@ -28,66 +28,52 @@ export const AutoCleanToast: React.FC<AutoCleanToastProps> = ({
         clearInterval(interval);
         onClean();
       }
-    }, 50);
+    }, 40);
 
     return () => clearInterval(interval);
   }, [durationMs, onClean]);
 
   const progressPercent = (timeLeftMs / durationMs) * 100;
-  const secondsDisplay = (timeLeftMs / 1000).toFixed(1);
 
   return (
-    <div className="fixed top-4 left-4 right-4 z-50 max-w-4xl mx-auto animate-in fade-in slide-in-from-top-6 duration-300">
-      <div className="bg-emerald-600 text-white rounded-3xl p-5 sm:p-6 shadow-2xl shadow-emerald-950/60 border-2 border-emerald-400 overflow-hidden relative">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shrink-0 border border-white/30">
-              <CheckCircle2 className="w-8 h-8 text-white stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold tracking-wider bg-black/20 px-2 py-0.5 rounded text-emerald-100">
-                  SUCESSO · CHÃO DE FÁBRICA
-                </span>
-              </div>
-              <h3 className="text-xl sm:text-2xl font-black tracking-tight text-white mt-0.5">
-                {message}
-              </h3>
-              {details && (
-                <p className="text-sm font-medium text-emerald-100 mt-0.5">
-                  {details}
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-            <div className="text-right">
-              <span className="text-[11px] font-mono text-emerald-100 uppercase block">
-                Liberando Totem Em
-              </span>
-              <span className="text-2xl font-black font-mono-num text-white">
-                {secondsDisplay}s
-              </span>
-            </div>
-
-            <button
-              onClick={() => {
-                playClick();
-                onClean();
-              }}
-              className="px-5 py-3 bg-white text-emerald-900 hover:bg-emerald-50 active:scale-95 rounded-2xl font-black text-sm flex items-center gap-1.5 transition shadow-lg shrink-0 cursor-pointer"
-            >
-              <span>LIMPAR AGORA</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
+    <div className="fixed top-4 right-4 z-50 pointer-events-none flex flex-col items-end max-w-sm sm:max-w-md w-full px-3 animate-in fade-in slide-in-from-top-3 duration-200">
+      <div className="pointer-events-auto bg-slate-900/95 border border-emerald-500/60 text-white rounded-2xl p-3.5 shadow-2xl shadow-black/80 backdrop-blur-md overflow-hidden relative w-full flex items-start gap-3">
+        <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 flex items-center justify-center shrink-0 mt-0.5">
+          <CheckCircle2 className="w-5 h-5 stroke-[2.5]" />
         </div>
 
-        {/* Barra de Progresso visual da contagem regressiva de 3 segundos */}
-        <div className="absolute bottom-0 left-0 right-0 h-2 bg-black/30">
+        <div className="flex-1 min-w-0 pr-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-mono font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+              SUCESSO
+            </span>
+          </div>
+          <h4 className="text-sm font-bold text-white leading-snug mt-1 truncate">
+            {message}
+          </h4>
+          {details && (
+            <p className="text-xs text-slate-300 font-mono mt-0.5 truncate">
+              {details}
+            </p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            playClick();
+            onClean();
+          }}
+          className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 cursor-pointer"
+          title="Fechar notificação"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        {/* Linha discreta de progresso na base */}
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-slate-800">
           <div
-            className="h-full bg-white transition-all duration-75 ease-linear"
+            className="h-full bg-emerald-400 transition-all duration-75 ease-linear"
             style={{ width: `${progressPercent}%` }}
           />
         </div>

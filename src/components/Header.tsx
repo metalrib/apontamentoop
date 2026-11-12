@@ -11,6 +11,8 @@ interface HeaderProps {
   onOpenPcp: () => void;
   onOpenMobile?: () => void;
   onResetScreen: () => void;
+  manterOpAberta?: boolean;
+  onToggleManterOpAberta?: (val: boolean) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -19,7 +21,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSupervisor,
   onOpenPcp,
   onOpenMobile,
-  onResetScreen
+  onResetScreen,
+  manterOpAberta = false,
+  onToggleManterOpAberta
 }) => {
   const [time, setTime] = useState<string>('');
   const [date, setDate] = useState<string>('');
@@ -66,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Terminal Físico Ativo */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5 flex-wrap">
         {currentTerminal ? (
           <div className="flex items-center bg-slate-900 border border-slate-700/80 rounded-xl px-4 py-1.5 gap-3 shadow-inner">
             <div className="flex items-center gap-2">
@@ -103,6 +107,23 @@ export const Header: React.FC<HeaderProps> = ({
             <Monitor className="w-4 h-4" />
             <span>Selecionar Terminal Físico</span>
           </button>
+        )}
+
+        {/* Toggle Manter OP aberta após iniciar */}
+        {onToggleManterOpAberta && (
+          <label
+            className="flex items-center gap-2 cursor-pointer select-none bg-slate-900 border border-slate-700/80 hover:border-slate-600 px-3 py-2 rounded-xl text-xs text-slate-300 transition shadow-inner"
+            title="Se ativado, a OP permanece na tela após iniciar o lote permitindo finalização direta sem retornar à tela inicial"
+          >
+            <input
+              type="checkbox"
+              checked={manterOpAberta}
+              onChange={(e) => onToggleManterOpAberta(e.target.checked)}
+              className="w-4 h-4 rounded text-blue-500 accent-blue-500 cursor-pointer"
+            />
+            <span className="font-mono text-xs hidden md:inline">Manter OP aberta após iniciar</span>
+            <span className="font-mono text-xs md:hidden">Manter aberta</span>
+          </label>
         )}
       </div>
 

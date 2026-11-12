@@ -23,6 +23,7 @@ import {
   fetchLocalColaboradores
 } from './services/mesStorage';
 import { formatarNumeroOP } from './utils/nomusParser';
+import { ActiveBatchItem } from './components/ActiveBatchesPanel';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
 import { BarcodeScannerInput } from './components/BarcodeScannerInput';
@@ -70,8 +71,24 @@ export default function App() {
   const selectedOperatorRef = useRef<string | null>(selectedOperator);
   selectedOperatorRef.current = selectedOperator;
 
-  // Auto-Limpeza de 3 Segundos
+  // Auto-Limpeza de Notificação Toast
   const [toastData, setToastData] = useState<{ message: string; details?: string } | null>(null);
+
+  // Configuração opcional do Totem: Manter OP aberta após iniciar (persistido em localStorage)
+  const [manterOpAberta, setManterOpAberta] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('metalrib_manter_op_aberta') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleManterOpAberta = useCallback((val: boolean) => {
+    setManterOpAberta(val);
+    try {
+      localStorage.setItem('metalrib_manter_op_aberta', String(val));
+    } catch {}
+  }, []);
 
   // Painel de Supervisão e Separação de Sistemas (Totem vs PCP vs Mobile)
   const [systemMode, setSystemMode] = useState<'totem' | 'pcp' | 'mobile'>(() => {
@@ -441,6 +458,100 @@ export default function App() {
     }
   }, []);
 
+  // Lotes em andamento vinculados aos postos do terminal ativo
+  const activeBatchesInTerminal = useMemo<ActiveBatchItem[]>(() => {
+    if (!currentTerminal) return [];
+    const list: ActiveBatchItem[] = [];
+    const seenKeys = new Set<string>();
+
+    const terminalSectorsNorm = (currentTerminal.sectors || []).map((s: string) =>
+      (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+    );
+
+    const belongsToTerminal = (setorOrEtapa?: string, termId?: number, termName?: string) => {
+      if (termId && Number(termId) === Number(currentTerminal.id)) return true;
+      if (termName && (termName === `T${currentTerminal.id}` || termName === currentTerminal.name)) return true;
+      if (!setorOrEtapa) return false;
+      const norm = setorOrEtapa.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+      return terminalSectorsNorm.some((ts: string) => ts === norm || ts.includes(norm) || norm.includes(ts));
+    };
+
+    // 1. Vasculhar apontamentos com status EM_ANDAMENTO (ou sem hora_fim)
+    if (Array.isArray(apontamentos)) {
+      for (const apt of apontamentos) {
+        if (apt.status === 'EM_ANDAMENTO' || (!apt.hora_fim && apt.status !== 'FINALIZADO')) {
+          const step = apt.etapa_rota || apt.setor || '';
+          if (belongsToTerminal(step, apt.terminal_id, apt.terminal)) {
+            const rawOp = apt.op_numero || (apt as any).op || '';
+            const formattedOp = formatarNumeroOP(rawOp);
+            const cleanKey = cleanOpId(rawOp);
+            const order = orders[formattedOp] || orders[cleanKey] || orders[rawOp];
+            const uniqueKey = `${cleanKey}_${step.toLowerCase()}`;
+            if (!seenKeys.has(uniqueKey)) {
+              seenKeys.add(uniqueKey);
+              const inicio = apt.hora_inicio || (apt as any).horaInicio || '';
+              const inicioMs = inicio ? new Date(inicio).getTime() : (apt.criadoEm || Date.now());
+              list.push({
+                id: apt.id,
+                apontamentoId: apt.id,
+                opNumero: formattedOp,
+                descricao: order?.descricao || order?.produto || (apt as any).descricao || 'Ordem de Produção',
+                codigo: order?.codigoProduto || order?.codigo || '',
+                etapa: step,
+                operador: apt.colaborador || apt.operador || 'Operador',
+                horaInicio: inicio,
+                inicioMs: isNaN(inicioMs) ? Date.now() : inicioMs
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 2. Vasculhar ordens cujo etapas contenha EM_PRODUCAO no terminal ativo
+    for (const opKey of Object.keys(orders)) {
+      const ord = orders[opKey];
+      if (!ord || !ord.etapas) continue;
+      const formattedOp = formatarNumeroOP(ord.numero || ord.op_numero || opKey);
+      const cleanKey = cleanOpId(formattedOp);
+
+      if (ord.etapas && typeof ord.etapas === 'object' && !Array.isArray(ord.etapas)) {
+        for (const [etapaNome, etapaData] of Object.entries(ord.etapas)) {
+          if (etapaData && typeof etapaData === 'object' && (etapaData.status === 'EM_PRODUCAO' || etapaData.status === 'EM_ANDAMENTO')) {
+            if (belongsToTerminal(etapaNome)) {
+              const uniqueKey = `${cleanKey}_${etapaNome.toLowerCase()}`;
+              if (!seenKeys.has(uniqueKey)) {
+                seenKeys.add(uniqueKey);
+                const inicio = (etapaData as any).inicio || (etapaData as any).timestampInicio;
+                const inicioMs = inicio ? (typeof inicio === 'string' ? new Date(inicio).getTime() : Number(inicio)) : Date.now();
+                list.push({
+                  id: `${cleanKey}_${etapaNome}`,
+                  opNumero: formattedOp,
+                  descricao: ord.descricao || ord.produto || 'Ordem de Produção',
+                  codigo: ord.codigoProduto || ord.codigo || '',
+                  etapa: etapaNome,
+                  operador: (etapaData as any).operador || ord.colaborador || ord.operador || 'Operador',
+                  horaInicio: typeof inicio === 'string' ? inicio : undefined,
+                  inicioMs: isNaN(inicioMs) ? Date.now() : inicioMs
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return list;
+  }, [currentTerminal, apontamentos, orders]);
+
+  // Abre diretamente a tela da OP na etapa em andamento pronta para conclusão
+  const handleSelectActiveBatch = useCallback((batch: ActiveBatchItem) => {
+    playClick();
+    setSelectedOpNumber(batch.opNumero);
+    setSelectedSector(batch.etapa);
+    setSelectedOperator(batch.operador);
+  }, []);
+
   // Seleciona terminal físico
   const handleSelectTerminal = (term: TerminalConfig) => {
     saveTerminalId(term.id);
@@ -628,14 +739,14 @@ export default function App() {
       await loadData();
 
       setToastData({
-        message: `✔ Lote de ${quantidadeTotal} peças iniciado com sucesso por ${opNome}! Retornando ao totem...`,
-        details: `${formatarNumeroOP(opNum)} · Setor: ${sector} · Terminal ${termId}`
+        message: `✔ Lote de ${quantidadeTotal} peças iniciado por ${opNome}!`,
+        details: `${formatarNumeroOP(opNum)} · Setor: ${sector}`
       });
 
-      // Retorna imediatamente após 1 segundo limpando os estados para a tela inicial do totem
-      setTimeout(() => {
+      if (!manterOpAberta) {
+        // Retorna imediatamente à tela inicial do Totem
         handleResetScreen(true);
-      }, 1000);
+      }
     } catch (err) {
       console.error(err);
       playBlockedError();
@@ -774,12 +885,12 @@ export default function App() {
   if (!currentOp) {
     return (
       <>
-        {/* Auto-Limpeza Toast (3 segundos) */}
+        {/* Notificação Toast Flutuante Discreta (2.5 segundos) */}
         {toastData && (
           <AutoCleanToast
             message={toastData.message}
             details={toastData.details}
-            durationMs={3000}
+            durationMs={2500}
             onClean={() => setToastData(null)}
           />
         )}
@@ -795,6 +906,10 @@ export default function App() {
             playClick();
             setSystemMode('mobile');
           }}
+          manterOpAberta={manterOpAberta}
+          onToggleManterOpAberta={handleToggleManterOpAberta}
+          activeBatches={activeBatchesInTerminal}
+          onSelectActiveBatch={handleSelectActiveBatch}
         />
 
         {/* Modal de Troca de Terminal Físico */}
@@ -894,14 +1009,16 @@ export default function App() {
           setSystemMode('mobile');
         }}
         onResetScreen={handleResetScreen}
+        manterOpAberta={manterOpAberta}
+        onToggleManterOpAberta={handleToggleManterOpAberta}
       />
 
-      {/* Auto-Limpeza Toast (3 segundos) */}
+      {/* Notificação Toast Flutuante Discreta (2.5 segundos) */}
       {toastData && (
         <AutoCleanToast
           message={toastData.message}
           details={toastData.details}
-          durationMs={3000}
+          durationMs={2500}
           onClean={() => setToastData(null)}
         />
       )}
