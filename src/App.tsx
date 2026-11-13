@@ -26,6 +26,7 @@ import { formatarNumeroOP } from './utils/nomusParser';
 import { ActiveBatchItem } from './components/ActiveBatchesPanel';
 import { Header } from './components/Header';
 import { TerminalSelector } from './components/TerminalSelector';
+import { OperatorIdentityModal } from './components/OperatorIdentityModal';
 import { BarcodeScannerInput } from './components/BarcodeScannerInput';
 import { OpDetailsCard } from './components/OpDetailsCard';
 import { SectorSelector } from './components/SectorSelector';
@@ -69,6 +70,9 @@ export default function App() {
   const [selectedOperator, setSelectedOperator] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+
+  // Confirmação de Identidade do Operador ao clicar no card de lote em execução
+  const [pendingBatchConfirmation, setPendingBatchConfirmation] = useState<ActiveBatchItem | null>(null);
 
   // Referências síncronas para validação em listeners do Socket.io (evita closures desatualizadas)
   const selectedOpNumberRef = useRef<string | null>(selectedOpNumber);
@@ -524,6 +528,43 @@ export default function App() {
     }
   }, [atualizacaoPendente, selectedOpNumber, showTerminalModal, showSupervisor, showPinModal]);
 
+  // Retorno automático por inatividade de 30 segundos na tela interna do Totem (quando manterOpAberta estiver desmarcado)
+  useEffect(() => {
+    // Ativo apenas quando uma OP está aberta no Totem, no modo totem, e 'manterOpAberta' estiver desativado
+    if (!selectedOpNumber || systemMode !== 'totem' || manterOpAberta) {
+      return;
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const resetTimer = () => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        console.log('[Totem] 30s de inatividade na tela interna. Retornando automaticamente à tela inicial.');
+        handleResetScreen(true);
+        setToastData({
+          message: '⏱️ Retorno por Inatividade (30s)',
+          details: 'A tela da OP foi fechada automaticamente para segurança do operador.'
+        });
+      }, 30000);
+    };
+
+    resetTimer();
+
+    // Eventos de interação do usuário (toque, clique, teclado, mouse)
+    const activityEvents = ['touchstart', 'pointerdown', 'mousedown', 'keydown', 'mousemove', 'scroll'];
+    const handleActivity = () => {
+      resetTimer();
+    };
+
+    activityEvents.forEach((ev) => window.addEventListener(ev, handleActivity, { passive: true }));
+
+    return () => {
+      clearTimeout(timeoutId);
+      activityEvents.forEach((ev) => window.removeEventListener(ev, handleActivity));
+    };
+  }, [selectedOpNumber, systemMode, manterOpAberta, handleResetScreen]);
+
   // Lotes em andamento vinculados aos postos do terminal ativo
   const activeBatchesInTerminal = useMemo<ActiveBatchItem[]>(() => {
     if (!currentTerminal) return [];
@@ -712,13 +753,21 @@ export default function App() {
     return list;
   }, [currentTerminal, apontamentos, orders]);
 
-  // Abre diretamente a tela da OP na etapa em andamento pronta para conclusão
-  const handleSelectActiveBatch = useCallback((batch: ActiveBatchItem) => {
+  // Solicita confirmação de identidade do operador ao clicar no card de lote em execução
+  const handleRequestActiveBatch = useCallback((batch: ActiveBatchItem) => {
     playClick();
+    setPendingBatchConfirmation(batch);
+  }, []);
+
+  // Confirma a identidade e abre o lote diretamente para conclusão
+  const handleConfirmOperatorIdentity = useCallback(() => {
+    if (!pendingBatchConfirmation) return;
+    const batch = pendingBatchConfirmation;
+    setPendingBatchConfirmation(null);
     setSelectedOpNumber(batch.opNumero);
     setSelectedSector(batch.etapa);
     setSelectedOperator(batch.operador);
-  }, []);
+  }, [pendingBatchConfirmation]);
 
   // Seleciona terminal físico
   const handleSelectTerminal = (term: TerminalConfig) => {
@@ -1116,8 +1165,20 @@ export default function App() {
           manterOpAberta={manterOpAberta}
           onToggleManterOpAberta={handleToggleManterOpAberta}
           activeBatches={activeBatchesInTerminal}
-          onSelectActiveBatch={handleSelectActiveBatch}
+          onSelectActiveBatch={handleRequestActiveBatch}
         />
+
+        {/* Modal de Confirmação de Identidade do Operador */}
+        {pendingBatchConfirmation && (
+          <OperatorIdentityModal
+            batch={pendingBatchConfirmation}
+            onConfirm={handleConfirmOperatorIdentity}
+            onCancel={() => {
+              playClick();
+              setPendingBatchConfirmation(null);
+            }}
+          />
+        )}
 
         {/* Modal de Troca de Terminal Físico */}
         {showTerminalModal && (
