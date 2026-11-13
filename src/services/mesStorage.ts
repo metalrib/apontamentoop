@@ -3863,9 +3863,28 @@ export async function saveMultipleOrders(
         atualizadoPeloPcpEm: new Date().toISOString()
       };
 
-      if (opImportada.descricao && !dadosAtuais.descricao) metadadosParaAtualizar.descricao = opImportada.descricao;
-      if (opImportada.codigo && !dadosAtuais.codigo) metadadosParaAtualizar.codigo = opImportada.codigo;
-      if (opImportada.codigoProduto && !dadosAtuais.codigoProduto) metadadosParaAtualizar.codigoProduto = opImportada.codigoProduto;
+      const isDescValida = (d?: string | null): boolean => {
+        if (!d) return false;
+        const up = String(d).trim().toUpperCase();
+        if (!up || up === '-' || up === '—' || up === 'NULL' || up === 'UNDEFINED') return false;
+        if (up.includes('INCLUIR ITEN') || up.includes('INCLUIR ITEM') || up.startsWith('INCLUIR')) return false;
+        if (up.startsWith('ORDEM OP') || up.startsWith('ORDEM DE PRODU') || up.startsWith('PRODUTO OP') || up.startsWith('OP ')) return false;
+        if (up === 'PRODUTO' || up === 'DESCRIÇÃO' || up === 'DESCRICAO' || up === 'ITEM') return false;
+        return true;
+      };
+
+      if (isDescValida(opImportada.descricao)) {
+        if (!dadosAtuais.descricao || !isDescValida(dadosAtuais.descricao) || dadosAtuais.descricao !== opImportada.descricao) {
+          metadadosParaAtualizar.descricao = opImportada.descricao;
+          metadadosParaAtualizar.produto = opImportada.descricao;
+        }
+      }
+      if (opImportada.codigo && (!dadosAtuais.codigo || dadosAtuais.codigo !== opImportada.codigo)) {
+        metadadosParaAtualizar.codigo = opImportada.codigo;
+      }
+      if (opImportada.codigoProduto && (!dadosAtuais.codigoProduto || dadosAtuais.codigoProduto !== opImportada.codigoProduto)) {
+        metadadosParaAtualizar.codigoProduto = opImportada.codigoProduto;
+      }
       if (opImportada.lote && (!dadosAtuais.lote || dadosAtuais.lote === '—')) metadadosParaAtualizar.lote = opImportada.lote;
 
       const semApontamentos = !dadosAtuais.apontamentos || Object.keys(dadosAtuais.apontamentos).length === 0;

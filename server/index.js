@@ -578,6 +578,157 @@ try {
   console.warn('[SQLite Migration] Erro no saneamento inicial de ordens:', e);
 }
 
+// =============================================================
+// CATÁLOGO E SANEAMENTO AUTOMÁTICO DE DESCRIÇÕES DE OPs
+// =============================================================
+const catalogoPorCodigo = new Map();
+const catalogoPorNumeroOp = new Map();
+
+function isDescricaoValidaSql(d) {
+  if (!d) return false;
+  const up = String(d).toUpperCase().trim();
+  if (!up || up === '-' || up === '—' || up === 'NULL' || up === 'UNDEFINED') return false;
+  if (up.includes('INCLUIR ITEN') || up.includes('INCLUIR ITEM') || up.startsWith('INCLUIR')) return false;
+  if (up.startsWith('ORDEM OP') || up.startsWith('ORDEM DE PRODU') || up.startsWith('OP ')) return false;
+  if (up === 'PRODUTO' || up === 'DESCRIÇÃO' || up === 'DESCRICAO' || up === 'ITEM' || up === 'LIBERADA') return false;
+  if (up.startsWith('PRODUTO OP') || up.startsWith('PRODUTO 0') || (up.startsWith('PRODUTO ') && up.includes('-'))) return false;
+  return true;
+}
+
+function sanearDescricoesPoluidas(database) {
+  try {
+    // A) Aprende de ordens válidas no SQLite
+    const ordensValidasDb = database.prepare(`
+      SELECT numero, codigo, descricao FROM ordens 
+      WHERE descricao IS NOT NULL AND TRIM(descricao) != ''
+    `).all();
+    for (const row of ordensValidasDb) {
+      if (isDescricaoValidaSql(row.descricao)) {
+        const descClean = row.descricao.trim();
+        if (row.codigo && !catalogoPorCodigo.has(row.codigo.trim())) {
+          catalogoPorCodigo.set(row.codigo.trim(), descClean);
+        }
+        const numClean = normalizarIdOP(row.numero);
+        if (numClean && !catalogoPorNumeroOp.has(numClean)) {
+          catalogoPorNumeroOp.set(numClean, descClean);
+        }
+      }
+    }
+
+    // B) Aprende do backup RTDB oficial se existir
+    const backupPath = path.join(__dirname, 'apontamentoop-default-rtdb-export.json');
+    if (fs.existsSync(backupPath)) {
+      try {
+        const backupData = JSON.parse(fs.readFileSync(backupPath, 'utf8'));
+        const orders = { ...(backupData.ordens_producao || {}), ...(backupData.ordens || {}) };
+        for (const [k, v] of Object.entries(orders)) {
+          const desc = v.descricao || v.produto || '';
+          if (isDescricaoValidaSql(desc)) {
+            const descClean = desc.trim();
+            const cod = (v.codigo || v.codigoProduto || '').trim();
+            if (cod && !catalogoPorCodigo.has(cod)) {
+              catalogoPorCodigo.set(cod, descClean);
+            }
+            const num = normalizarIdOP(v.numero || v.id || k);
+            if (num && !catalogoPorNumeroOp.has(num)) {
+              catalogoPorNumeroOp.set(num, descClean);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[Sanear Descrições] Aviso ao ler backup RTDB:', e.message);
+      }
+    }
+
+    // C) Whitelist padrão adicional de códigos Metalrib conhecidos
+    const catalogoPadrao = {
+      '001.0109': 'PT GIR RESF 1.000A X 1.000L 4BAT REV CH',
+      '001.0010': 'PT GIR RESF',
+      '001.0149': 'PT GIR RESF 2.100A X 1.000L 4BAT DIR CH',
+      '001.0150': 'PT GIR RESF 2.100A X 1.000L 4BAT ESQ CH',
+      '003.0112': 'PT GIR CONG 1.800A X 800L 4BAT REV PX',
+      '003.0113': 'PT GIR CONG 1.800A X 800L 4BAT REV CH',
+      '003.0129': 'PT GIR CONG 2.000A X 1.000L 3BAT DIR CH',
+      '003.0136': 'PT GIR CONG 2.000A X 1.200L 3BAT DIR CH',
+      '003.0149': 'PT GIR CONG 2.100A X 1.000L 4BAT DIR CH',
+      '003.0187': 'PT GIR CONG 2.400A X 1.600L',
+      '005.0010': 'PT COR RESF',
+      '005.0100': 'PT COR RESF 1.800A X 800L 4BAT ESQ',
+      '009.0011': 'PT OFFICE DOOR GIR C/ VISOR',
+      '009.0109': 'PT OFFICE DOOR GIR 2.100A X 800L DIR C/ VISOR',
+      '010.0008': 'PT OFFICE DOOR CORRER',
+      '011.0012': 'PT VAI VEM INJ SIMPLES C/ BUMPER',
+      '011.0013': 'PT VAI VEM INJ DUPLA C/ BUMPER',
+      '011.0113': 'PT VAI VEM INJ 2.100A X 900L SIMPLES C/ BUMPER',
+      '020.0005': 'BATENTE PORTA GIRO',
+      '020.0008': 'BATENTE PORTA CORRER C/ RESIST',
+      '020.0013': 'FOLHA GIRO 1.000A X 1.000L X 60MM',
+      '020.0015': 'FOLHA GIRO 1.800A X 800L X 60MM',
+      '020.0016': 'FOLHA GIRO 1.800A X 800L X 100MM',
+      '020.0019': 'FOLHA GIRO 2.000A X 1.000L X 100MM CHAVE',
+      '020.0024': 'FOLHA CORRER RESF',
+      '020.0031': 'FOLHA CORRER CONG',
+      '020.0049': 'BATENTE PORTA CORRER RESF',
+      '020.0054': 'BATENTE PORTA GIRO 4BAT',
+      '020.0059': 'BATENTE PORTA GIRO CONG',
+      '022.0027': 'PERFIL PP L 40 X 140 - 3.000MM'
+    };
+
+    for (const [cod, desc] of Object.entries(catalogoPadrao)) {
+      if (!catalogoPorCodigo.has(cod)) {
+        catalogoPorCodigo.set(cod, desc);
+      }
+    }
+
+    // Localiza ordens com descrição poluída ("INCLUIR ITENS", "ORDEM OP", placeholders "PRODUTO OP", etc)
+    const poluidas = database.prepare(`
+      SELECT rowid, id, numero, codigo, descricao, dados FROM ordens 
+      WHERE UPPER(descricao) LIKE '%INCLUIR ITEN%' 
+         OR UPPER(descricao) LIKE '%INCLUIR ITEM%'
+         OR UPPER(descricao) LIKE 'INCLUIR%'
+         OR UPPER(descricao) LIKE '%ORDEM OP%'
+         OR UPPER(descricao) LIKE 'PRODUTO%'
+         OR descricao IS NULL 
+         OR TRIM(descricao) = ''
+    `).all();
+
+    if (poluidas.length > 0) {
+      console.log(`[Sanear Descrições] Localizadas ${poluidas.length} OPs com descrição inválida/poluída.`);
+      let restauradas = 0;
+      const updateStmt = database.prepare(`
+        UPDATE ordens SET descricao = ?, dados = ?, atualizadoEm = ? WHERE rowid = ?
+      `);
+
+      const tx = database.transaction((lista) => {
+        for (const row of lista) {
+          const numClean = normalizarIdOP(row.numero || row.id);
+          const codClean = String(row.codigo || '').trim();
+
+          const descRecuperada = catalogoPorNumeroOp.get(numClean) || catalogoPorCodigo.get(codClean);
+
+          if (descRecuperada && isDescricaoValidaSql(descRecuperada)) {
+            let dadosObj = {};
+            try { dadosObj = JSON.parse(row.dados || '{}'); } catch {}
+            dadosObj.descricao = descRecuperada;
+            dadosObj.produto = descRecuperada;
+
+            updateStmt.run(descRecuperada, JSON.stringify(dadosObj), Date.now(), row.rowid);
+            restauradas++;
+          }
+        }
+      });
+
+      tx(poluidas);
+      console.log(`[Sanear Descrições] Saneamento concluído: ${restauradas} de ${poluidas.length} restauradas com descrições reais.`);
+    }
+  } catch (err) {
+    console.warn('[Sanear Descrições] Erro no saneamento automático:', err.message);
+  }
+}
+
+// Executar saneamento automático na inicialização
+sanearDescricoesPoluidas(db);
+
 // -------------------------------------------------------------
 // SANEAMENTO E MAPEAMENTO DE ROTAS OFICIAIS NOMUS NO SQLITE
 // -------------------------------------------------------------
@@ -1673,7 +1824,18 @@ app.post('/api/ordens', (req, res) => {
     ON CONFLICT(numero) DO UPDATE SET
       id = excluded.id,
       codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
-      descricao = CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE ordens.descricao END,
+      descricao = CASE 
+        WHEN excluded.descricao != '' 
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%INCLUIR ITEN%' 
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'ORDEM OP%' 
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'PRODUTO OP%' 
+        THEN excluded.descricao 
+        WHEN UPPER(TRIM(ordens.descricao)) LIKE '%INCLUIR ITEN%'
+             OR UPPER(TRIM(ordens.descricao)) LIKE '%ORDEM OP%'
+             OR UPPER(TRIM(ordens.descricao)) LIKE 'PRODUTO OP%'
+        THEN CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE '' END
+        ELSE ordens.descricao 
+      END,
       cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
       tipoOrdem = CASE WHEN excluded.tipoOrdem != '' THEN excluded.tipoOrdem ELSE ordens.tipoOrdem END,
       quantidadeFisica = excluded.quantidadeFisica,
@@ -1740,11 +1902,16 @@ app.post('/api/ordens', (req, res) => {
         }
       }
 
+      let descItemFinal = (item.descricao || item.produto || '').trim();
+      if (!isDescricaoValidaSql(descItemFinal)) {
+        descItemFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codItem) || '';
+      }
+
       stmt.run({
         id: formattedNum,
         numero: formattedNum,
         codigo: item.codigo || item.codigoProduto || '',
-        descricao: item.descricao || item.produto || '',
+        descricao: descItemFinal,
         cliente: item.cliente || '',
         tipoOrdem: item.tipoOrdem || 'Padrão',
         status: statusVal,
@@ -1847,7 +2014,18 @@ app.post('/api/importar-nomus-auto', (req, res) => {
       ON CONFLICT(numero) DO UPDATE SET
         id = excluded.id,
         codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
-        descricao = CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE ordens.descricao END,
+        descricao = CASE 
+          WHEN excluded.descricao != '' 
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%INCLUIR ITEN%' 
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'ORDEM OP%' 
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'PRODUTO OP%' 
+          THEN excluded.descricao 
+          WHEN UPPER(TRIM(ordens.descricao)) LIKE '%INCLUIR ITEN%'
+               OR UPPER(TRIM(ordens.descricao)) LIKE '%ORDEM OP%'
+               OR UPPER(TRIM(ordens.descricao)) LIKE 'PRODUTO OP%'
+          THEN CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE '' END
+          ELSE ordens.descricao 
+        END,
         cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
         tipoOrdem = CASE WHEN excluded.tipoOrdem != '' THEN excluded.tipoOrdem ELSE ordens.tipoOrdem END,
         lote = CASE WHEN excluded.lote != '' AND excluded.lote != '—' THEN excluded.lote ELSE ordens.lote END,
@@ -1887,11 +2065,23 @@ app.post('/api/importar-nomus-auto', (req, res) => {
         const canonicalNum = formatarNumeroOP(op.numero_normalizado || op.numero || op.id);
         if (!canonicalNum) continue;
 
+        const cleanId = normalizarIdOP(canonicalNum);
+        const codClean = String(op.codigo || op.codigoProduto || '').trim();
+        let descFinal = (op.descricao || '').trim();
+        if (!isDescricaoValidaSql(descFinal)) {
+          descFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codClean) || '';
+        }
+        if (descFinal && isDescricaoValidaSql(descFinal)) {
+          op.descricao = descFinal;
+          if (codClean && !catalogoPorCodigo.has(codClean)) catalogoPorCodigo.set(codClean, descFinal);
+          if (cleanId && !catalogoPorNumeroOp.has(cleanId)) catalogoPorNumeroOp.set(cleanId, descFinal);
+        }
+
         upsertStmt.run({
           id: canonicalNum,
           numero: canonicalNum,
           codigo: op.codigo || op.codigoProduto || '',
-          descricao: op.descricao || '',
+          descricao: descFinal,
           cliente: op.cliente || 'Nomus ERP',
           tipoOrdem: op.tipoOrdem || op.familia || 'Padrão',
           status: op.status || 'Aguardando Início em: Corte',
@@ -2031,6 +2221,12 @@ app.put('/api/ordens/:id', (req, res) => {
   const novoLaser = laserInt !== null ? laserInt : opRow.requerLaser;
   const novoRouter = routerInt !== null ? routerInt : opRow.requerRouter;
 
+  const descValida = dados.descricao && typeof dados.descricao === 'string' && isDescricaoValidaSql(dados.descricao)
+    ? dados.descricao.trim().toUpperCase()
+    : null;
+  const novaDescricao = descValida !== null ? descValida : opRow.descricao;
+  const novoCodigo = (dados.codigo || dados.codigoProduto) ? String(dados.codigo || dados.codigoProduto).trim() : opRow.codigo;
+
   const houveMudanca = 
     opRow.id !== formatId ||
     opRow.numero !== formatId ||
@@ -2040,7 +2236,9 @@ app.put('/api/ordens/:id', (req, res) => {
     novoLaser !== opRow.requerLaser ||
     novoRouter !== opRow.requerRouter ||
     (novoTipoOrdem && novoTipoOrdem !== opRow.tipoOrdem) ||
-    (novoCliente && novoCliente !== opRow.cliente);
+    (novoCliente && novoCliente !== opRow.cliente) ||
+    (novaDescricao && novaDescricao !== opRow.descricao) ||
+    (novoCodigo && novoCodigo !== opRow.codigo);
 
   // PROTEÇÃO ANTI-LOOP: Se os dados forem idênticos aos já gravados no banco, retorna sem reemitir socket
   if (!houveMudanca) {
@@ -2055,6 +2253,8 @@ app.put('/api/ordens/:id', (req, res) => {
       etapas = @novasEtapas,
       tipoOrdem = @novoTipoOrdem,
       cliente = @novoCliente,
+      descricao = @novaDescricao,
+      codigo = @novoCodigo,
       quantidadeFisica = @novaQtd,
       requerLaser = @novoLaser,
       requer_laser = @novoLaser,
@@ -2073,6 +2273,8 @@ app.put('/api/ordens/:id', (req, res) => {
     novasEtapas,
     novoTipoOrdem,
     novoCliente,
+    novaDescricao,
+    novoCodigo,
     novaQtd,
     novoLaser,
     novoRouter,

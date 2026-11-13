@@ -116,6 +116,16 @@ function isValidDataValue(val) {
   );
 }
 
+function isDescricaoValida(desc) {
+  if (!desc || typeof desc !== 'string') return false;
+  const t = desc.trim().toUpperCase();
+  if (!isValidDataValue(t)) return false;
+  if (t.includes('INCLUIR ITEN') || t.includes('INCLUIR ITEM') || t.startsWith('INCLUIR')) return false;
+  if (t.startsWith('ORDEM OP') || t.startsWith('ORDEM DE PRODU') || t.startsWith('PRODUTO OP') || t.startsWith('OP ')) return false;
+  if (t === 'PRODUTO' || t === 'DESCRIÇÃO' || t === 'DESCRICAO' || t === 'ITEM' || t === 'LIBERADA' || t === 'EM PRODUÇÃO' || t === 'FINALIZADA') return false;
+  return true;
+}
+
 function parseDimensions(desc) {
   if (!desc) return null;
   const regex = /(\d+(?:[.,]\d+)?)\s*(?:a|alt|h|mm)?\s*[xX*]\s*(\d+(?:[.,]\d+)?)\s*(?:l|larg|w|mm)?/i;
@@ -606,7 +616,12 @@ function parseNomusHtml(htmlContent) {
           idxOp = idx;
         } else if (norm.includes('cod') || norm.includes('ref')) {
           idxCodigo = idx;
-        } else if (norm.includes('desc') || norm.includes('item') || (norm.includes('produto') && !norm.includes('cod')) || norm.includes('especificacao')) {
+        } else if (
+          !norm.includes('incluir') &&
+          !norm.includes('acao') &&
+          !norm.includes('acoes') &&
+          (norm.includes('desc') || norm.includes('item') || (norm.includes('produto') && !norm.includes('cod')) || norm.includes('especificacao'))
+        ) {
           idxDescricao = idx;
         } else if (norm.includes('lote')) {
           idxLote = idx;
@@ -699,10 +714,27 @@ function parseNomusHtml(htmlContent) {
 
       const celulaDescricao = idxDescricao >= 0 && cells[idxDescricao] ? cells[idxDescricao] : null;
       let descTexto = celulaDescricao ? cleanCellText(celulaDescricao) : '';
-      if (descTexto && isValidDataValue(descTexto)) {
+
+      // Se a célula mapeada contiver "INCLUIR ITENS" ou for inválida, busca nas outras células da linha
+      if (!isDescricaoValida(descTexto)) {
+        const candidata = cells.find((c) => {
+          const t = cleanCellText(c);
+          if (!isDescricaoValida(t)) return false;
+          if (/^\d{2}\/\d{2}\/\d{4}$/.test(t.trim())) return false;
+          if (/^\d{3}[\.-]?\d{4}$/.test(t.trim())) return false;
+          if (/^(?:OP\s*)?\d{4,8}[-_/]\d{1,3}$/i.test(t.trim())) return false;
+          if (/^\d+([.,]\d+)?$/.test(t.trim())) return false;
+          return t.length >= 4;
+        });
+        if (candidata) {
+          descTexto = cleanCellText(candidata);
+        }
+      }
+
+      if (descTexto && isDescricaoValida(descTexto)) {
         ultimaDescricaoValida = descTexto;
       } else {
-        descTexto = ultimaDescricaoValida;
+        descTexto = isDescricaoValida(ultimaDescricaoValida) ? ultimaDescricaoValida : '';
       }
 
       const celulaCodigo = idxCodigo >= 0 && cells[idxCodigo] ? cells[idxCodigo] : null;
@@ -769,7 +801,10 @@ function parseNomusHtml(htmlContent) {
       }
 
       const fallbackDesc = numero.startsWith('OP') ? `PRODUTO ${numero}` : `PRODUTO OP ${numero}`;
-      const descricao = (descTexto || ultimaDescricaoValida || fallbackDesc).toUpperCase();
+      let descricao = (descTexto || ultimaDescricaoValida || '').trim().toUpperCase();
+      if (!isDescricaoValida(descricao)) {
+        descricao = fallbackDesc;
+      }
       const codigo = codTexto || ultimoCodigoValido || '';
 
       const rawLote = idxLote >= 0 && cells[idxLote] ? cleanCellText(cells[idxLote]) : '';
@@ -936,7 +971,7 @@ function parseNomusHtml(htmlContent) {
       let descricao = '';
       const tagTextMatches = [...contextWindow.matchAll(/>([^<>]{3,120})</g)]
         .map((m) => m[1].replace(/\u00a0/g, ' ').replace(/&nbsp;/gi, ' ').trim())
-        .filter((t) => isValidDataValue(t) && !t.includes('<') && !t.includes('>'));
+        .filter((t) => isValidDataValue(t) && isDescricaoValida(t) && !t.includes('<') && !t.includes('>'));
 
       for (const t of tagTextMatches) {
         if (
@@ -945,7 +980,8 @@ function parseNomusHtml(htmlContent) {
           !/^(?:OP\s*)?\d{4,8}[-_/]\d{1,3}$/i.test(t) &&
           !/^\d+$/.test(t) &&
           !/^(?:liberada|produzindo|em produção|planejada|finalizada|suspensa)$/i.test(t) &&
-          !/^(?:resumo geral|total geral|subtotal)$/i.test(t)
+          !/^(?:resumo geral|total geral|subtotal)$/i.test(t) &&
+          !/incluir/i.test(t)
         ) {
           if (/(?:PT|PORTA|FOLHA|PERFIL|ABRIGO|ESTANTE|BATENTE|OFFICE|GUIA|TRILHO|GIR|COR)/i.test(t)) {
             descricao = t.toUpperCase();
