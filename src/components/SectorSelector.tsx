@@ -9,7 +9,15 @@ import {
   obterQuantidadeTotal,
   validarPostoIndustrial,
   etapaPertenceARota,
-  matchStepName
+  matchStepName,
+  isVaiVemOrder,
+  isBatente,
+  isTrilhoCorrer,
+  isEstanteCompleta,
+  isQuadroEstante,
+  isPeEstanteSemPintura,
+  isPeEstanteComPintura,
+  isAbrigoDoca
 } from '../utils/routeEngine';
 import { updateProductionOrder, verificarECorrigirRotaOp, fetchTerminalsConfig } from '../services/mesStorage';
 import { playClick, playBlockedError } from '../utils/audio';
@@ -115,44 +123,81 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
 
   // FILTRAR O PASSO 1 PARA MOSTRAR APENAS SETORES DA OP ATUAL (LIMPEZA VISUAL)
   // Setores que NÃO pertencem à rota da OP NÃO devem ser renderizados (nem mesmo com cadeado).
-  // Nota: Montagem Porta Vai-Vem permanece visível no Terminal 5 (para Fábio/Nathan) e Terminal 4.
   const isOdCorrer = isOfficeDoorCorrer(order);
   const isOdGiro = isOfficeDoorGiro(order);
+  const isOpOffice = isOdCorrer || isOdGiro || String(order.descricao || order.produto || '').toUpperCase().includes('OFFICE');
+  const isOpVaiVem = isVaiVemOrder(order);
+  const isOpBatente = isBatente(order);
+  const isOpTrilho = isTrilhoCorrer(order);
+  const isOpEstante = isEstanteCompleta(order) || isQuadroEstante(order) || isPeEstanteSemPintura(order) || isPeEstanteComPintura(order);
+  const isOpAbrigo = isAbrigoDoca(order);
 
   const postosExibiveis = sectorsToProcess.filter((setorTerminal) => {
     const setorNorm = normalizar(setorTerminal);
 
-    // ISOLAMENTO ESTRITO ENTRE OFFICE DOOR GIRO E CORRER
-    if (isOdGiro) {
-      if (
-        setorNorm.includes('correr') ||
-        setorNorm.includes('corte aluminio') ||
-        setorNorm.includes('corte de aluminio') ||
-        setorNorm.includes('preparacao office door correr') ||
-        setorNorm.includes('montagem office de correr') ||
-        setorNorm.includes('montagem office door correr') ||
-        setorNorm.includes('montagem de portas giratoria padrao e especial') ||
-        setorNorm.includes('montagem de portas giratorias') ||
-        (setorNorm.includes('girat') && !setorNorm.includes('office')) ||
-        (!setorNorm.includes('office') && setorNorm.includes('porta') && setorNorm.includes('giro'))
-      ) {
-        return false;
+    // 1. ISOLAMENTO ESTRITO ENTRE FAMÍLIAS DE PRODUTO:
+    // Se a OP NÃO é Office Door, nenhum setor de Office Door pode ser exibido
+    if (!isOpOffice && setorNorm.includes('office')) {
+      return false;
+    }
+    // Se a OP É Office Door:
+    if (isOpOffice) {
+      if (isOdGiro) {
+        if (
+          setorNorm.includes('correr') ||
+          setorNorm.includes('corte aluminio') ||
+          setorNorm.includes('preparacao office door correr') ||
+          setorNorm.includes('montagem office de correr') ||
+          setorNorm.includes('montagem office door correr') ||
+          setorNorm.includes('montagem de portas giratoria padrao e especial') ||
+          (!setorNorm.includes('office') && (setorNorm.includes('porta') || setorNorm.includes('giro')))
+        ) {
+          return false;
+        }
+      } else if (isOdCorrer) {
+        if (
+          setorNorm.includes('giro') ||
+          setorNorm.includes('girat') ||
+          setorNorm.includes('dobra') ||
+          setorNorm.includes('laser') ||
+          setorNorm.includes('gaxeta') ||
+          setorNorm.includes('montagem de office door giro') ||
+          (!setorNorm.includes('office') && (setorNorm.includes('porta') || setorNorm.includes('correr')))
+        ) {
+          return false;
+        }
       }
     }
 
-    if (isOdCorrer) {
-      if (
-        setorNorm.includes('giro') ||
-        setorNorm.includes('girat') ||
-        setorNorm.includes('dobra') ||
-        setorNorm.includes('laser') ||
-        setorNorm.includes('gaxeta') ||
-        setorNorm.includes('montagem de office door giro') ||
-        setorNorm.includes('montagem office door giratoria') ||
-        setorNorm.includes('montagem portas office door')
-      ) {
-        return false;
-      }
+    // Se a OP NÃO é Vai-Vem, nenhum setor de Vai-Vem pode ser exibido
+    if (!isOpVaiVem && (setorNorm.includes('vai vem') || setorNorm.includes('vv'))) {
+      return false;
+    }
+    if (isOpVaiVem && (setorNorm.includes('office') || (setorNorm.includes('montagem') && !setorNorm.includes('vai vem')))) {
+      return false;
+    }
+
+    // Se a OP NÃO é Batente, nenhum setor de Batente pode ser exibido
+    if (!isOpBatente && setorNorm.includes('batente')) {
+      return false;
+    }
+    if (isOpBatente && (setorNorm.includes('office') || setorNorm.includes('vai vem') || (setorNorm.includes('montagem') && !setorNorm.includes('batente')))) {
+      return false;
+    }
+
+    // Se a OP NÃO é Trilho, nenhum setor de Trilho pode ser exibido
+    if (!isOpTrilho && setorNorm.includes('trilho')) {
+      return false;
+    }
+
+    // Se a OP NÃO é Estante, nenhum setor de Estante pode ser exibido
+    if (!isOpEstante && setorNorm.includes('estante')) {
+      return false;
+    }
+
+    // Se a OP NÃO é Abrigo, nenhum setor de Abrigo pode ser exibido
+    if (!isOpAbrigo && setorNorm.includes('abrigo')) {
+      return false;
     }
 
     // Caso especial: Solda sob demanda para âncoras no Terminal 5
@@ -162,63 +207,18 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     const isLaser = setorTerminal.toLowerCase().includes('laser');
     if (isLaser && isLaserRequerido) return true;
 
-    // 1. Funções técnicas oficiais de correspondência de etapa
-    if (etapaPertenceARota(setorTerminal, rotaOp)) return true;
-    if (findStepForSector(setorTerminal, rotaOp) !== null) return true;
+    // 2. CORRESPONDÊNCIA COM A ROTA DA OP
+    // Apenas renderizar se o setor pertencer a alguma etapa real da rota da OP
+    const matched = findStepForSector(setorTerminal, steps) || findStepForSector(setorTerminal, rotaOp);
+    if (matched !== null) {
+      return true;
+    }
 
-    // 2. Verifica se o setor do terminal existe dentro da rota cadastrada para esta OP
-    return rotaOp.some((etapaRota) => {
-      const etapaNorm = normalizar(etapaRota);
-      if (etapaNorm === setorNorm) return true;
+    if (steps.some((st) => normalizar(st) === setorNorm) || rotaOp.some((st) => normalizar(st) === setorNorm)) {
+      return true;
+    }
 
-      // Equivalência para Vai-Vem (Montagem vs Preparação)
-      if (etapaNorm.includes('vai vem') && setorNorm.includes('vai vem')) {
-        if (etapaNorm.includes('prepar') || setorNorm.includes('prepar')) {
-          return etapaNorm.includes('prepar') && setorNorm.includes('prepar');
-        }
-        if (
-          (etapaNorm.includes('montagem') || etapaNorm.includes('finaliz')) &&
-          (setorNorm.includes('montagem') || setorNorm.includes('finaliz'))
-        ) {
-          return true;
-        }
-      }
-
-      // Equivalência para Portas Giratórias
-      if (
-        (etapaNorm.includes('girat') || etapaNorm.includes('giro')) &&
-        (setorNorm.includes('girat') || setorNorm.includes('giro')) &&
-        etapaNorm.includes('montagem') &&
-        setorNorm.includes('montagem')
-      ) {
-        return true;
-      }
-
-      // Equivalência para Portas de Correr
-      if (
-        etapaNorm.includes('correr') &&
-        setorNorm.includes('correr') &&
-        etapaNorm.includes('montagem') &&
-        setorNorm.includes('montagem')
-      ) {
-        return true;
-      }
-
-      // Equivalência para Gaxeta
-      if (etapaNorm.includes('gaxeta') && setorNorm.includes('gaxeta')) {
-        return true;
-      }
-
-      // Equivalência para Trilhos
-      if (
-        (etapaNorm.includes('corte') && etapaNorm.includes('trilho') && setorNorm.includes('corte') && setorNorm.includes('trilho')) ||
-        (etapaNorm.includes('montagem') && etapaNorm.includes('trilho') && setorNorm.includes('montagem') && setorNorm.includes('trilho'))
-      ) {
-        return true;
-      }
-
-      return false;
-    });
+    return false;
   });
 
   // No Terminal 1, garante a ordem oficial do fluxo produtivo: Corte -> Laser -> Dobra

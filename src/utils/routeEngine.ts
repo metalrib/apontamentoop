@@ -803,6 +803,65 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
   // Mapeamentos diretos e equivalências industriais
   if (normSector === normStep) return true;
 
+  // Isolamento estrito entre famílias industriais incompatíveis:
+  // 1. Office Door vs Não-Office
+  const isStepOffice = normStep.includes('OFFICE');
+  const isSectorOffice = normSector.includes('OFFICE');
+  if (isStepOffice !== isSectorOffice) {
+    return false;
+  }
+
+  // 2. Vai-Vem vs Não-Vai-Vem
+  const isStepVaiVem = normStep.includes('VAI VEM') || normStep.includes('VV');
+  const isSectorVaiVem = normSector.includes('VAI VEM') || normSector.includes('VV');
+  if (isStepVaiVem !== isSectorVaiVem) {
+    return false;
+  }
+
+  // 3. Batentes vs Não-Batente
+  const isStepBatente = normStep.includes('BATENTE');
+  const isSectorBatente = normSector.includes('BATENTE');
+  if (isStepBatente !== isSectorBatente) {
+    return false;
+  }
+
+  // 4. Trilhos vs Não-Trilho
+  const isStepTrilho = normStep.includes('TRILHO');
+  const isSectorTrilho = normSector.includes('TRILHO');
+  if (isStepTrilho !== isSectorTrilho) {
+    return false;
+  }
+
+  // 5. Estantes vs Não-Estante
+  const isStepEstante = normStep.includes('ESTANTE');
+  const isSectorEstante = normSector.includes('ESTANTE');
+  if (isStepEstante !== isSectorEstante) {
+    return false;
+  }
+
+  // 6. Abrigo de Doca vs Não-Abrigo
+  const isStepAbrigo = normStep.includes('ABRIGO');
+  const isSectorAbrigo = normSector.includes('ABRIGO');
+  if (isStepAbrigo !== isSectorAbrigo) {
+    return false;
+  }
+
+  // 7. Alumínio vs Não-Alumínio
+  const isStepAlum = normStep.includes('ALUMINIO');
+  const isSectorAlum = normSector.includes('ALUMINIO');
+  if (isStepAlum !== isSectorAlum) {
+    return false;
+  }
+
+  // 8. Portas Giratórias vs Portas de Correr (sem gaxeta)
+  const isStepGiro = (normStep.includes('GIRAT') || normStep.includes('GIRO')) && !normStep.includes('GAXETA');
+  const isSectorGiro = (normSector.includes('GIRAT') || normSector.includes('GIRO')) && !normSector.includes('GAXETA');
+  const isStepCorrer = (normStep.includes('CORRER') || normStep.includes('COR ')) && !normStep.includes('GAXETA');
+  const isSectorCorrer = (normSector.includes('CORRER') || normSector.includes('COR ')) && !normSector.includes('GAXETA');
+  if ((isStepGiro && isSectorCorrer) || (isStepCorrer && isSectorGiro)) {
+    return false;
+  }
+
   // Trilhos de Portas de Correr (Corte e Montagem)
   if (normStep.includes('TRILHO')) {
     if (normStep.includes('CORTE')) {
@@ -898,13 +957,6 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
   // Montagem Geral (Portas Convencionais T3 / T4)
   if (normStep === 'MONTAGEM' || normStep === 'MONTAGEM DE PORTAS') {
     return normSector.includes('MONTAGEM') && !normSector.includes('ESTANTE') && !normSector.includes('TRILHO') && !normSector.includes('ABRIGO');
-  }
-
-  // Isolamento estrito entre Office Door e Portas Convencionais (evita que giratória convencional case com office e vice-versa)
-  const isStepOffice = normStep.includes('OFFICE');
-  const isSectorOffice = normSector.includes('OFFICE');
-  if (isStepOffice !== isSectorOffice) {
-    return false;
   }
 
   if (normStep.includes('MONTAGEM') && (normStep.includes('OFFICE DOOR') || normStep.includes('OFFICE'))) {
@@ -1053,8 +1105,13 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
     return true;
   }
 
-  // Office Door
-  if (normA.includes('OFFICE DOOR') && normB.includes('OFFICE DOOR')) {
+  // Isolamento estrito entre famílias de produtos incompatíveis
+  const aOffice = normA.includes('OFFICE');
+  const bOffice = normB.includes('OFFICE');
+  if (aOffice !== bOffice) {
+    return false; // Um é Office e o outro não: NUNCA podem coincidir!
+  }
+  if (aOffice && bOffice) {
     const aCorrer = normA.includes('CORRER') || normA.includes('COR ');
     const bCorrer = normB.includes('CORRER') || normB.includes('COR ');
     const aGiro = normA.includes('GIRO') || normA.includes('GIRAT');
@@ -1069,6 +1126,32 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
       return normA.includes('MONTAGEM') && normB.includes('MONTAGEM');
     }
     return true;
+  }
+
+  const aVaiVem = normA.includes('VAI VEM') || normA.includes('VV');
+  const bVaiVem = normB.includes('VAI VEM') || normB.includes('VV');
+  if (aVaiVem !== bVaiVem) {
+    return false;
+  }
+
+  const aBatente = normA.includes('BATENTE');
+  const bBatente = normB.includes('BATENTE');
+  if (aBatente !== bBatente) {
+    return false;
+  }
+
+  const aTrilho = normA.includes('TRILHO');
+  const bTrilho = normB.includes('TRILHO');
+  if (aTrilho !== bTrilho) {
+    return false;
+  }
+
+  const aGiro = (normA.includes('GIRATORIA') || normA.includes('GIRO')) && !normA.includes('GAXETA');
+  const bGiro = (normB.includes('GIRATORIA') || normB.includes('GIRO')) && !normB.includes('GAXETA');
+  const aCorrer = (normA.includes('CORRER') || normA.includes('COR ')) && !normA.includes('GAXETA');
+  const bCorrer = (normB.includes('CORRER') || normB.includes('COR ')) && !normB.includes('GAXETA');
+  if ((aGiro && bCorrer) || (aCorrer && bGiro)) {
+    return false;
   }
 
   // Vai-Vem: Preparação e Montagem são etapas distintas e NUNCA devem ser equivalentes

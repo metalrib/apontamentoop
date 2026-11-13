@@ -36,7 +36,7 @@ import { SupervisorDashboard } from './components/SupervisorDashboard';
 import { PcpPortal } from './components/PcpPortal';
 import { MobilePcpTracker } from './components/MobilePcpTracker';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { getRouteForOp, findStepForSector, isAncoraOrder, obterQuantidadeTotal, initOrSyncOrderEtapas } from './utils/routeEngine';
+import { getRouteForOp, findStepForSector, isAncoraOrder, obterQuantidadeTotal, initOrSyncOrderEtapas, validarPostoIndustrial } from './utils/routeEngine';
 import { playSuccessStart, playSuccessFinish, playBlockedError, playClick } from './utils/audio';
 import { Lock, Shield, KeyRound } from 'lucide-react';
 
@@ -456,18 +456,17 @@ export default function App() {
       return findStepForSector(sec, steps) !== null;
     });
 
-    // Cenário 1: OP possui APENAS 1 setor aplicável neste terminal: auto-seleciona
-    if (validSectors.length === 1) {
-      if (selectedSector !== validSectors[0]) {
-        setSelectedSector(validSectors[0]);
-      }
-    } else {
-      // Cenário 2: OP possui 2 ou mais setores aplicáveis neste terminal (ex: T1 com Corte e Dobra; T4 com Gaxeta e Montagem Giratória):
-      // Ao abrir/trocar de OP, NUNCA deixa setor selecionado por padrão!
-      if (isNewOp || (selectedSector && !validSectors.includes(selectedSector))) {
-        setSelectedSector(null);
-        setSelectedOperator(null);
-      }
+    // Auto-seleciona o primeiro posto liberado da rota da OP neste terminal
+    const primeiroLiberado = validSectors.find(
+      (sec) => validarPostoIndustrial(currentOp, sec, apontamentos, currentTerminal.id).valido
+    );
+    const alvo = primeiroLiberado || validSectors[0] || null;
+
+    if (alvo && (isNewOp || !selectedSector || !validSectors.includes(selectedSector))) {
+      setSelectedSector(alvo);
+    } else if (!alvo && selectedSector && !validSectors.includes(selectedSector)) {
+      setSelectedSector(null);
+      setSelectedOperator(null);
     }
   }, [currentOp?.op_numero, currentTerminal?.id, apontamentos]);
 
@@ -742,11 +741,11 @@ export default function App() {
               if (isAncora && isTerminal5 && sec === 'Solda e Montagem') return true;
               return findStepForSector(sec, steps) !== null;
             });
-            if (validSectors.length === 1) {
-              setSelectedSector(validSectors[0]);
-            } else {
-              setSelectedSector(null);
-            }
+            const primeiroLiberado = validSectors.find(
+              (sec) => validarPostoIndustrial(found, sec, apontamentos, currentTerminal.id).valido
+            );
+            const alvo = primeiroLiberado || validSectors[0] || null;
+            setSelectedSector(alvo);
           }
         }
       } else {

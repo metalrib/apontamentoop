@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, User, Zap, ArrowRight, Layers } from 'lucide-react';
+import { Clock, User, Zap, ArrowRight, Layers, Coffee } from 'lucide-react';
 import { playClick } from '../utils/audio';
 import { formatarNumeroOP } from '../utils/nomusParser';
+import { calcularSegundosUteis, formatarTempoUteis, getPausaAtual } from '../utils/tempoUtil';
 
 export interface ActiveBatchItem {
   id: string;
@@ -24,12 +25,13 @@ interface ActiveBatchesPanelProps {
 
 const ActiveBatchCard: React.FC<{ item: ActiveBatchItem; onSelect: () => void }> = ({ item, onSelect }) => {
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(() => {
-    return Math.max(0, Math.floor((Date.now() - item.inicioMs) / 1000));
+    return calcularSegundosUteis(item.inicioMs, Date.now());
   });
+  const pausa = getPausaAtual();
 
   useEffect(() => {
     const update = () => {
-      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - item.inicioMs) / 1000)));
+      setElapsedSeconds(calcularSegundosUteis(item.inicioMs, Date.now()));
     };
     update();
     const interval = setInterval(update, 1000);
@@ -37,13 +39,7 @@ const ActiveBatchCard: React.FC<{ item: ActiveBatchItem; onSelect: () => void }>
   }, [item.inicioMs]);
 
   const formatTimer = (sec: number) => {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = sec % 60;
-    if (h > 0) {
-      return `${h}h ${String(m).padStart(2, '0')}m ${String(s).padStart(2, '0')}s`;
-    }
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return formatarTempoUteis(sec);
   };
 
   return (
@@ -89,8 +85,15 @@ const ActiveBatchCard: React.FC<{ item: ActiveBatchItem; onSelect: () => void }>
             <span className="font-semibold truncate">{item.operador}</span>
           </div>
 
-          <div className="flex items-center gap-1.5 text-amber-400 text-xs font-mono font-bold shrink-0">
-            <Clock className="w-3.5 h-3.5 animate-spin" />
+          <div className={`flex items-center gap-1.5 text-xs font-mono font-bold shrink-0 ${pausa ? 'text-amber-300' : 'text-amber-400'}`}>
+            {pausa ? (
+              <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40" title={`Pausa programada: ${pausa.nome}`}>
+                <Coffee className="w-3 h-3 text-amber-400" />
+                <span className="hidden sm:inline">PAUSA</span>
+              </span>
+            ) : (
+              <Clock className="w-3.5 h-3.5 animate-spin" />
+            )}
             <span>{formatTimer(elapsedSeconds)}</span>
           </div>
         </div>

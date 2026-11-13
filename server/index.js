@@ -14,6 +14,7 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 
 const { parseNomusHtml } = require('./nomusParser');
+const { calcularDuracaoLiquidaMs, calcularSegundosUteis, formatarTempoUteis, formatarDuracaoMinutos } = require('./tempoUtil');
 
 const app = express();
 const server = http.createServer(app);
@@ -2721,9 +2722,16 @@ app.post('/api/apontamentos', (req, res) => {
   let duracaoMinutos = Number(apt.duracao_minutos || apt.duracao || 0);
   let duracaoMs = Number(apt.duracaoMs || 0);
 
-  if (isFinalizado && (!duracaoMs || duracaoMs <= 0) && horaInicio && horaFim) {
-    duracaoMs = Math.max(0, new Date(horaFim).getTime() - new Date(horaInicio).getTime());
-    duracaoMinutos = Math.max(0.1, Number((duracaoMs / 60000).toFixed(1)));
+  if (isFinalizado && horaInicio && horaFim) {
+    const startMs = new Date(horaInicio).getTime();
+    const endMs = new Date(horaFim).getTime();
+    if (!isNaN(startMs) && !isNaN(endMs)) {
+      const liquidMs = calcularDuracaoLiquidaMs(startMs, endMs);
+      if (!duracaoMs || duracaoMs <= 0 || duracaoMs > liquidMs + 60000) {
+        duracaoMs = liquidMs;
+        duracaoMinutos = Math.max(0.1, Number((duracaoMs / 60000).toFixed(1)));
+      }
+    }
   }
 
   const stmt = db.prepare(`
