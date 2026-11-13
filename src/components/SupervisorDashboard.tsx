@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ProductionOrder, Apontamento, TERMINALS, ROUTE_RULES } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, obterEtapasDaRota } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, obterEtapasDaRota, isOpEmAberto } from '../utils/routeEngine';
 import { resetFactoryData, addProductionOrder } from '../services/mesStorage';
 import { TerminalsOverview } from './TerminalsOverview';
 import { X, Factory, RefreshCw, Download, Database, Plus, CheckCircle2, Clock, Monitor, ExternalLink } from 'lucide-react';
@@ -27,6 +27,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
   const [newOpLote, setNewOpLote] = useState<string>('LT-2026-X1');
 
   const orderList = Object.values(orders);
+  const totalEmAberto = orderList.filter(o => isOpEmAberto(o, apontamentos)).length;
   const activeApontamentos = apontamentos.filter(a => a.status === 'EM_ANDAMENTO');
 
   const handleCreateOp = async (e: React.FormEvent) => {
@@ -109,7 +110,7 @@ export const SupervisorDashboard: React.FC<SupervisorDashboardProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Ordens de Produção ({orderList.length})
+            Ordens de Produção ({totalEmAberto})
           </button>
           <button
             onClick={() => setActiveTab('terminals')}

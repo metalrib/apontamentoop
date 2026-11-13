@@ -6,7 +6,9 @@ import {
   obterQuantidadeTotal,
   obterEtapasDaRota,
   isOpEmProducao,
-  checkOp100Percent
+  checkOp100Percent,
+  isOpConcluida,
+  isOpEmAberto
 } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas, fetchNomusSyncStatus, NomusSyncStatus, getLocalSocket } from '../services/mesStorage';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP, normalizarIdOP } from '../utils/nomusParser';
@@ -80,7 +82,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'apontamentos' | 'productivity' | 'tv_status' | 'equipe'>('dashboard');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'EM_PRODUCAO' | 'FINALIZADA'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'EM_ABERTO' | 'EM_PRODUCAO' | 'FINALIZADA' | 'ALL'>('EM_ABERTO');
   const [selectedModel, setSelectedModel] = useState<string>('ALL');
   const [orderViewMode, setOrderViewMode] = useState<'cards' | 'table'>('cards');
   const [chatOrder, setChatOrder] = useState<ProductionOrder | null>(null);
@@ -255,9 +257,10 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   // 3. Ordens filtradas por status (base de cálculo para os contadores dinâmicos da barra de modelos)
   const statusFilteredOrders = useMemo(() => {
     return orderList.filter((op) => {
-      if (statusFilter === 'ALL') return true;
+      if (statusFilter === 'EM_ABERTO') return isOpEmAberto(op, apontamentos);
       if (statusFilter === 'EM_PRODUCAO') return isOpEmProducao(op, apontamentos);
-      if (statusFilter === 'FINALIZADA') return op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
+      if (statusFilter === 'FINALIZADA') return isOpConcluida(op, apontamentos);
+      if (statusFilter === 'ALL') return true;
       return op.status === statusFilter;
     });
   }, [orderList, statusFilter, apontamentos]);
@@ -299,12 +302,16 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   }, [statusFilteredOrders, deferredSearch, selectedModel]);
 
   // Contadores memorizados para evitar recomputações a cada tecla
+  const totalEmAberto = useMemo(() => {
+    return orderList.filter((o) => isOpEmAberto(o, apontamentos)).length;
+  }, [orderList, apontamentos]);
+
   const totalEmProducao = useMemo(() => {
     return orderList.filter((o) => isOpEmProducao(o, apontamentos)).length;
   }, [orderList, apontamentos]);
 
   const totalConcluidas = useMemo(() => {
-    return orderList.filter((o) => o.status === 'FINALIZADA' || checkOp100Percent(o, apontamentos)).length;
+    return orderList.filter((o) => isOpConcluida(o, apontamentos)).length;
   }, [orderList, apontamentos]);
 
   // Totais e filtro memorizados do Painel TV Andon
@@ -765,7 +772,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
             }`}
           >
             <Layers className="w-4 h-4 text-blue-400" />
-            <span>Ordens de Produção ({orderList.length})</span>
+            <span>Ordens de Produção ({totalEmAberto})</span>
           </button>
 
           <button
@@ -885,34 +892,48 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setStatusFilter('ALL')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-                    statusFilter === 'ALL'
-                      ? 'bg-[#1C2F8A] text-white'
+                  onClick={() => setStatusFilter('EM_ABERTO')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    statusFilter === 'EM_ABERTO'
+                      ? 'bg-[#1C2F8A] text-white shadow-sm'
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
+                  title="Exibir todas as ordens ativas da carteira em aberto"
                 >
-                  Todas ({orderList.length})
+                  Em Aberto ({totalEmAberto})
                 </button>
                 <button
                   onClick={() => setStatusFilter('EM_PRODUCAO')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                     statusFilter === 'EM_PRODUCAO'
-                      ? 'bg-blue-600 text-white'
+                      ? 'bg-blue-600 text-white shadow-sm'
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
+                  title="Exibir ordens atualmente em produção ativa nos terminais"
                 >
                   Em Produção ({totalEmProducao})
                 </button>
                 <button
                   onClick={() => setStatusFilter('FINALIZADA')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
                     statusFilter === 'FINALIZADA'
-                      ? 'bg-emerald-600 text-white'
+                      ? 'bg-emerald-600 text-white shadow-sm'
                       : 'bg-slate-900 text-slate-400 hover:text-white'
                   }`}
+                  title="Consultar histórico de ordens 100% finalizadas"
                 >
-                  Concluídas ({totalConcluidas})
+                  Concluídas / Histórico ({totalConcluidas})
+                </button>
+                <button
+                  onClick={() => setStatusFilter('ALL')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                    statusFilter === 'ALL'
+                      ? 'bg-slate-700 text-white shadow-sm'
+                      : 'bg-slate-900 text-slate-400 hover:text-white'
+                  }`}
+                  title="Exibir todas as ordens sem filtro de status"
+                >
+                  Todas ({orderList.length})
                 </button>
 
                 <div className="h-6 w-px bg-blue-950 mx-1 hidden sm:block" />
@@ -1057,21 +1078,27 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                         selectedModel !== 'ALL' ? ` (Modelo: ${selectedModel})` : ''
                       }${searchTerm ? ` (Busca: "${searchTerm}")` : ''}${
                         statusFilter !== 'ALL'
-                          ? ` (Status: ${statusFilter === 'EM_PRODUCAO' ? 'Em Produção' : 'Concluídas'})`
+                          ? ` (Status: ${
+                              statusFilter === 'EM_ABERTO'
+                                ? 'Em Aberto'
+                                : statusFilter === 'EM_PRODUCAO'
+                                ? 'Em Produção'
+                                : 'Concluídas'
+                            })`
                           : ''
                       }.`}
                 </span>
-                {orderList.length > 0 && (selectedModel !== 'ALL' || searchTerm || statusFilter !== 'ALL') ? (
+                {orderList.length > 0 && (selectedModel !== 'ALL' || searchTerm || statusFilter !== 'EM_ABERTO') ? (
                   <button
                     onClick={() => {
                       playClick();
                       setSelectedModel('ALL');
                       setSearchTerm('');
-                      setStatusFilter('ALL');
+                      setStatusFilter('EM_ABERTO');
                     }}
                     className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition cursor-pointer"
                   >
-                    Limpar Filtros e Mostrar Todas ({orderList.length})
+                    Limpar Filtros e Mostrar Carteira em Aberto ({totalEmAberto})
                   </button>
                 ) : (
                   <div className="flex flex-wrap items-center justify-center gap-3 mt-1">

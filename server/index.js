@@ -2405,6 +2405,7 @@ app.post('/api/ordens', (req, res) => {
       requer_router = CASE WHEN excluded.requer_router = 1 THEN 1 ELSE ordens.requer_router END,
       encaminhar_router = CASE WHEN excluded.encaminhar_router = 1 THEN 1 ELSE ordens.encaminhar_router END,
       status = CASE 
+        WHEN excluded.status = 'FINALIZADA' OR excluded.status = 'CONCLUIDA' THEN excluded.status
         WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
         THEN excluded.status 
         ELSE ordens.status 
@@ -2417,11 +2418,13 @@ app.post('/api/ordens', (req, res) => {
       atualizadoEm = excluded.atualizadoEm
   `);
 
+  const importedNums = new Set();
   const transacao = db.transaction((lista) => {
     for (const item of lista) {
       const cleanId = normalizarIdOP(item.numero || item.id);
       if (!cleanId) continue;
       const formattedNum = formatarNumeroOP(cleanId);
+      importedNums.add(formattedNum);
       let laserVal = Boolean(item.requerLaser || item.requer_laser) ? 1 : 0;
       let routerVal = Boolean(item.requerRouter || item.requer_router || item.encaminhar_router) ? 1 : 0;
       let etapasVal = item.etapas || [];
@@ -2429,6 +2432,13 @@ app.post('/api/ordens', (req, res) => {
 
       const codItem = item.codigo || item.codigoProduto || '';
       const descItem = item.descricao || item.produto || '';
+
+      const qtdProd = Number(item.qtde_produzida || item.qtd_produzida || item.quantidade_produzida || 0);
+      const qtdFis = Number(item.quantidadeFisica || item.quantidade_total || item.quantidade || 0);
+      const statusNomusRaw = String(item.status_nomus || item.statusNomus || item.status || '').toLowerCase();
+      if ((qtdProd >= qtdFis && qtdFis > 0) || statusNomusRaw.includes('conclu')) {
+        statusVal = 'FINALIZADA';
+      }
 
       if (isLaserExclusivoSql(codItem, descItem) || formattedNum.includes('024644-01')) {
         etapasVal = ['Laser'];
@@ -2512,6 +2522,23 @@ app.post('/api/ordens', (req, res) => {
   });
 
   transacao(ordens);
+
+  // Se for uma importação completa (carteira total >= 40 OPs), qualquer OP ativa que sumiu do relatório do Nomus foi concluída
+  if (Array.isArray(ordens) && ordens.length >= 40 && importedNums.size >= 40) {
+    const activeOps = db.prepare("SELECT numero FROM ordens WHERE status NOT IN ('FINALIZADA', 'CONCLUIDA')").all();
+    const opsToFinalize = activeOps.filter(r => !importedNums.has(r.numero));
+    if (opsToFinalize.length > 0) {
+      console.log(`[API Ordens] Finalizando automaticamente ${opsToFinalize.length} OPs ausentes do relatório Nomus completo.`);
+      const finStmt = db.prepare("UPDATE ordens SET status = 'FINALIZADA', status_nomus = 'Concluída', statusNomus = 'Concluída', atualizadoEm = ? WHERE numero = ?");
+      const finTx = db.transaction((list) => {
+        const nowTs = Date.now();
+        for (const row of list) {
+          finStmt.run(nowTs, row.numero);
+        }
+      });
+      finTx(opsToFinalize);
+    }
+  }
 
   // Garantia absoluta de deduplicação pós-inserção
   const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();
@@ -2672,6 +2699,7 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
         requer_router = CASE WHEN excluded.requer_router = 1 THEN 1 ELSE ordens.requer_router END,
         encaminhar_router = CASE WHEN excluded.encaminhar_router = 1 THEN 1 ELSE ordens.encaminhar_router END,
         status = CASE 
+          WHEN excluded.status = 'FINALIZADA' OR excluded.status = 'CONCLUIDA' THEN excluded.status
           WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
           THEN excluded.status 
           ELSE ordens.status 
@@ -2737,6 +2765,17 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
           op.produto = '';
         }
 
+        const qtdProd = Number(op.qtde_produzida || op.qtd_produzida || op.quantidade_produzida || 0);
+        const qtdFis = Number(op.quantidadeFisica || op.quantidade || op.quantidade_total || 1);
+        const statusNomusRaw = String(op.status_nomus || op.statusNomus || op.status || '').toLowerCase();
+        let statusFinal = op.status || 'Aguardando Início em: Corte';
+        let statusNomusFinal = op.status_nomus || op.statusNomus || 'Liberada';
+
+        if ((qtdProd >= qtdFis && qtdFis > 0) || statusNomusRaw.includes('conclu')) {
+          statusFinal = 'FINALIZADA';
+          statusNomusFinal = 'Concluída';
+        }
+
         upsertStmt.run({
           id: canonicalNum,
           numero: canonicalNum,
@@ -2744,7 +2783,7 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
           descricao: descFinal,
           cliente: op.cliente || 'Nomus ERP',
           tipoOrdem: op.tipoOrdem || op.familia || 'Padrão',
-          status: op.status || 'Aguardando Início em: Corte',
+          status: statusFinal,
           etapas: JSON.stringify(op.etapas || op.rota || ['Corte']),
           quantidadeFisica: Number(op.quantidadeFisica || op.quantidade || 1),
           requerLaser: op.requerLaser ? 1 : 0,
@@ -2757,8 +2796,8 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
           observacoes: op.observacoes || op.observacao || '',
           data_entrega: op.data_entrega || op.prazoEntrega || '',
           prazoEntrega: op.prazoEntrega || op.data_entrega || '',
-          status_nomus: op.status_nomus || op.statusNomus || 'Liberada',
-          statusNomus: op.statusNomus || op.status_nomus || 'Liberada',
+          status_nomus: statusNomusFinal,
+          statusNomus: statusNomusFinal,
           dados: JSON.stringify(op),
           criadoEm: op.criadoEm || now,
           atualizadoEm: now
@@ -2767,6 +2806,26 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
     });
 
     tx(opsEncontradas);
+
+    // Se for uma importação completa (carteira total >= 40 OPs), qualquer OP ativa que sumiu do relatório do Nomus foi concluída
+    const importedNums = new Set(
+      opsEncontradas.map(op => formatarNumeroOP(op.numero_normalizado || op.numero || op.id)).filter(Boolean)
+    );
+    if (opsEncontradas.length >= 40 && importedNums.size >= 40) {
+      const activeOps = db.prepare("SELECT numero FROM ordens WHERE status NOT IN ('FINALIZADA', 'CONCLUIDA')").all();
+      const opsToFinalize = activeOps.filter(r => !importedNums.has(r.numero));
+      if (opsToFinalize.length > 0) {
+        console.log(`[Nomus Auto] Finalizando automaticamente ${opsToFinalize.length} OPs ausentes do relatório Nomus completo.`);
+        const finStmt = db.prepare("UPDATE ordens SET status = 'FINALIZADA', status_nomus = 'Concluída', statusNomus = 'Concluída', atualizadoEm = ? WHERE numero = ?");
+        const finTx = db.transaction((list) => {
+          const nowTs = Date.now();
+          for (const row of list) {
+            finStmt.run(nowTs, row.numero);
+          }
+        });
+        finTx(opsToFinalize);
+      }
+    }
 
     // Limpeza preventiva pós-importação
     const todasOrdensBrutas = db.prepare('SELECT rowid, id, numero, atualizadoEm FROM ordens ORDER BY atualizadoEm DESC').all();

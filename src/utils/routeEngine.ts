@@ -1924,6 +1924,24 @@ export function checkOp100Percent(op: any, apontamentos: any[] = []): boolean {
 }
 
 /**
+ * Verifica se a OP está concluída / finalizada (seja por status explícito ou por 100% das etapas concluídas).
+ */
+export function isOpConcluida(op: any, apontamentos: any[] = []): boolean {
+  if (!op) return false;
+  const statusUpper = String(op.status || '').toUpperCase().trim();
+  const nomusStatus = String(op.status_nomus || op.statusNomus || '').toLowerCase().trim();
+  if (statusUpper === 'FINALIZADA' || statusUpper === 'CONCLUIDA' || nomusStatus.includes('conclu')) return true;
+  return checkOp100Percent(op, apontamentos);
+}
+
+/**
+ * Verifica se a OP está em aberto (pendente ou em produção ativa, não finalizada).
+ */
+export function isOpEmAberto(op: any, apontamentos: any[] = []): boolean {
+  return !isOpConcluida(op, apontamentos);
+}
+
+/**
  * Helper oficial para identificar se uma OP está com produção ativa no chão de fábrica.
  * Retorna true se:
  * - op.emProducao === true
