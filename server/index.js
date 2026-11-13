@@ -272,7 +272,7 @@ try {
   if (!countTerms || countTerms.count === 0) {
     const defaultTerms = [
       { id: 1, name: 'Terminal 1', label: 'Corte, Dobra e Laser', sectors: JSON.stringify(['Corte', 'Laser', 'Dobra', 'Preparação de Folha']) },
-      { id: 2, name: 'Terminal 2', label: 'Preparação e Injetora de folhas', sectors: JSON.stringify(['Preparação de Folha', 'Preparação Office Door', 'Preparação Office Door Correr', 'Injeção', 'Injeção de Folhas']) },
+      { id: 2, name: 'Terminal 2', label: 'Preparação e Injetora de folhas', sectors: JSON.stringify(['Preparação de Folha', 'Injeção de Folhas']) },
       { id: 3, name: 'Terminal 3', label: 'Batentes e Portas Office/Emendadas', sectors: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem de Office Door Giro', 'Montagem Office de Correr', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Montagem Portas de Correr Padrão e Especial', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Instalação de Gaxeta', 'Finalização Vai Vem', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
       { id: 4, name: 'Terminal 4', label: 'Montagem Vai-Vem & Gaxeta', sectors: JSON.stringify(['Montagem Porta Vai-Vem', 'Montagem de Office Door Giro', 'Montagem Office de Correr', 'Montagem Portas Office Door', 'Montagem Office Door Correr', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem de Portas Giratórias', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Portas Emendadas', 'Corte de Trilho p/ Porta Correr', 'Montagem de Trilho p/ Porta Correr']) },
       { id: 5, name: 'Terminal 5', label: 'Router, Solda e Especiais', sectors: JSON.stringify(['Corte Alumínio', 'Preparação Vai Vem', 'Preparação Office Door', 'Preparação Office Door Correr', 'Router', 'Corte', 'Solda', 'Solda e Montagem', 'Montagem Estante', 'Montagem Abrigo Doca', 'Cortina', 'Elétrica']) }
@@ -282,7 +282,7 @@ try {
       insertTerm.run(dt.id, dt.name, dt.label, dt.sectors, Date.now());
     }
   } else {
-    // Saneamento e inclusão dos postos oficiais Office Door nos terminais existentes
+    // Saneamento e inclusão dos postos oficiais Office Door nos terminais existentes (Terminal 2 opera exclusivamente com Preparação de Folha e Injeção de Folhas)
     const ensureSectorInTerminal = (termId, sectorName) => {
       const row = db.prepare('SELECT * FROM terminais WHERE id = ?').get(termId);
       if (row) {
@@ -294,12 +294,32 @@ try {
       }
     };
 
-    ensureSectorInTerminal(2, 'Preparação Office Door Correr');
     ensureSectorInTerminal(3, 'Montagem de Office Door Giro');
     ensureSectorInTerminal(3, 'Montagem Office de Correr');
     ensureSectorInTerminal(4, 'Montagem de Office Door Giro');
     ensureSectorInTerminal(4, 'Montagem Office de Correr');
     ensureSectorInTerminal(5, 'Preparação Office Door Correr');
+  }
+
+  // Purga compulsória de 'Preparação Office Door Correr' caso ainda resida no Terminal 2 no SQLite
+  try {
+    const t2Row = db.prepare('SELECT sectors FROM terminais WHERE id = 2').get();
+    if (t2Row && t2Row.sectors) {
+      const secs = JSON.parse(t2Row.sectors || '[]');
+      if (Array.isArray(secs)) {
+        const filtered = secs.filter(s => {
+          const norm = (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+          return norm !== 'preparacao office door correr';
+        });
+        if (filtered.length !== secs.length) {
+          db.prepare('UPDATE terminais SET sectors = ?, atualizadoEm = ? WHERE id = 2')
+            .run(JSON.stringify(filtered), Date.now());
+          console.log('[SQLite] Purga concluída: "Preparação Office Door Correr" removido definitivamente do Terminal 2.');
+        }
+      }
+    }
+  } catch (errT2) {
+    console.warn('[SQLite] Erro ao sanitizar Terminal 2:', errT2);
   }
 } catch (e) {
   console.warn('[SQLite] Erro ao inicializar terminais padrão:', e);

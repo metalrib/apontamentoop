@@ -1329,6 +1329,21 @@ export function sanitizeTerminalSectors(terminals: TerminalConfig[]): { terminal
       changed = true;
     }
 
+    // Blindagem do Terminal 2: remove definitivamente 'Preparação Office Door Correr' caso venha de caches residuais
+    if (t.id === 2 || String(t.id) === '2') {
+      const hasCorrer = sectors.some((s) => {
+        const norm = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+        return norm === 'preparacao office door correr';
+      });
+      if (hasCorrer) {
+        sectors = sectors.filter((s) => {
+          const norm = s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+          return norm !== 'preparacao office door correr';
+        });
+        changed = true;
+      }
+    }
+
     return { ...t, sectors, setores: [...sectors] };
   });
 
