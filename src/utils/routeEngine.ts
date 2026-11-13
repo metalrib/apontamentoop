@@ -1568,7 +1568,7 @@ export function getRouteEvaluation(
     const finishedBatch = stepApontamentos.find(a => (a.is_lote || a.unidade_numero === 0) && a.status === 'FINALIZADO');
 
     const finished = stepApontamentos.filter(a => a.status === 'FINALIZADO' && !a.is_lote && a.unidade_numero > 0);
-    const active = stepApontamentos.filter(a => a.status === 'EM_ANDAMENTO' && !a.is_lote && a.unidade_numero > 0);
+    const active = stepApontamentos.filter(a => a.status === 'EM_ANDAMENTO' && !a.is_lote && a.unidade_numero > 0 && !finished.some(f => f.unidade_numero === a.unidade_numero));
 
     let finalizadasCount = finished.length;
     if (finishedBatch) {
@@ -1576,7 +1576,7 @@ export function getRouteEvaluation(
     }
 
     let emAndamentoCount = active.length;
-    if (activeBatch) {
+    if (activeBatch && !finishedBatch && finalizadasCount < total) {
       emAndamentoCount = Math.max(emAndamentoCount, activeBatch.quantidade_lote || total);
     }
 
@@ -1592,6 +1592,10 @@ export function getRouteEvaluation(
       } else if (st === 'PENDENTE' && !finishedBatch && finished.length === 0) {
         finalizadasCount = 0;
       }
+    }
+
+    if (finalizadasCount >= total) {
+      emAndamentoCount = 0;
     }
 
     const totalIniciadas = finalizadasCount + emAndamentoCount;
@@ -1839,8 +1843,8 @@ export function getRouteEvaluation(
       isFirst: index === 0 ? 1 : 0,
       totalQtd: total,
       finalizadas: finalizadasCount,
-      emAndamento: emAndamentoCount,
-      activeApontamentos: activeBatch ? [activeBatch, ...active] : active,
+      emAndamento: finalizadasCount >= total ? 0 : emAndamentoCount,
+      activeApontamentos: finalizadasCount >= total ? [] : (activeBatch ? [activeBatch, ...active] : active),
       finishedApontamentos: finishedBatch ? [finishedBatch, ...finished] : finished,
       canStartNextUnit: canStart,
       nextUnitNumber: nextUnit,

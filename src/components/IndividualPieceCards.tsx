@@ -95,9 +95,9 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.m
     );
 
     const isFinished = Boolean(
-      finishedApt || (stepEval.finalizadas >= totalPhysicalUnits && !activeApt)
+      finishedApt || stepEval.finalizadas >= totalPhysicalUnits
     );
-    const isActive = Boolean(activeApt);
+    const isActive = !isFinished && Boolean(activeApt);
 
     return {
       unitNum,
@@ -200,7 +200,7 @@ export const IndividualPieceCards: React.FC<IndividualPieceCardsProps> = React.m
 
   // Métricas agregadas
   const totalConcluidas = pieceCards.filter((p) => p.isFinished).length;
-  const totalEmAndamento = pieceCards.filter((p) => p.isActive).length;
+  const totalEmAndamento = totalConcluidas >= totalPhysicalUnits ? 0 : pieceCards.filter((p) => p.isActive).length;
   const percentConcluido = Math.round((totalConcluidas / totalPhysicalUnits) * 100);
 
   // Regra do Seletor de Quantidade Física nos Cartões Unitários:

@@ -85,13 +85,42 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
 
   // Encontra apontamentos ativos neste setor/etapa com tolerância a formatação de OP e reset imediato
   const orderClean = cleanOpId(order?.op_numero || order?.numero || (order as any)?.id || '');
+  const isOrderFinalizada = String(order?.status || '').toUpperCase().trim() === 'FINALIZADA' || String(order?.status || '').toUpperCase().trim() === 'FINALIZADO';
+  const totalOpUnits = Math.max(1, order?.quantidadeFisica || order?.quantidade_total || order?.quantidade || 1);
+
   const activeInSector = useMemo(() => {
     try {
-      if (!Array.isArray(apontamentos) || !orderClean) return [];
+      if (!Array.isArray(apontamentos) || !orderClean || isOrderFinalizada) return [];
       const effectiveReset = Math.max(
         resetTimestamp,
         (order as any)?.resetTimestamp || (order as any)?.resetAt || 0
       );
+
+      // Peças já finalizadas neste setor
+      const finishedUnits = new Set(
+        apontamentos.filter(a => {
+          if (!a) return false;
+          const aOpClean = cleanOpId(a.op_numero || (a as any).opNumero || '');
+          if (aOpClean !== orderClean) return false;
+          if (a.status !== 'FINALIZADO' && a.status !== 'CONCLUIDO') return false;
+          const match = a.setor === selectedSector || (matchedStep && a.etapa_rota === matchedStep);
+          return match && !a.is_lote && (a.unidade_numero ?? 0) > 0;
+        }).map(a => a.unidade_numero)
+      );
+
+      const hasFinishedBatch = apontamentos.some(a => {
+        if (!a) return false;
+        const aOpClean = cleanOpId(a.op_numero || (a as any).opNumero || '');
+        if (aOpClean !== orderClean) return false;
+        if (a.status !== 'FINALIZADO' && a.status !== 'CONCLUIDO') return false;
+        const match = a.setor === selectedSector || (matchedStep && a.etapa_rota === matchedStep);
+        return match && (a.is_lote || a.unidade_numero === 0);
+      });
+
+      // Se todas as peças do lote já foram finalizadas ou lote finalizado, nenhum apontamento está ativo
+      if (hasFinishedBatch || finishedUnits.size >= totalOpUnits) {
+        return [];
+      }
 
       return apontamentos.filter(a => {
         try {
@@ -105,6 +134,10 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
             const aStart = new Date(a.horaInicio || a.hora_inicio || 0).getTime();
             if (aStart <= effectiveReset) return false;
           }
+          // Se for unitário e a unidade já está finalizada, ignora
+          if (!a.is_lote && (a.unidade_numero ?? 0) > 0 && finishedUnits.has(a.unidade_numero)) {
+            return false;
+          }
           return true;
         } catch {
           return false;
@@ -114,7 +147,7 @@ export const ProductionAction: React.FC<ProductionActionProps> = React.memo(({
       console.warn('[ProductionAction] Erro defensivo ao filtrar activeInSector:', err);
       return [];
     }
-  }, [apontamentos, orderClean, selectedSector, matchedStep, resetTimestamp, (order as any)?.resetTimestamp, (order as any)?.resetAt]);
+  }, [apontamentos, orderClean, selectedSector, matchedStep, resetTimestamp, (order as any)?.resetTimestamp, (order as any)?.resetAt, isOrderFinalizada, totalOpUnits]);
 
   // Identifica se há lote ativo no setor (ou unidade ativa do operador no modo unitário)
   const activeBatch = activeInSector.find(a => a.is_lote || a.unidade_numero === 0) || activeInSector[0];

@@ -605,6 +605,47 @@ export default function App() {
             const formattedOp = formatarNumeroOP(rawOp);
             const cleanKey = cleanOpId(rawOp);
             const order = orders[formattedOp] || orders[cleanKey] || orders[rawOp];
+
+            // EXCLUSÃO OBRIGATÓRIA: se a OP está FINALIZADA ou se a etapa já tem 100% concluída
+            if (order) {
+              const ordStatusUpper = String(order.status || '').toUpperCase().trim();
+              if (ordStatusUpper === 'FINALIZADA' || ordStatusUpper === 'FINALIZADO') continue;
+
+              const totalOpQtd = Math.max(1, order.quantidadeFisica || order.quantidade_total || order.quantidade || 1);
+
+              // 1. Verifica no objeto etapas da ordem
+              if (order.etapas && typeof order.etapas === 'object' && !Array.isArray(order.etapas)) {
+                const etapaKey = Object.keys(order.etapas).find(k => normalizeStep(k) === normalizeStep(step));
+                if (etapaKey) {
+                  const etapaData = (order.etapas as any)[etapaKey];
+                  const st = String(etapaData?.status || '').toUpperCase();
+                  if (st === 'CONCLUIDO' || st === 'FINALIZADO' || (etapaData?.concluidas ?? 0) >= totalOpQtd) {
+                    continue;
+                  }
+                }
+              }
+
+              // 2. Verifica se todas as peças desta etapa já estão concluídas nos apontamentos
+              const finishedInStep = apontamentos.filter(a =>
+                (cleanOpId(a.op_numero || '') === cleanKey) &&
+                (a.status === 'FINALIZADO' || a.status === 'CONCLUIDO') &&
+                (normalizeStep(a.etapa_rota) === normalizeStep(step) || normalizeStep(a.setor) === normalizeStep(step))
+              );
+              const hasFinishedBatch = finishedInStep.some(a => a.is_lote || a.unidade_numero === 0);
+              const finishedUnitsCount = finishedInStep.filter(a => !a.is_lote && a.unidade_numero > 0).length;
+              if (hasFinishedBatch || finishedUnitsCount >= totalOpQtd) {
+                continue;
+              }
+
+              // 3. Se for apontamento unitário, verifica se esta unidade específica já foi finalizada
+              if (apt.unidade_numero && apt.unidade_numero > 0) {
+                const unitAlreadyFinished = finishedInStep.some(a => a.unidade_numero === apt.unidade_numero);
+                if (unitAlreadyFinished) {
+                  continue;
+                }
+              }
+            }
+
             const uniqueKey = `${cleanKey}_${step.toLowerCase()}`;
             if (!seenKeys.has(uniqueKey)) {
               seenKeys.add(uniqueKey);
@@ -631,12 +672,18 @@ export default function App() {
     for (const opKey of Object.keys(orders)) {
       const ord = orders[opKey];
       if (!ord || !ord.etapas) continue;
+      const ordStatusUpper = String(ord.status || '').toUpperCase().trim();
+      if (ordStatusUpper === 'FINALIZADA' || ordStatusUpper === 'FINALIZADO') continue;
+
       const formattedOp = formatarNumeroOP(ord.numero || ord.op_numero || opKey);
       const cleanKey = cleanOpId(formattedOp);
+      const totalOpQtd = Math.max(1, ord.quantidadeFisica || ord.quantidade_total || ord.quantidade || 1);
 
       if (ord.etapas && typeof ord.etapas === 'object' && !Array.isArray(ord.etapas)) {
         for (const [etapaNome, etapaData] of Object.entries(ord.etapas)) {
           if (etapaData && typeof etapaData === 'object' && (etapaData.status === 'EM_PRODUCAO' || etapaData.status === 'EM_ANDAMENTO')) {
+            if ((etapaData.concluidas ?? 0) >= totalOpQtd) continue;
+
             const etapaTermId = (etapaData as any).terminal_id || (etapaData as any).terminalId;
             const etapaTermName = (etapaData as any).terminal || (etapaData as any).terminalNome;
             if (belongsToTerminal(etapaNome, etapaTermId, etapaTermName)) {

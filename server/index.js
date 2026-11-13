@@ -897,6 +897,255 @@ function sanearDescricoesPoluidas(database) {
 // Executar saneamento automático na inicialização
 sanearDescricoesPoluidas(db);
 
+// =============================================================
+// ENCERRAMENTO AUTOMÁTICO DE LOTES E SANEAMENTO DE FANTASMAS
+// =============================================================
+function encerrarLoteSeEtapaConcluida(database, opNumero, setorOrEtapa) {
+  if (!opNumero || !setorOrEtapa) return false;
+  try {
+    const cleanOp = normalizarIdOP(opNumero);
+    const formatOp = formatarNumeroOP(cleanOp);
+    const opRow = database.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+      .get(formatOp, cleanOp, formatOp, cleanOp);
+    if (!opRow) return false;
+
+    const totalQtd = Math.max(1, opRow.quantidadeFisica || 1);
+    const normAlvo = normalizarTextoSql(setorOrEtapa);
+
+    let parsedEtapas = null;
+    try { parsedEtapas = JSON.parse(opRow.etapas || '{}'); } catch {}
+
+    let matchedStepKey = null;
+    if (parsedEtapas && typeof parsedEtapas === 'object' && !Array.isArray(parsedEtapas)) {
+      matchedStepKey = Object.keys(parsedEtapas).find(k => normalizarTextoSql(k) === normAlvo) || setorOrEtapa;
+    } else if (Array.isArray(parsedEtapas)) {
+      matchedStepKey = parsedEtapas.find(k => normalizarTextoSql(k) === normAlvo) || setorOrEtapa;
+    }
+
+    // Busca todos os apontamentos finalizados para esta OP e etapa
+    const completedApts = database.prepare(`
+      SELECT unidade_numero, hora_fim, duracaoMs, duracao_minutos 
+      FROM apontamentos 
+      WHERE (op_numero = ? OR op_numero = ?) 
+        AND (status = 'FINALIZADO' OR status = 'CONCLUIDO')
+        AND (
+          UPPER(TRIM(etapa_rota)) = UPPER(TRIM(?))
+          OR UPPER(TRIM(setor)) = UPPER(TRIM(?))
+          OR UPPER(TRIM(setorFisico)) = UPPER(TRIM(?))
+          OR UPPER(TRIM(etapa_rota)) = UPPER(TRIM(?))
+          OR UPPER(TRIM(setor)) = UPPER(TRIM(?))
+        )
+    `).all(formatOp, cleanOp, setorOrEtapa, setorOrEtapa, setorOrEtapa, matchedStepKey || '', matchedStepKey || '');
+
+    const hasFinishedBatch = completedApts.some(a => a.unidade_numero === 0);
+    const completedUnitSet = new Set(completedApts.filter(a => a.unidade_numero > 0).map(a => a.unidade_numero));
+    const countConcluidas = hasFinishedBatch ? totalQtd : completedUnitSet.size;
+
+    // Se a etapa atingiu 100% de peças concluídas (ou lote único finalizado)
+    if (countConcluidas >= totalQtd || hasFinishedBatch || opRow.status === 'FINALIZADA' || opRow.status === 'FINALIZADO') {
+      let ultimoFim = null;
+      for (const a of completedApts) {
+        if (a.hora_fim && (!ultimoFim || a.hora_fim > ultimoFim)) {
+          ultimoFim = a.hora_fim;
+        }
+      }
+      if (!ultimoFim) ultimoFim = new Date().toISOString();
+
+      // Encontra apontamentos ainda em andamento desta etapa
+      const activeApts = database.prepare(`
+        SELECT * FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ?) 
+          AND status = 'EM_ANDAMENTO'
+          AND (
+            UPPER(TRIM(etapa_rota)) = UPPER(TRIM(?))
+            OR UPPER(TRIM(setor)) = UPPER(TRIM(?))
+            OR UPPER(TRIM(setorFisico)) = UPPER(TRIM(?))
+            OR UPPER(TRIM(etapa_rota)) = UPPER(TRIM(?))
+            OR UPPER(TRIM(setor)) = UPPER(TRIM(?))
+          )
+      `).all(formatOp, cleanOp, setorOrEtapa, setorOrEtapa, setorOrEtapa, matchedStepKey || '', matchedStepKey || '');
+
+      if (activeApts.length > 0) {
+        const updAptStmt = database.prepare(`
+          UPDATE apontamentos SET
+            status = 'FINALIZADO',
+            hora_fim = ?,
+            duracao_minutos = ?,
+            duracaoMs = ?
+          WHERE id = ?
+        `);
+
+        for (const act of activeApts) {
+          const startMs = new Date(act.hora_inicio || act.criadoEm || Date.now()).getTime();
+          const endMs = new Date(ultimoFim).getTime();
+          const durMs = !isNaN(startMs) && !isNaN(endMs) && endMs >= startMs
+            ? calcularDuracaoLiquidaMs(startMs, endMs)
+            : 60000;
+          const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
+          updAptStmt.run(ultimoFim, durMin, durMs, act.id);
+          console.log(`[Auto-Encerramento Lote] Apontamento fantasma encerrado: ${act.id} (${formatOp} - ${setorOrEtapa})`);
+        }
+      }
+
+      // Sincroniza ordens.etapas
+      if (parsedEtapas && typeof parsedEtapas === 'object' && !Array.isArray(parsedEtapas)) {
+        const stepKeys = Object.keys(parsedEtapas);
+        const idx = stepKeys.findIndex(k => normalizarTextoSql(k) === normAlvo);
+        if (idx !== -1) {
+          const curKey = stepKeys[idx];
+          parsedEtapas[curKey] = {
+            ...(parsedEtapas[curKey] || {}),
+            status: 'CONCLUIDO',
+            concluidas: totalQtd,
+            total: totalQtd,
+            timestampFim: new Date(ultimoFim).getTime()
+          };
+
+          let novoStatus = opRow.status;
+          if (idx < stepKeys.length - 1) {
+            const prox = stepKeys[idx + 1];
+            novoStatus = `Aguardando Início em: ${prox}`;
+            if (parsedEtapas[prox]) {
+              parsedEtapas[prox].status = parsedEtapas[prox].status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE';
+              parsedEtapas[prox].total = totalQtd;
+            }
+          } else {
+            novoStatus = 'FINALIZADA';
+          }
+
+          database.prepare(`
+            UPDATE ordens SET
+              status = ?,
+              etapas = ?,
+              atualizadoEm = ?
+            WHERE id = ? OR numero = ?
+          `).run(novoStatus, JSON.stringify(parsedEtapas), Date.now(), opRow.id, opRow.numero);
+        }
+      } else if (Array.isArray(parsedEtapas)) {
+        const idx = parsedEtapas.findIndex(k => normalizarTextoSql(k) === normAlvo);
+        if (idx !== -1) {
+          let novoStatus = opRow.status;
+          if (idx < parsedEtapas.length - 1) {
+            novoStatus = `Aguardando Início em: ${parsedEtapas[idx + 1]}`;
+          } else {
+            novoStatus = 'FINALIZADA';
+          }
+          database.prepare(`
+            UPDATE ordens SET
+              status = ?,
+              atualizadoEm = ?
+            WHERE id = ? OR numero = ?
+          `).run(novoStatus, Date.now(), opRow.id, opRow.numero);
+        }
+      }
+      return true;
+    }
+  } catch (err) {
+    console.warn('[encerrarLoteSeEtapaConcluida] Erro:', err.message);
+  }
+  return false;
+}
+
+function sanearLotesFantasmas(database) {
+  try {
+    const activeApts = database.prepare(`
+      SELECT * FROM apontamentos 
+      WHERE status = 'EM_ANDAMENTO' OR hora_fim IS NULL
+    `).all();
+
+    if (activeApts.length === 0) return;
+
+    let encerrados = 0;
+    const updStmt = database.prepare(`
+      UPDATE apontamentos SET
+        status = 'FINALIZADO',
+        hora_fim = ?,
+        duracao_minutos = ?,
+        duracaoMs = ?
+      WHERE id = ?
+    `);
+    const delStmt = database.prepare(`DELETE FROM apontamentos WHERE id = ?`);
+
+    for (const a of activeApts) {
+      const op = database.prepare('SELECT * FROM ordens WHERE id = ? OR numero = ?').get(a.op_numero, a.op_numero);
+      if (!op) continue;
+
+      const totalQtd = Math.max(1, op.quantidadeFisica || 1);
+      const stepName = a.etapa_rota || a.setor || '';
+
+      const finishedApts = database.prepare(`
+        SELECT unidade_numero, hora_fim, duracaoMs, duracao_minutos 
+        FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ?) 
+          AND (status = 'FINALIZADO' OR status = 'CONCLUIDO')
+          AND (etapa_rota = ? OR setor = ? OR setorFisico = ?)
+      `).all(op.id, op.numero, a.etapa_rota || '', a.setor || '', a.setorFisico || '');
+
+      const hasFinishedBatch = finishedApts.some(f => f.unidade_numero === 0);
+      const finishedUnitsSet = new Set(finishedApts.filter(f => f.unidade_numero > 0).map(f => f.unidade_numero));
+      const finishedCount = hasFinishedBatch ? totalQtd : finishedUnitsSet.size;
+
+      if (finishedCount >= totalQtd || op.status === 'FINALIZADA' || op.status === 'FINALIZADO') {
+        let ultimoFim = null;
+        for (const f of finishedApts) {
+          if (f.hora_fim && (!ultimoFim || f.hora_fim > ultimoFim)) ultimoFim = f.hora_fim;
+        }
+        if (!ultimoFim) ultimoFim = new Date().toISOString();
+
+        const startMs = new Date(a.hora_inicio || a.criadoEm || Date.now()).getTime();
+        const endMs = new Date(ultimoFim).getTime();
+        const durMs = !isNaN(startMs) && !isNaN(endMs) && endMs >= startMs ? calcularDuracaoLiquidaMs(startMs, endMs) : 60000;
+        const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
+
+        updStmt.run(ultimoFim, durMin, durMs, a.id);
+        encerrados++;
+        console.log(`[Sanear Lotes Fantasmas] Lote fantasma encerrado: ${a.id} (${a.op_numero} - ${stepName} - Peça #${a.unidade_numero})`);
+      } else if (a.unidade_numero > 0 && finishedUnitsSet.has(a.unidade_numero)) {
+        const unitFin = finishedApts.find(f => f.unidade_numero === a.unidade_numero && f.hora_fim);
+        const endIso = unitFin?.hora_fim || new Date().toISOString();
+        const startMs = new Date(a.hora_inicio || a.criadoEm || Date.now()).getTime();
+        const endMs = new Date(endIso).getTime();
+        const durMs = !isNaN(startMs) && !isNaN(endMs) && endMs >= startMs ? calcularDuracaoLiquidaMs(startMs, endMs) : 60000;
+        const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
+
+        updStmt.run(endIso, durMin, durMs, a.id);
+        encerrados++;
+        console.log(`[Sanear Lotes Fantasmas] Apontamento duplicado de peça já concluída encerrado: ${a.id} (${a.op_numero} - Peça #${a.unidade_numero})`);
+      }
+    }
+
+    // Remove duplicatas de lotes no mesmo setor geradas por duplo-clique
+    const duplosLote = database.prepare(`
+      SELECT op_numero, setor, count(*) as c 
+      FROM apontamentos 
+      WHERE (unidade_numero = 0 OR is_lote = 1) AND status = 'EM_ANDAMENTO' 
+      GROUP BY op_numero, setor 
+      HAVING count(*) > 1
+    `).all();
+
+    for (const d of duplosLote) {
+      const rows = database.prepare(`
+        SELECT id, criadoEm FROM apontamentos 
+        WHERE op_numero = ? AND setor = ? AND (unidade_numero = 0 OR is_lote = 1) AND status = 'EM_ANDAMENTO'
+        ORDER BY criadoEm ASC
+      `).all(d.op_numero, d.setor);
+      for (let i = 1; i < rows.length; i++) {
+        delStmt.run(rows[i].id);
+        console.log(`[Sanear Lotes Fantasmas] Removido lote duplicado por duplo-clique: ${rows[i].id} (${d.op_numero})`);
+      }
+    }
+
+    if (encerrados > 0) {
+      console.log(`[Sanear Lotes Fantasmas] Saneamento concluído: ${encerrados} apontamentos fantasmas encerrados.`);
+    }
+  } catch (err) {
+    console.warn('[Sanear Lotes Fantasmas] Erro no saneamento:', err.message);
+  }
+}
+
+// Executar saneamento de lotes fantasmas na inicialização
+sanearLotesFantasmas(db);
+
 // -------------------------------------------------------------
 // SANEAMENTO E MAPEAMENTO DE ROTAS OFICIAIS NOMUS NO SQLITE
 // -------------------------------------------------------------
@@ -2779,15 +3028,19 @@ app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req,
     console.error('[/api/ordens/concluir-etapa] Erro ao atualizar etapas:', err);
   }
 
-  // Atualiza apontamento concluído no SQLite
+  // Atualiza apontamento concluído no SQLite e encerra lotes em andamento da etapa
   try {
+    encerrarLoteSeEtapaConcluida(db, formatId, etapa || setor);
+
     db.prepare(`
       UPDATE apontamentos SET
         quantidade_lote = ?,
         unidade = 'Lote (' || ? || ' PC)'
-      WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?) AND (status = 'FINALIZADO' OR status = 'EM_ANDAMENTO')
+      WHERE (op_numero = ? OR op_numero = ? OR op_numero = ?) AND status = 'FINALIZADO'
     `).run(qtdFisicaInt, qtdFisicaInt, id, cleanId, formatId);
-  } catch {}
+  } catch (errDb) {
+    console.warn('[/api/ordens/concluir-etapa] Erro ao sincronizar apontamentos:', errDb.message);
+  }
 
   const todas = obterTodasOrdens();
   const todosApts = db.prepare('SELECT * FROM apontamentos ORDER BY criadoEm DESC').all();
@@ -3224,6 +3477,103 @@ app.post('/api/apontamentos', (req, res) => {
     }
   }
 
+  const sanitizeSetor = (s) => (s ? String(s).replace(/Preparação de Folhas/g, 'Preparação de Folha').replace(/preparacao de folhas/gi, 'Preparação de Folha') : '');
+  const cleanSetor = sanitizeSetor(apt.setor);
+  const cleanEtapa = sanitizeSetor(apt.etapa_rota || apt.etapaRota || cleanSetor);
+
+  // PROTEÇÃO CONTRA DUPLICIDADE, DUPLO-CLIQUE E CONCORRÊNCIA DE OPERADOR
+  if (!isFinalizado) {
+    // 1. Bloqueio: Não permitir iniciar etapa que já está 100% concluída
+    const opRowCheck = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+      .get(formatOp, cleanOp, formatOp, cleanOp);
+    if (opRowCheck) {
+      const totalQtd = Math.max(1, opRowCheck.quantidadeFisica || 1);
+      let parsedEtapas = null;
+      try { parsedEtapas = JSON.parse(opRowCheck.etapas || '{}'); } catch {}
+      const normAlvo = normalizarTextoSql(cleanEtapa || cleanSetor);
+      const etapaKey = parsedEtapas && typeof parsedEtapas === 'object' && !Array.isArray(parsedEtapas)
+        ? Object.keys(parsedEtapas).find(k => normalizarTextoSql(k) === normAlvo)
+        : null;
+      const etapaObj = etapaKey ? parsedEtapas[etapaKey] : null;
+      if (opRowCheck.status === 'FINALIZADA' || (etapaObj && (etapaObj.status === 'CONCLUIDO' || (etapaObj.concluidas ?? 0) >= totalQtd))) {
+        console.warn(`[Bloqueio Apontamento] Tentativa de iniciar etapa já concluída para ${formatOp} (${cleanSetor})`);
+        return res.status(400).json({ error: 'Etapa já está 100% concluída para esta OP' });
+      }
+    }
+
+    // 2. Bloqueio de duplicidade na mesma OP + Etapa
+    const unidNum = Number(apt.unidade_numero || 0);
+    if (unidNum > 0) {
+      // Se esta unidade já foi FINALIZADA, rejeita nova abertura
+      const jaFinalizada = db.prepare(`
+        SELECT id FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ?) 
+          AND unidade_numero = ? 
+          AND (status = 'FINALIZADO' OR status = 'CONCLUIDO')
+          AND (etapa_rota = ? OR setor = ? OR setorFisico = ?)
+      `).get(formatOp, cleanOp, unidNum, cleanEtapa, cleanSetor, cleanSetor);
+      if (jaFinalizada) {
+        console.warn(`[Bloqueio Apontamento] Peça #${unidNum} já finalizada para ${formatOp}`);
+        return res.status(400).json({ error: `Peça #${unidNum} já foi finalizada nesta etapa.` });
+      }
+
+      // Se esta unidade já está EM_ANDAMENTO, reutiliza o apontamento ativo (evita duplo clique)
+      const jaEmAndamento = db.prepare(`
+        SELECT * FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ?) 
+          AND unidade_numero = ? 
+          AND status = 'EM_ANDAMENTO'
+          AND (etapa_rota = ? OR setor = ? OR setorFisico = ?)
+      `).get(formatOp, cleanOp, unidNum, cleanEtapa, cleanSetor, cleanSetor);
+      if (jaEmAndamento && jaEmAndamento.id !== String(apt.id)) {
+        console.log(`[Bloqueio Duplo Clique] Reutilizando apontamento ativo ${jaEmAndamento.id} para Peça #${unidNum} (${formatOp})`);
+        return res.json({ success: true, apontamento: jaEmAndamento, reused: true });
+      }
+    } else {
+      // Modo LOTE: Se já existe lote EM_ANDAMENTO para esta OP + etapa, reutiliza
+      const loteEmAndamento = db.prepare(`
+        SELECT * FROM apontamentos 
+        WHERE (op_numero = ? OR op_numero = ?) 
+          AND (unidade_numero = 0 OR is_lote = 1) 
+          AND status = 'EM_ANDAMENTO'
+          AND (etapa_rota = ? OR setor = ? OR setorFisico = ?)
+      `).get(formatOp, cleanOp, cleanEtapa, cleanSetor, cleanSetor);
+      if (loteEmAndamento && loteEmAndamento.id !== String(apt.id)) {
+        console.log(`[Bloqueio Duplo Clique] Reutilizando lote ativo ${loteEmAndamento.id} para OP ${formatOp}`);
+        return res.json({ success: true, apontamento: loteEmAndamento, reused: true });
+      }
+    }
+
+    // 3. Bloqueio de concorrência por operador (encerra apontamento anterior em aberto)
+    const opNome = (apt.operador || apt.colaborador || '').trim();
+    if (opNome) {
+      const outroAptOperador = db.prepare(`
+        SELECT * FROM apontamentos 
+        WHERE (operador = ? OR colaborador = ?) 
+          AND status = 'EM_ANDAMENTO' 
+          AND id != ?
+      `).all(opNome, opNome, String(apt.id));
+
+      for (const anterior of outroAptOperador) {
+        const endIso = nowIso;
+        const startMs = new Date(anterior.hora_inicio || anterior.criadoEm || nowMs).getTime();
+        const endMs = new Date(endIso).getTime();
+        const durMs = !isNaN(startMs) && !isNaN(endMs) && endMs >= startMs ? calcularDuracaoLiquidaMs(startMs, endMs) : 60000;
+        const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
+        db.prepare(`
+          UPDATE apontamentos SET
+            status = 'FINALIZADO',
+            hora_fim = ?,
+            duracao_minutos = ?,
+            duracaoMs = ?
+          WHERE id = ?
+        `).run(endIso, durMin, durMs, anterior.id);
+        console.log(`[Concorrência Operador] Apontamento anterior ${anterior.id} (${anterior.op_numero}) finalizado automaticamente pois ${opNome} iniciou novo lote.`);
+        encerrarLoteSeEtapaConcluida(db, anterior.op_numero, anterior.etapa_rota || anterior.setor);
+      }
+    }
+  }
+
   const stmt = db.prepare(`
     INSERT INTO apontamentos (
       id, op_numero, unidade_numero, unidade, modo, setor, setorFisico, etapa_rota,
@@ -3246,17 +3596,15 @@ app.post('/api/apontamentos', (req, res) => {
       observacao = excluded.observacao
   `);
 
-  const sanitizeSetor = (s) => (s ? String(s).replace(/Preparação de Folhas/g, 'Preparação de Folha').replace(/preparacao de folhas/gi, 'Preparação de Folha') : '');
-
   stmt.run({
     id: String(apt.id),
     op_numero: formatOp,
     unidade_numero: Number(apt.unidade_numero || 0),
     unidade: apt.unidade || '',
     modo: apt.modo || 'LOTE',
-    setor: sanitizeSetor(apt.setor),
+    setor: cleanSetor,
     setorFisico: sanitizeSetor(apt.setorFisico || apt.setor),
-    etapa_rota: sanitizeSetor(apt.etapa_rota || apt.etapaRota),
+    etapa_rota: cleanEtapa,
     terminal_id: Number(apt.terminal_id || 1),
     terminal: apt.terminal || `T${apt.terminal_id || 1}`,
     operador: apt.operador || apt.colaborador || '',
@@ -3308,6 +3656,11 @@ app.post('/api/apontamentos', (req, res) => {
       UPDATE ordens SET status = COALESCE(?, status), atualizadoEm = ?
       WHERE id = ? OR id = ? OR numero = ? OR numero = ?
     `).run(novoStatus, nowMs, formatOp, cleanOp, formatOp, cleanOp);
+  }
+
+  // Se o apontamento foi FINALIZADO, verifica se todas as peças da etapa foram concluídas para encerrar lotes órfãos
+  if (isFinalizado) {
+    encerrarLoteSeEtapaConcluida(db, formatOp, cleanSetor || cleanEtapa);
   }
 
   const savedApt = {

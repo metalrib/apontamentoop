@@ -1922,6 +1922,49 @@ export async function startUnit(params: {
     tree[cleanOp] = {};
   }
 
+  // 1. Bloqueio de duplicidade na mesma peça / etapa
+  const existingApts = Object.values(tree[cleanOp] || {});
+  const alreadyFinished = existingApts.find(
+    a => a.unidade_numero === params.unidade_numero &&
+         (a.status === 'FINALIZADO' || a.status === 'CONCLUIDO') &&
+         (matchStepName(a.etapa_rota, params.etapa_rota) || doesSectorMatchStep(a.setor, params.setor))
+  );
+  if (alreadyFinished) {
+    console.warn(`[startUnit] Peça #${params.unidade_numero} já está finalizada para OP ${cleanOp}`);
+    return alreadyFinished;
+  }
+
+  const alreadyActive = existingApts.find(
+    a => a.unidade_numero === params.unidade_numero &&
+         a.status === 'EM_ANDAMENTO' &&
+         (matchStepName(a.etapa_rota, params.etapa_rota) || doesSectorMatchStep(a.setor, params.setor))
+  );
+  if (alreadyActive) {
+    console.log(`[startUnit] Peça #${params.unidade_numero} já está em andamento para OP ${cleanOp}`);
+    return alreadyActive;
+  }
+
+  // 2. Bloqueio de concorrência por operador (encerra apontamento anterior em aberto)
+  if (params.operador) {
+    for (const opKey of Object.keys(tree)) {
+      for (const aptKey of Object.keys(tree[opKey])) {
+        const a = tree[opKey][aptKey];
+        if (a.status === 'EM_ANDAMENTO' && (a.operador === params.operador || a.colaborador === params.operador)) {
+          const endNow = new Date().toISOString();
+          const startMs = new Date(a.horaInicio || a.hora_inicio).getTime();
+          const endMs = new Date(endNow).getTime();
+          const durMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, endMs) : 0;
+          const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
+          a.status = 'FINALIZADO';
+          a.hora_fim = endNow;
+          a.horaFim = endNow;
+          a.duracao_minutos = durMin;
+          a.duracaoMs = durMs;
+        }
+      }
+    }
+  }
+
   const uniqueId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const nowIso = new Date().toISOString();
   const routerVal = params.requerRouter;
@@ -2203,6 +2246,18 @@ export async function finishUnit(
         const totalUnits = Math.max(1, Math.round(targetOrder.quantidade_total || 1));
 
         if (finishedCount >= totalUnits) {
+          // Encerrar obrigatoriamente qualquer outro apontamento em andamento desta etapa
+          Object.keys(tree[cleanOp]).forEach((k) => {
+            const a = tree[cleanOp][k];
+            if (a.status === 'EM_ANDAMENTO' && (matchStepName(a.etapa_rota, matchedStep) || doesSectorMatchStep(a.setor, matchedStep))) {
+              a.status = 'FINALIZADO';
+              a.hora_fim = nowIso;
+              a.horaFim = nowIso;
+              a.duracao_minutos = diffMinutes;
+              a.duracaoMs = duracaoLiquidaMs;
+            }
+          });
+
           targetOrder.etapas[matchedStep] = {
             ...targetOrder.etapas[matchedStep],
             status: 'CONCLUIDO',
@@ -2389,6 +2444,37 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
 
   if (!tree[cleanOp]) {
     tree[cleanOp] = {};
+  }
+
+  // 1. Bloqueio de duplicidade de lote (evita duplo clique)
+  const existingActiveBatch = Object.values(tree[cleanOp] || {}).find(
+    a => (a.is_lote || a.unidade_numero === 0) &&
+         a.status === 'EM_ANDAMENTO' &&
+         (matchStepName(a.etapa_rota, params.etapa_rota) || doesSectorMatchStep(a.setor, params.setor))
+  );
+  if (existingActiveBatch) {
+    return existingActiveBatch;
+  }
+
+  // 2. Bloqueio de concorrência por operador (encerra apontamento anterior em aberto)
+  if (params.operador) {
+    for (const opKey of Object.keys(tree)) {
+      for (const aptKey of Object.keys(tree[opKey])) {
+        const a = tree[opKey][aptKey];
+        if (a.status === 'EM_ANDAMENTO' && (a.operador === params.operador || a.colaborador === params.operador)) {
+          const endNow = new Date().toISOString();
+          const startMs = new Date(a.horaInicio || a.hora_inicio).getTime();
+          const endMs = new Date(endNow).getTime();
+          const durMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, endMs) : 0;
+          const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
+          a.status = 'FINALIZADO';
+          a.hora_fim = endNow;
+          a.horaFim = endNow;
+          a.duracao_minutos = durMin;
+          a.duracaoMs = durMs;
+        }
+      }
+    }
   }
 
   const uniqueId = `apt_lote_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -2655,6 +2741,22 @@ export async function finishBatch(
   };
 
   tree[cleanOp][apontamentoId] = updated;
+
+  // Encerra/limpa quaisquer outros apontamentos que tenham ficado em andamento nesta etapa
+  Object.keys(tree[cleanOp]).forEach((key) => {
+    if (key !== apontamentoId) {
+      const a = tree[cleanOp][key];
+      if (matchStepName(a.etapa_rota, item.etapa_rota) || doesSectorMatchStep(a.setor, item.setor)) {
+        if (a.status === 'EM_ANDAMENTO') {
+          a.status = 'FINALIZADO';
+          a.hora_fim = nowIso;
+          a.horaFim = nowIso;
+          a.duracao_minutos = diffMinutes;
+          a.duracaoMs = duracaoLiquidaMs;
+        }
+      }
+    }
+  });
 
   // Limpa quaisquer registros legados individuais que tenham sido gerados anteriormente para este lote/etapa
   const legacyPrefix = `apt_${cleanOp.replace(/[\s\/\\]/g, '_')}_${item.etapa_rota}_u`;
