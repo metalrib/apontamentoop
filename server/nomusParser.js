@@ -116,11 +116,36 @@ function isValidDataValue(val) {
   );
 }
 
+const BLOCKED_DESCRIPTIONS = [
+  'LOADING',
+  'MOSTRAR TODOS OS VALORES',
+  'CARREGANDO',
+  'INCLUIR ITENS',
+  'COLUNAS:',
+  'COLUNAS',
+  'AGUARDE',
+  'LINHAS:',
+  'FILTROS:',
+  'DADOS:',
+  'EXPORTAR',
+  'DETALHES',
+  'ORDEM OP',
+  'TABELA DINAMICA',
+  'TABELA DINÂMICA'
+];
+
 function isDescricaoValida(desc) {
   if (!desc || typeof desc !== 'string') return false;
-  const t = desc.trim().toUpperCase();
+  const raw = desc.trim();
+  if (raw.length < 4) return false;
+  const t = raw.toUpperCase();
   if (!isValidDataValue(t)) return false;
   if (t.endsWith(':')) return false;
+
+  for (const b of BLOCKED_DESCRIPTIONS) {
+    if (t.includes(b)) return false;
+  }
+
   if (
     t.includes('COLUNA') ||
     t.includes('LINHA') ||
@@ -131,7 +156,11 @@ function isDescricaoValida(desc) {
     t.includes('INCLUIR') ||
     t.includes('ZOHO') ||
     t.includes('TABELA DINAMICA') ||
-    t.includes('TABELA DINÂMICA')
+    t.includes('TABELA DINÂMICA') ||
+    t.includes('LOADING') ||
+    t.includes('CARREGANDO') ||
+    t.includes('MOSTRAR') ||
+    t.includes('AGUARDE')
   ) return false;
   if (t.startsWith('ORDEM OP') || t.startsWith('ORDEM DE PRODU') || t.startsWith('PRODUTO OP') || t.startsWith('OP ')) return false;
   if (t.startsWith('PRODUTO 0') || (t.startsWith('PRODUTO ') && t.includes('-'))) return false;

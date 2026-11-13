@@ -530,11 +530,36 @@ function isValidDataValue(val?: string | null): boolean {
   );
 }
 
+const BLOCKED_DESCRIPTIONS = [
+  'LOADING',
+  'MOSTRAR TODOS OS VALORES',
+  'CARREGANDO',
+  'INCLUIR ITENS',
+  'COLUNAS:',
+  'COLUNAS',
+  'AGUARDE',
+  'LINHAS:',
+  'FILTROS:',
+  'DADOS:',
+  'EXPORTAR',
+  'DETALHES',
+  'ORDEM OP',
+  'TABELA DINAMICA',
+  'TABELA DINÂMICA'
+];
+
 function isDescricaoValida(desc?: string | null): boolean {
   if (!desc || typeof desc !== 'string') return false;
-  const t = desc.trim().toUpperCase();
+  const raw = desc.trim();
+  if (raw.length < 4) return false;
+  const t = raw.toUpperCase();
   if (!isValidDataValue(t)) return false;
   if (t.endsWith(':')) return false;
+
+  for (const b of BLOCKED_DESCRIPTIONS) {
+    if (t.includes(b)) return false;
+  }
+
   if (
     t.includes('COLUNA') ||
     t.includes('LINHA') ||

@@ -13,7 +13,7 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 
-const { parseNomusHtml } = require('./nomusParser');
+const { parseNomusHtml, processarRotaProduto } = require('./nomusParser');
 const { calcularDuracaoLiquidaMs, calcularSegundosUteis, formatarTempoUteis, formatarDuracaoMinutos } = require('./tempoUtil');
 
 const app = express();
@@ -584,11 +584,36 @@ try {
 const catalogoPorCodigo = new Map();
 const catalogoPorNumeroOp = new Map();
 
+const BLOCKED_DESCRIPTIONS = [
+  'LOADING',
+  'MOSTRAR TODOS OS VALORES',
+  'CARREGANDO',
+  'INCLUIR ITENS',
+  'COLUNAS:',
+  'COLUNAS',
+  'AGUARDE',
+  'LINHAS:',
+  'FILTROS:',
+  'DADOS:',
+  'EXPORTAR',
+  'DETALHES',
+  'ORDEM OP',
+  'TABELA DINAMICA',
+  'TABELA DINÂMICA'
+];
+
 function isDescricaoValidaSql(d) {
-  if (!d) return false;
-  const up = String(d).toUpperCase().trim();
+  if (!d || typeof d !== 'string') return false;
+  const raw = d.trim();
+  if (raw.length < 4) return false;
+  const up = raw.toUpperCase();
   if (!up || up === '-' || up === '—' || up === 'NULL' || up === 'UNDEFINED') return false;
   if (up.endsWith(':')) return false;
+
+  for (const b of BLOCKED_DESCRIPTIONS) {
+    if (up.includes(b)) return false;
+  }
+
   if (
     up.includes('COLUNA') ||
     up.includes('LINHA') ||
@@ -789,7 +814,7 @@ function sanearDescricoesPoluidas(database) {
       }
     }
 
-    // Localiza ordens com descrição poluída (ex: "COLUNAS:", "LINHAS:", "FILTROS:", "INCLUIR ITENS", etc)
+    // Localiza ordens com descrição poluída (ex: "COLUNAS:", "LINHAS:", "FILTROS:", "INCLUIR ITENS", "LOADING", etc)
     const poluidas = database.prepare(`
       SELECT rowid, id, numero, codigo, descricao, dados FROM ordens 
       WHERE UPPER(descricao) LIKE '%COLUNA%' 
@@ -802,10 +827,17 @@ function sanearDescricoesPoluidas(database) {
          OR UPPER(descricao) LIKE '%INCLUIR%'
          OR UPPER(descricao) LIKE '%ORDEM OP%'
          OR UPPER(descricao) LIKE 'PRODUTO%'
+         OR UPPER(descricao) LIKE '%LOADING%'
+         OR UPPER(descricao) LIKE '%MOSTRAR%'
+         OR UPPER(descricao) LIKE '%CARREGANDO%'
+         OR UPPER(descricao) LIKE '%AGUARDE%'
+         OR LENGTH(TRIM(COALESCE(descricao, ''))) < 4
          OR descricao IS NULL 
          OR TRIM(descricao) = ''
          OR dados LIKE '%COLUNAS:%'
          OR dados LIKE '%COLUNA%'
+         OR dados LIKE '%LOADING%'
+         OR dados LIKE '%MOSTRAR%'
          OR dados LIKE '%"descricao":":%'
     `).all();
 
@@ -832,6 +864,18 @@ function sanearDescricoesPoluidas(database) {
           if (descRecuperada && isDescricaoValidaSql(descRecuperada)) {
             dadosObj.descricao = descRecuperada;
             dadosObj.produto = descRecuperada;
+            if (codClean) dadosObj.codigo = codClean;
+            if (typeof processarRotaProduto === 'function') {
+              try {
+                const rotaInfo = processarRotaProduto(codClean, descRecuperada, dadosObj.tipoOrdem);
+                if (rotaInfo && Array.isArray(rotaInfo.rota) && rotaInfo.rota.length > 0) {
+                  dadosObj.etapas = rotaInfo.rota;
+                  dadosObj.rota = rotaInfo.rota;
+                  if (rotaInfo.requerLaser) dadosObj.requerLaser = 1;
+                  if (rotaInfo.requerRouter) dadosObj.requerRouter = 1;
+                }
+              } catch {}
+            }
             updateStmt.run(descRecuperada, JSON.stringify(dadosObj), Date.now(), row.rowid);
             restauradas++;
           } else {
@@ -1950,6 +1994,11 @@ app.post('/api/ordens', (req, res) => {
       codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
       descricao = CASE 
         WHEN excluded.descricao != '' 
+             AND LENGTH(TRIM(excluded.descricao)) >= 4
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%LOADING%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%MOSTRAR%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%CARREGANDO%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%AGUARDE%'
              AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%COLUNA%'
              AND excluded.descricao NOT LIKE '%:'
              AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%LINHA%'
@@ -1962,6 +2011,11 @@ app.post('/api/ordens', (req, res) => {
              AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'PRODUTO OP%' 
         THEN excluded.descricao 
         WHEN ordens.descricao != ''
+             AND LENGTH(TRIM(ordens.descricao)) >= 4
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%LOADING%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%MOSTRAR%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%CARREGANDO%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%AGUARDE%'
              AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%COLUNA%'
              AND ordens.descricao NOT LIKE '%:'
              AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%LINHA%'
@@ -2051,6 +2105,19 @@ app.post('/api/ordens', (req, res) => {
         }
       }
 
+      const opJaExiste = db.prepare('SELECT 1 FROM ordens WHERE numero = ? OR id = ?').get(formattedNum, formattedNum);
+      if (!opJaExiste && !isDescricaoValidaSql(descItemFinal)) {
+        console.warn(`[API Ordens] Ignorando OP nova ${formattedNum} por descrição inválida: "${descItemFinal}"`);
+        continue;
+      }
+
+      if (descItemFinal && isDescricaoValidaSql(descItemFinal)) {
+        item.descricao = descItemFinal;
+        item.produto = descItemFinal;
+        if (codItem && !catalogoPorCodigo.has(codItem)) catalogoPorCodigo.set(codItem, descItemFinal);
+        if (cleanId && !catalogoPorNumeroOp.has(cleanId)) catalogoPorNumeroOp.set(cleanId, descItemFinal);
+      }
+
       stmt.run({
         id: formattedNum,
         numero: formattedNum,
@@ -2107,25 +2174,42 @@ app.post('/api/ordens', (req, res) => {
 // =========================================================================
 // 3.1 ENDPOINT RECEPTOR AUTOMÁTICO DO NOMUS (TAMPERMONKEY USERSCRIPT)
 // =========================================================================
-app.options('/api/importar-nomus-auto', cors());
+app.options(['/api/importar-nomus-auto', '/api/sync-ops'], cors());
 
-app.post('/api/importar-nomus-auto', (req, res) => {
+app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
   try {
-    let rawHtml = (typeof req.body === 'string' ? req.body : (req.body?.html || req.body?.data || req.body?.content)) || '';
-    if (typeof rawHtml === 'string' && rawHtml.startsWith('"') && rawHtml.endsWith('"')) {
-      try { rawHtml = JSON.parse(rawHtml); } catch {}
-    }
+    let opsEncontradas = null;
+    let warnings = [];
 
-    if (!rawHtml || !rawHtml.trim()) {
-      return res.status(400).json({ ok: false, error: 'HTML do Nomus não informado no payload (esperado req.body.html)' });
-    }
+    // Suporte a payload JSON direto (array de OPs ou { ops: [...] } ou { orders: [...] })
+    if (Array.isArray(req.body)) {
+      opsEncontradas = req.body;
+    } else if (req.body && Array.isArray(req.body.ops)) {
+      opsEncontradas = req.body.ops;
+    } else if (req.body && Array.isArray(req.body.orders)) {
+      opsEncontradas = req.body.orders;
+    } else if (req.body && Array.isArray(req.body.data) && req.body.data.length > 0 && typeof req.body.data[0] === 'object') {
+      opsEncontradas = req.body.data;
+    } else {
+      // Payload HTML tradicional
+      let rawHtml = (typeof req.body === 'string' ? req.body : (req.body?.html || req.body?.data || req.body?.content)) || '';
+      if (typeof rawHtml === 'string' && rawHtml.startsWith('"') && rawHtml.endsWith('"')) {
+        try { rawHtml = JSON.parse(rawHtml); } catch {}
+      }
 
-    const { orders: opsEncontradas, warnings } = parseNomusHtml(rawHtml);
-    console.log('[Sync Nomus Auto] Tamanho HTML recebido:', rawHtml.length, '| OPs encontradas:', (opsEncontradas ? opsEncontradas.length : 0));
+      if (!rawHtml || !rawHtml.trim()) {
+        return res.status(400).json({ ok: false, error: 'HTML ou dados do Nomus não informados no payload' });
+      }
+
+      const resultado = parseNomusHtml(rawHtml);
+      opsEncontradas = resultado.orders;
+      warnings = resultado.warnings;
+      console.log('[Sync Nomus Auto] Tamanho HTML recebido:', rawHtml.length, '| OPs encontradas:', (opsEncontradas ? opsEncontradas.length : 0));
+    }
 
     if (!opsEncontradas || opsEncontradas.length === 0) {
-      console.warn('[Nomus Auto] Nenhuma OP válida encontrada no HTML recebido.');
-      return res.json({ ok: true, totalOps: 0, novas: 0, atualizadas: 0, aviso: 'Nenhuma OP válida encontrada no relatório HTML.' });
+      console.warn('[Nomus Auto] Nenhuma OP válida encontrada no payload recebido.');
+      return res.json({ ok: true, totalOps: 0, novas: 0, atualizadas: 0, aviso: 'Nenhuma OP válida encontrada no relatório.' });
     }
 
     // Contagem de novas vs atualizadas
@@ -2160,6 +2244,11 @@ app.post('/api/importar-nomus-auto', (req, res) => {
         codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
         descricao = CASE 
           WHEN excluded.descricao != '' 
+               AND LENGTH(TRIM(excluded.descricao)) >= 4
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%LOADING%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%MOSTRAR%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%CARREGANDO%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%AGUARDE%'
                AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%COLUNA%'
                AND excluded.descricao NOT LIKE '%:'
                AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%LINHA%'
@@ -2172,6 +2261,11 @@ app.post('/api/importar-nomus-auto', (req, res) => {
                AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'PRODUTO OP%' 
           THEN excluded.descricao 
           WHEN ordens.descricao != ''
+               AND LENGTH(TRIM(ordens.descricao)) >= 4
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%LOADING%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%MOSTRAR%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%CARREGANDO%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%AGUARDE%'
                AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%COLUNA%'
                AND ordens.descricao NOT LIKE '%:'
                AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%LINHA%'
@@ -2235,9 +2329,35 @@ app.post('/api/importar-nomus-auto', (req, res) => {
             descFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codClean) || '';
           }
         }
+
+        const opJaExiste = existingNums.has(canonicalNum);
+        if (!opJaExiste && !isDescricaoValidaSql(descFinal)) {
+          console.warn(`[Sync Nomus Auto] Ignorando OP nova ${canonicalNum} por descrição inválida: "${descFinal}"`);
+          continue;
+        }
+
         if (descFinal && isDescricaoValidaSql(descFinal)) {
           op.descricao = descFinal;
           op.produto = descFinal;
+          if (codClean) op.codigo = codClean;
+          if (typeof processarRotaProduto === 'function') {
+            try {
+              const rotaInfo = processarRotaProduto(codClean, descFinal, op.tipoOrdem);
+              if (rotaInfo && Array.isArray(rotaInfo.rota) && rotaInfo.rota.length > 0) {
+                op.etapas = rotaInfo.rota;
+                op.rota = rotaInfo.rota;
+                if (rotaInfo.requerLaser) {
+                  op.requerLaser = 1;
+                  op.requer_laser = 1;
+                }
+                if (rotaInfo.requerRouter) {
+                  op.requerRouter = 1;
+                  op.requer_router = 1;
+                  op.encaminhar_router = 1;
+                }
+              }
+            } catch {}
+          }
           if (codClean && !catalogoPorCodigo.has(codClean)) catalogoPorCodigo.set(codClean, descFinal);
           if (cleanId && !catalogoPorNumeroOp.has(cleanId)) catalogoPorNumeroOp.set(cleanId, descFinal);
         } else {
