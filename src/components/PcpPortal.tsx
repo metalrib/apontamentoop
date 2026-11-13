@@ -10,6 +10,7 @@ import {
 } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas, fetchNomusSyncStatus, NomusSyncStatus, getLocalSocket } from '../services/mesStorage';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP, normalizarIdOP } from '../utils/nomusParser';
+import { classificarModeloOP, MODELOS_PRODUTO } from '../utils/productClassifier';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
 import { OpChatModal } from './OpChatModal';
@@ -80,6 +81,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'apontamentos' | 'productivity' | 'tv_status' | 'equipe'>('dashboard');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'EM_PRODUCAO' | 'FINALIZADA'>('ALL');
+  const [selectedModel, setSelectedModel] = useState<string>('ALL');
   const [orderViewMode, setOrderViewMode] = useState<'cards' | 'table'>('cards');
   const [chatOrder, setChatOrder] = useState<ProductionOrder | null>(null);
   const [occurrenceOrder, setOccurrenceOrder] = useState<ProductionOrder | null>(null);
@@ -250,10 +252,35 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     return Object.values(orders).map(verificarECorrigirRotaOp);
   }, [orders]);
 
-  // 3. Memorização do filtro de OPs do Portal PCP
+  // 3. Ordens filtradas por status (base de cálculo para os contadores dinâmicos da barra de modelos)
+  const statusFilteredOrders = useMemo(() => {
+    return orderList.filter((op) => {
+      if (statusFilter === 'ALL') return true;
+      if (statusFilter === 'EM_PRODUCAO') return isOpEmProducao(op, apontamentos);
+      if (statusFilter === 'FINALIZADA') return op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
+      return op.status === statusFilter;
+    });
+  }, [orderList, statusFilter, apontamentos]);
+
+  // Contadores dinâmicos por modelo dentro do status atual
+  const modelCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      ALL: statusFilteredOrders.length
+    };
+    MODELOS_PRODUTO.forEach((m) => {
+      counts[m] = 0;
+    });
+    statusFilteredOrders.forEach((op) => {
+      const modelo = classificarModeloOP(op);
+      counts[modelo] = (counts[modelo] || 0) + 1;
+    });
+    return counts;
+  }, [statusFilteredOrders]);
+
+  // 4. Memorização do filtro de OPs do Portal PCP (busca + status + modelo selecionado)
   const filteredOrders = useMemo(() => {
     const searchLower = (deferredSearch || '').trim().toLowerCase();
-    return orderList.filter((op) => {
+    return statusFilteredOrders.filter((op) => {
       const matchesSearch = !searchLower || (
         (op.op_numero || '').toLowerCase().includes(searchLower) ||
         (op.numero || '').toLowerCase().includes(searchLower) ||
@@ -264,18 +291,12 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         (op.cliente || '').toLowerCase().includes(searchLower)
       );
 
-      const matchesStatus =
-        statusFilter === 'ALL'
-          ? true
-          : statusFilter === 'EM_PRODUCAO'
-          ? isOpEmProducao(op, apontamentos)
-          : statusFilter === 'FINALIZADA'
-          ? (op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos))
-          : op.status === statusFilter;
+      const matchesModel =
+        selectedModel === 'ALL' || classificarModeloOP(op) === selectedModel;
 
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesModel;
     });
-  }, [orderList, deferredSearch, statusFilter, apontamentos]);
+  }, [statusFilteredOrders, deferredSearch, selectedModel]);
 
   // Contadores memorizados para evitar recomputações a cada tecla
   const totalEmProducao = useMemo(() => {
@@ -957,35 +978,125 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
               </div>
             </div>
 
+            {/* SELETOR HORIZONTAL DE MODELOS / CATEGORIAS DE PRODUTOS */}
+            <div className="bg-[#0c142b] p-2.5 rounded-2xl border border-blue-900/60 shadow-lg">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap sm:flex-wrap">
+                {/* Botão "Todas" */}
+                <button
+                  onClick={() => {
+                    playClick();
+                    setSelectedModel('ALL');
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    selectedModel === 'ALL'
+                      ? 'bg-[#1C2F8A] text-white border border-blue-400/80 shadow-md shadow-blue-950 ring-1 ring-blue-400/30'
+                      : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800/80'
+                  }`}
+                >
+                  <Layers className={`w-3.5 h-3.5 ${selectedModel === 'ALL' ? 'text-blue-300' : 'text-slate-500'}`} />
+                  <span>Todas</span>
+                  <span
+                    className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+                      selectedModel === 'ALL'
+                        ? 'bg-blue-900/90 text-blue-100 border border-blue-400/50'
+                        : 'bg-slate-950 text-slate-400 border border-slate-800'
+                    }`}
+                  >
+                    {modelCounts['ALL'] || 0}
+                  </span>
+                </button>
+
+                <div className="h-4 w-px bg-blue-900/60 mx-0.5 shrink-0" />
+
+                {/* Botões de Modelos / Categorias */}
+                {MODELOS_PRODUTO.map((modelo) => {
+                  const count = modelCounts[modelo] || 0;
+                  const isSelected = selectedModel === modelo;
+
+                  return (
+                    <button
+                      key={modelo}
+                      onClick={() => {
+                        playClick();
+                        setSelectedModel(modelo);
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                        isSelected
+                          ? 'bg-[#1C2F8A] text-white border border-blue-400/80 shadow-md shadow-blue-950 font-bold ring-1 ring-blue-400/30'
+                          : count > 0
+                          ? 'bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800/80'
+                          : 'bg-slate-950/60 text-slate-500 hover:text-slate-400 border border-slate-900'
+                      }`}
+                    >
+                      <span>{modelo}</span>
+                      <span
+                        className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
+                          isSelected
+                            ? 'bg-blue-900/90 text-blue-100 border border-blue-400/50'
+                            : count > 0
+                            ? 'bg-slate-950 text-slate-300 border border-slate-800'
+                            : 'bg-slate-950 text-slate-600 border border-slate-900'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Listagem de OPs */}
             {filteredOrders.length === 0 ? (
               <div className="border border-blue-900/60 rounded-2xl p-12 text-center bg-[#0c142b] shadow-2xl flex flex-col items-center justify-center gap-4">
                 <Factory className="w-12 h-12 text-slate-600" />
                 <span className="text-base font-semibold text-slate-200 max-w-lg">
-                  Nenhuma ordem de produção em andamento. Importe o arquivo HTML do Nomus ou cadastre uma nova OP.
+                  {orderList.length === 0
+                    ? 'Nenhuma ordem de produção em andamento. Importe o arquivo HTML do Nomus ou cadastre uma nova OP.'
+                    : `Nenhuma ordem de produção encontrada para os filtros selecionados${
+                        selectedModel !== 'ALL' ? ` (Modelo: ${selectedModel})` : ''
+                      }${searchTerm ? ` (Busca: "${searchTerm}")` : ''}${
+                        statusFilter !== 'ALL'
+                          ? ` (Status: ${statusFilter === 'EM_PRODUCAO' ? 'Em Produção' : 'Concluídas'})`
+                          : ''
+                      }.`}
                 </span>
-                <div className="flex flex-wrap items-center justify-center gap-3 mt-1">
+                {orderList.length > 0 && (selectedModel !== 'ALL' || searchTerm || statusFilter !== 'ALL') ? (
                   <button
                     onClick={() => {
                       playClick();
-                      setShowNomusImportModal(true);
+                      setSelectedModel('ALL');
+                      setSearchTerm('');
+                      setStatusFilter('ALL');
                     }}
-                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
+                    className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition cursor-pointer"
                   >
-                    <Upload className="w-4 h-4" />
-                    <span>Importar HTML do Nomus</span>
+                    Limpar Filtros e Mostrar Todas ({orderList.length})
                   </button>
-                  <button
-                    onClick={() => {
-                      playClick();
-                      setShowNewOpModal(true);
-                    }}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span>Nova OP Manual</span>
-                  </button>
-                </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-center gap-3 mt-1">
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setShowNomusImportModal(true);
+                      }}
+                      className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
+                    >
+                      <Upload className="w-4 h-4" />
+                      <span>Importar HTML do Nomus</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        playClick();
+                        setShowNewOpModal(true);
+                      }}
+                      className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 transition"
+                    >
+                      <Plus className="w-4 h-4" />
+                      <span>Nova OP Manual</span>
+                    </button>
+                  </div>
+                )}
               </div>
             ) : orderViewMode === 'cards' ? (
               /* MODO CARDS DE PRODUÇÃO IDENTICOS AO SISTEMA DE CHÃO DE FÁBRICA */
@@ -1042,15 +1153,20 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                               <span className="px-2 py-0.5 rounded bg-blue-500/10 text-blue-300 border border-blue-500/20 text-[11px] font-bold">
                                 {rule.label}
                               </span>
-                              {(op.tipoOrdem || rule.badge) && (
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                  (op.tipoOrdem ? op.tipoOrdem.includes('Padrão') : rule.isStandardLine)
-                                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
-                                    : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
-                                }`}>
-                                  {op.tipoOrdem || rule.badge}
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {(op.tipoOrdem || rule.badge) && (
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                    (op.tipoOrdem ? op.tipoOrdem.includes('Padrão') : rule.isStandardLine)
+                                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                                      : 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                                  }`}>
+                                    {op.tipoOrdem || rule.badge}
+                                  </span>
+                                )}
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950/80 border border-blue-800/70 text-blue-300 font-mono">
+                                  {classificarModeloOP(op)}
                                 </span>
-                              )}
+                              </div>
                             </div>
                           </td>
                           <td className="p-3.5 text-center text-slate-300">

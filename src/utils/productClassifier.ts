@@ -137,3 +137,173 @@ export function identificarFamiliaProduto(
 
   return 'GERAL';
 }
+
+export type ModeloProduto =
+  | 'Portas Giratória'
+  | 'Portas Correr'
+  | 'Vai vem'
+  | 'Office Door'
+  | 'Batentes'
+  | 'Folha'
+  | 'Ancoras'
+  | 'Trilhos'
+  | 'Pendurais'
+  | 'Cortina'
+  | 'QC Comando'
+  | 'Outros';
+
+export const MODELOS_PRODUTO: ModeloProduto[] = [
+  'Portas Giratória',
+  'Portas Correr',
+  'Vai vem',
+  'Office Door',
+  'Batentes',
+  'Folha',
+  'Ancoras',
+  'Trilhos',
+  'Pendurais',
+  'Cortina',
+  'QC Comando',
+  'Outros'
+];
+
+/**
+ * Classificador oficial de Modelo / Categoria de Produto para a visualização no Portal PCP
+ * Analisa descrição, categoria e código do produto e retorna um dos modelos padronizados.
+ */
+export function classificarModeloOP(op?: any): ModeloProduto {
+  if (!op) return 'Outros';
+
+  const norm = (str?: any) =>
+    String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .trim();
+
+  let dadosObj: any = {};
+  try {
+    if (op.dados) {
+      dadosObj = typeof op.dados === 'string' ? JSON.parse(op.dados) : op.dados;
+    }
+  } catch {}
+
+  const desc = norm(op.descricao || op.produto || dadosObj.descricao || dadosObj.produto);
+  const cat = norm(op.categoria || dadosObj.categoria);
+  const cod = norm(
+    op.codigo ||
+    op.codigo_produto ||
+    op.codigoProduto ||
+    dadosObj.codigo ||
+    dadosObj.codigo_produto ||
+    dadosObj.codigoProduto
+  );
+
+  // 1. Office Door: se contiver OFFICE DOOR ou OFFICE
+  if (
+    desc.includes('OFFICE DOOR') ||
+    desc.includes('OFFICE') ||
+    cat.includes('OFFICE') ||
+    cod.startsWith('009.') ||
+    cod.startsWith('010.')
+  ) {
+    return 'Office Door';
+  }
+
+  // 2. Batentes: se começar com BATENTE ou BAT ou código iniciar com 020. (desde que não seja folha)
+  if (
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    (cod.startsWith('020.') && !desc.startsWith('FOLHA'))
+  ) {
+    return 'Batentes';
+  }
+
+  // 3. Folha: se começar com FOLHA
+  if (desc.startsWith('FOLHA')) {
+    return 'Folha';
+  }
+
+  // 4. Trilhos: se contiver TRILHO
+  if (desc.includes('TRILHO') || cat.includes('TRILHO')) {
+    return 'Trilhos';
+  }
+
+  // 5. Pendurais: se contiver PENDURAL ou PENDURAIS
+  if (desc.includes('PENDURAL') || desc.includes('PENDURAIS') || cat.includes('PENDURAL')) {
+    return 'Pendurais';
+  }
+
+  // 6. Cortina: se contiver CORTINA
+  if (desc.includes('CORTINA') || cat.includes('CORTINA')) {
+    return 'Cortina';
+  }
+
+  // 7. QC Comando: se contiver QUADRO, QC , COMANDO ou PAINEL ELETRICO
+  if (
+    desc.includes('QUADRO') ||
+    desc.includes('QC ') ||
+    desc.includes('COMANDO') ||
+    desc.includes('PAINEL ELETRICO') ||
+    cat.includes('QUADRO') ||
+    cat.includes('COMANDO')
+  ) {
+    return 'QC Comando';
+  }
+
+  // 8. Ancoras: se contiver ANCORA
+  if (desc.includes('ANCORA') || cat.includes('ANCORA')) {
+    return 'Ancoras';
+  }
+
+  // 9. Vai vem: se contiver VAI VEM ou VAI-VEM ou código iniciar com 011.
+  if (
+    desc.includes('VAI VEM') ||
+    desc.includes('VAI-VEM') ||
+    desc.includes('VAIVEM') ||
+    cod.startsWith('011.') ||
+    cat.includes('VAI VEM') ||
+    cat.includes('VAI-VEM')
+  ) {
+    return 'Vai vem';
+  }
+
+  // 10. Portas Giratória: se contiver PT GIR ou PORTA GIR ou código iniciar com 001. ou 003. (e não começar com BATENTE ou FOLHA)
+  const isGir =
+    (desc.includes('PT GIR') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('PORTA DE GIRO') ||
+      (desc.includes('PORTA') && desc.includes('GIRO')) ||
+      cod.startsWith('001.') ||
+      cod.startsWith('003.') ||
+      cat.includes('GIRATORIA') ||
+      cat.includes('GIRO')) &&
+    !desc.startsWith('BATENTE') &&
+    !desc.startsWith('BAT ') &&
+    !desc.startsWith('BAT-') &&
+    !desc.startsWith('FOLHA');
+  if (isGir) {
+    return 'Portas Giratória';
+  }
+
+  // 11. Portas Correr: se contiver PT COR ou PORTA COR ou código iniciar com 005. (e não começar com BATENTE, FOLHA ou TRILHO)
+  const isCor =
+    (desc.includes('PT COR') ||
+      desc.includes('PORTA COR') ||
+      desc.includes('PORTA DE CORRER') ||
+      (desc.includes('PORTA') && desc.includes('CORRER')) ||
+      cod.startsWith('005.') ||
+      cod.startsWith('007.') ||
+      cat.includes('CORRER')) &&
+    !desc.startsWith('BATENTE') &&
+    !desc.startsWith('BAT ') &&
+    !desc.startsWith('BAT-') &&
+    !desc.startsWith('FOLHA') &&
+    !desc.startsWith('TRILHO');
+  if (isCor) {
+    return 'Portas Correr';
+  }
+
+  return 'Outros';
+}

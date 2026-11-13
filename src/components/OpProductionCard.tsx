@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
+import { classificarModeloOP } from '../utils/productClassifier';
 import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, resetarOpCompleta, cleanOpId, formatOpNumber } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
@@ -57,6 +58,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
   const evaluation = getRouteEvaluation(order, apontamentos, etapasCalculadas);
   const isAncora = isAncoraOrder(order);
   const totalPhysicalUnits = obterQuantidadeTotal(order);
+  const modeloProduto = classificarModeloOP(order);
 
   // Detecção de 100% Concluída Geral calculada dinamicamente
   const isAllStepsFinished = totalEtapas > 0 && etapasCalculadas.every((s) => {
@@ -252,9 +254,9 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             )}
           </div>
 
-          {/* Badge de Linha Padrão ou Especial */}
-          {(op.tipoOrdem || rule.badge) && (
-            <div>
+          {/* Badges de Classificação: Linha Padrão/Especial + Modelo do Produto */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {(op.tipoOrdem || rule.badge) && (
               <span
                 className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${
                   (op.tipoOrdem ? op.tipoOrdem.includes('Padrão') : rule.isStandardLine)
@@ -264,8 +266,14 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
               >
                 {op.tipoOrdem || rule.badge}
               </span>
-            </div>
-          )}
+            )}
+
+            {modeloProduto && (
+              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-blue-950/80 border border-blue-800/70 text-blue-300 font-mono">
+                {modeloProduto}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Canto direito: Badge com a quantidade e botão de excluir */}
