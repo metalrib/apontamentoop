@@ -15,10 +15,21 @@ import {
 import { obterEtapasDaRota } from './routeValidation';
 
 /**
+ * Normaliza o identificador da OP removendo prefixos "OP", repetições "OP OP" e espaços extras (ex: "024552-01")
+ */
+export const normalizarIdOP = (opNum?: string | number | null): string => {
+  if (!opNum) return '';
+  return String(opNum).toUpperCase().replace(/^(\s*OP\s*)+/i, '').trim();
+};
+
+export const cleanOpId = normalizarIdOP;
+export const cleanOpid = normalizarIdOP;
+
+/**
  * Formata o número da OP garantindo prefixo único "OP XXXXXX-XX" sem duplicações (ex: "OP OP ...")
  */
 export const formatarNumeroOP = (opNum?: string | null): string => {
-  const limpo = String(opNum || '').replace(/^(\s*OP\s*)+/i, '').trim();
+  const limpo = normalizarIdOP(opNum);
   return limpo ? `OP ${limpo}` : '';
 };
 
@@ -1063,26 +1074,12 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
 }
 
 /**
- * Extrai o identificador limpo da OP sem repetição do prefixo 'OP' e sem caracteres inválidos.
- * Ex: 'OP OP 024455-01' -> '024455-01'
- *     'OP 024455-01'    -> '024455-01'
- *     '024455-01'       -> '024455-01'
- */
-export const cleanOpId = (rawId: string | number | null | undefined): string => {
-  if (!rawId) return '';
-  return String(rawId).toUpperCase().replace(/^(\s*OP\s*)+/i, '').trim();
-};
-
-// Aliases para evitar falhas caso seja chamado com variações de nomenclatura (ex: cleanOpid):
-export const cleanOpid = cleanOpId;
-
-/**
  * Retorna o número da OP formatado de forma segura e padronizada com o prefixo 'OP '.
  * Ex: '024455-01'       -> 'OP 024455-01'
  *     'OP OP 024455-01' -> 'OP 024455-01'
  */
 export const formatOpNumber = (rawId: string | number | null | undefined): string => {
-  const clean = cleanOpId(rawId);
+  const clean = normalizarIdOP(rawId);
   return clean ? `OP ${clean}` : '';
 };
 

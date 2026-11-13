@@ -16,12 +16,12 @@ import {
   isRotaLaserDobra,
   isRotaExclusivaRouter
 } from '../types/mes';
-import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber } from '../utils/nomusParser';
+import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
 import { io, Socket } from 'socket.io-client';
 
-export { cleanOpId, cleanOpid, formatOpNumber };
+export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP };
 
 /**
  * Sanitiza recursivamente qualquer objeto ou payload antes de enviar para o Firebase Realtime Database.

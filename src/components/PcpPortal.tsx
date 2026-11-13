@@ -9,7 +9,7 @@ import {
   checkOp100Percent
 } from '../utils/routeEngine';
 import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas, fetchNomusSyncStatus, NomusSyncStatus, getLocalSocket } from '../services/mesStorage';
-import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP } from '../utils/nomusParser';
+import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP, normalizarIdOP } from '../utils/nomusParser';
 import { MetalribLogo } from './MetalribLogo';
 import { OpProductionCard } from './OpProductionCard';
 import { OpChatModal } from './OpChatModal';
@@ -58,6 +58,7 @@ export const cleanOpIdLocal = (rawId: string | number | null | undefined): strin
   return String(rawId).replace(/^(\s*OP\s*)+/i, '').trim();
 };
 export const cleanOpid = cleanOpIdLocal;
+export { normalizarIdOP };
 
 interface PcpPortalProps {
   orders: Record<string, ProductionOrder>;
