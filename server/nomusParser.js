@@ -326,11 +326,22 @@ function isOfficeDoorGiro(codigo, descricao, tipoOrdem) {
   return false;
 }
 
-function processarRotaProduto(op) {
-  const codRaw = String(op.codigoProduto || op.codigo || '').trim();
+function processarRotaProduto(opOrCode, descArg, tipoOrdemArg) {
+  let codRaw = '';
+  let desc = '';
+  let tipoOrdem = '';
+
+  if (typeof opOrCode === 'object' && opOrCode !== null) {
+    codRaw = String(opOrCode.codigoProduto || opOrCode.codigo || opOrCode.cod || '').trim();
+    desc = String(opOrCode.descricao || opOrCode.produto || '').toUpperCase();
+    tipoOrdem = String(opOrCode.tipoOrdem || opOrCode.tipo || '');
+  } else {
+    codRaw = String(opOrCode || '').trim();
+    desc = String(descArg || '').toUpperCase();
+    tipoOrdem = String(tipoOrdemArg || '');
+  }
+
   const codNormalizado = codRaw.replace(/[^0-9]/g, '');
-  const desc = String(op.descricao || '').toUpperCase();
-  const tipoOrdem = String(op.tipoOrdem || '');
 
   // A) Rota exclusiva Laser
   if (isLaserExclusivo(codRaw, desc)) {
@@ -365,15 +376,18 @@ function processarRotaProduto(op) {
     };
   }
 
-  // 1. Batentes (020.xxxx / BAT - Padrão, Inox e com Resistência)
-  if (
-    (codNormalizado.startsWith('020') && (desc.startsWith('BAT') || desc.startsWith('BATENTE') || parseInt(codNormalizado.slice(3) || '0', 10) >= 32 || ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado))) ||
+  // 1. Batentes (020.xxxx / BAT - Padrão, Inox e com Resistência) - PRIORIDADE SOBRE PORTAS E FOLHAS
+  const ehBatente =
     desc.startsWith('BAT ') ||
     desc.startsWith('BAT-') ||
     desc.startsWith('BAT_') ||
     desc.startsWith('BATENTE') ||
-    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA '))
-  ) {
+    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+    ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
+    (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
+
+  if (ehBatente) {
     return {
       familia: 'Batente',
       tipoMontagem: 'Batente',
@@ -453,8 +467,12 @@ function processarRotaProduto(op) {
     };
   }
 
-  // 8. Portas Giratórias (Exclui Office Door)
+  // 8. Portas Giratórias (Exclui Office Door e Batentes)
   const ehGiratoria =
+    !ehBatente &&
+    !desc.startsWith('BAT') &&
+    !desc.includes('BATENTE') &&
+    !codNormalizado.startsWith('020') &&
     !isOfficeDoorGiro(codRaw, desc, tipoOrdem) &&
     !desc.includes('OFFICE DOOR') &&
     !desc.includes('OFFICE-DOOR') &&
@@ -495,8 +513,12 @@ function processarRotaProduto(op) {
     };
   }
 
-  // 9. Portas de Correr (Exclui Office Door)
+  // 9. Portas de Correr (Exclui Office Door e Batentes)
   const ehCorrer =
+    !ehBatente &&
+    !desc.startsWith('BAT') &&
+    !desc.includes('BATENTE') &&
+    !codNormalizado.startsWith('020') &&
     !isOfficeDoorCorrer(codRaw, desc, tipoOrdem) &&
     !desc.includes('OFFICE DOOR') &&
     !desc.includes('OFFICE-DOOR') &&

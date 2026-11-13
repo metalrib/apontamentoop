@@ -263,6 +263,67 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T, permi
     }
   }
 
+  const docId = (op.op_numero || (op as any).numeroOP || op.numero || (op as any).id || '').trim();
+
+  // 1. BATENTES (020.xxxx / BAT - Padrão, Inox e com Resistência) - AUTO-CORREÇÃO COMPULSÓRIA
+  const ehBatente =
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    desc.startsWith('BATENTE') ||
+    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+    ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
+    CODIGOS_BATENTES_PADRAO.has(codRaw) ||
+    CODIGOS_BATENTES_PADRAO.has(codNormalizado) ||
+    (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
+
+  if (ehBatente) {
+    const rotaOficialBatente = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+
+    const temEtapaIndevida = rotaAtual.some((e: any) => {
+      const nome = typeof e === 'string' ? e : (e?.nome || e?.step || '');
+      return nome.includes('Folha') || (nome.includes('Porta') && !nome.includes('Batente')) || nome.includes('Gaxeta');
+    });
+
+    const faltaEtapasBatente = !rotaAtual.includes('Preparação de Batentes') || !rotaAtual.includes('Injeção e Finalização de Batentes');
+
+    if (temEtapaIndevida || faltaEtapasBatente || op.familia !== 'Batente') {
+      op.rota = rotaOficialBatente;
+      op.familia = 'Batente';
+      op.tipoMontagem = 'Batente';
+
+      if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+        const novoEtapasObj: Record<string, any> = {};
+        for (const step of rotaOficialBatente) {
+          if ((op.etapas as any)[step]) {
+            novoEtapasObj[step] = (op.etapas as any)[step];
+          } else {
+            novoEtapasObj[step] = {
+              status: 'PENDENTE',
+              concluidas: 0,
+              total: op.quantidadeFisica || op.quantidade_total || op.quantidade || 1
+            };
+          }
+        }
+        op.etapas = novoEtapasObj as any;
+      } else {
+        op.etapas = rotaOficialBatente;
+      }
+
+      if (docId && permitirPersistencia) {
+        persistirCorrecaoOp(docId, {
+          rota: rotaOficialBatente,
+          etapas: op.etapas,
+          familia: 'Batente',
+          tipoMontagem: 'Batente'
+        });
+      }
+    }
+    return op;
+  }
+
   // Não intercepta subcomponentes (Batentes, Folhas avulsas, Trilhos, Âncoras, etc.)
   const ehSubcomponente =
     codNormalizado.startsWith('020') ||
@@ -299,30 +360,38 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T, permi
   if (ehSubcomponente) return op;
 
   const ehGiratoria =
-    desc.includes('PT GIR') ||
-    desc.includes('PORTA GIR') ||
-    desc.includes('GIRATORIA') ||
-    desc.includes('GIRATÓRIA') ||
-    desc.includes('GIRO') ||
-    codNormalizado.startsWith('001') ||
-    codNormalizado.startsWith('002') ||
-    codNormalizado.startsWith('003') ||
-    codNormalizado.startsWith('004');
+    !ehBatente &&
+    !desc.startsWith('BAT') &&
+    !codNormalizado.startsWith('020') &&
+    (
+      desc.includes('PT GIR') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('GIRATORIA') ||
+      desc.includes('GIRATÓRIA') ||
+      desc.includes('GIRO') ||
+      codNormalizado.startsWith('001') ||
+      codNormalizado.startsWith('002') ||
+      codNormalizado.startsWith('003') ||
+      codNormalizado.startsWith('004')
+    );
 
   const ehCorrer =
-    desc.includes('PT COR') ||
-    desc.includes('PORTA CORRER') ||
-    desc.includes('PORTA DE CORRER') ||
-    desc.includes('CORRER') ||
-    desc.includes('EMENDAD') ||
-    codNormalizado.startsWith('005') ||
-    codNormalizado.startsWith('006') ||
-    codNormalizado.startsWith('007') ||
-    codNormalizado.startsWith('008') ||
-    codNormalizado.startsWith('029') ||
-    codNormalizado.startsWith('025');
-
-  const docId = (op.op_numero || (op as any).numeroOP || op.numero || (op as any).id || '').trim();
+    !ehBatente &&
+    !desc.startsWith('BAT') &&
+    !codNormalizado.startsWith('020') &&
+    (
+      desc.includes('PT COR') ||
+      desc.includes('PORTA CORRER') ||
+      desc.includes('PORTA DE CORRER') ||
+      desc.includes('CORRER') ||
+      desc.includes('EMENDAD') ||
+      codNormalizado.startsWith('005') ||
+      codNormalizado.startsWith('006') ||
+      codNormalizado.startsWith('007') ||
+      codNormalizado.startsWith('008') ||
+      codNormalizado.startsWith('029') ||
+      codNormalizado.startsWith('025')
+    );
 
   // 1. Giratória: Padrão vs Especial
   const ehGiroPadrao = Boolean(

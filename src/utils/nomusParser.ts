@@ -83,7 +83,28 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     };
   }
 
-  // Se for subcomponente (Batente, Folha, Trilho, Âncora, Vai-Vem, Office Door, etc.), delega para obterEtapasDaRota
+  // 1. BATENTES (020.xxxx / BAT - Padrão, Inox e c/ Resistência) - PRIORIDADE SOBRE PORTAS E FOLHAS
+  const ehBatente =
+    isBatente(op) ||
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    desc.startsWith('BATENTE') ||
+    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+    ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codigoProduto) ||
+    (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
+
+  if (ehBatente) {
+    return {
+      familia: 'Batente',
+      tipoMontagem: 'Batente',
+      rota: ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'],
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+    };
+  }
+
+  // Se for subcomponente (Folha, Trilho, Âncora, Vai-Vem, Office Door, etc.), delega para obterEtapasDaRota
   const ehSubcomponenteOuOutro =
     codNormalizado.startsWith('020') ||
     codNormalizado.startsWith('021') ||
@@ -97,8 +118,6 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     codNormalizado.startsWith('015') ||
     codNormalizado.startsWith('022') ||
     codNormalizado.startsWith('090') ||
-    desc.startsWith('BAT') ||
-    desc.startsWith('BATENTE') ||
     desc.startsWith('FOLHA') ||
     desc.startsWith('TRILHO') ||
     desc.includes('ANCORA') ||
@@ -113,9 +132,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
   if (ehSubcomponenteOuOutro) {
     const rotas = obterEtapasDaRota(op);
     let familia = 'Geral';
-    if (codNormalizado.startsWith('020') || desc.startsWith('BAT') || desc.startsWith('BATENTE')) familia = 'Batente';
+    if (desc.startsWith('FOLHA') || (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) <= 31)) familia = 'Folha Avulsa';
     else if (codNormalizado.startsWith('028') || desc.startsWith('TRILHO')) familia = 'Trilho';
-    else if (desc.startsWith('FOLHA')) familia = 'Folha Avulsa';
     else if (codNormalizado.startsWith('021') || desc.includes('ANCORA')) familia = 'Âncora';
     else if (codNormalizado.startsWith('011') || desc.includes('VAI VEM')) familia = 'Porta Vai e Vem';
     else if (isOfficeDoorCorrer(op)) familia = 'Porta Office Door de Correr';
@@ -162,8 +180,13 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     };
   }
 
-  // 1. FAMÍLIA PORTA GIRATÓRIA (PADRÃO VS ESPECIAL - EXCLUI OFFICE DOOR)
+  // 1. FAMÍLIA PORTA GIRATÓRIA (PADRÃO VS ESPECIAL - EXCLUI OFFICE DOOR E BATENTES)
   const ehGiratoria =
+    !ehBatente &&
+    !isBatente(op) &&
+    !desc.startsWith('BAT') &&
+    !desc.includes('BATENTE') &&
+    !codNormalizado.startsWith('020') &&
     !isOfficeDoorGiro(op) &&
     !desc.includes('OFFICE DOOR') &&
     !desc.includes('OFFICE-DOOR') &&
@@ -215,19 +238,26 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
     };
   }
 
-  // 2. FAMÍLIA PORTAS DE CORRER (PADRÃO VS ESPECIAL / SOB MEDIDA / EMENDADA)
+  // 2. FAMÍLIA PORTAS DE CORRER (PADRÃO VS ESPECIAL / SOB MEDIDA / EMENDADA - EXCLUI BATENTES)
   const ehCorrer =
-    desc.includes('PT COR') ||
-    desc.includes('PORTA CORRER') ||
-    desc.includes('PORTA DE CORRER') ||
-    desc.includes('CORRER') ||
-    desc.includes('EMENDAD') ||
-    codNormalizado.startsWith('005') ||
-    codNormalizado.startsWith('006') ||
-    codNormalizado.startsWith('007') ||
-    codNormalizado.startsWith('008') ||
-    codNormalizado.startsWith('029') ||
-    codNormalizado.startsWith('025');
+    !ehBatente &&
+    !isBatente(op) &&
+    !desc.startsWith('BAT') &&
+    !desc.includes('BATENTE') &&
+    !codNormalizado.startsWith('020') &&
+    (
+      desc.includes('PT COR') ||
+      desc.includes('PORTA CORRER') ||
+      desc.includes('PORTA DE CORRER') ||
+      desc.includes('CORRER') ||
+      desc.includes('EMENDAD') ||
+      codNormalizado.startsWith('005') ||
+      codNormalizado.startsWith('006') ||
+      codNormalizado.startsWith('007') ||
+      codNormalizado.startsWith('008') ||
+      codNormalizado.startsWith('029') ||
+      codNormalizado.startsWith('025')
+    );
 
   if (ehCorrer) {
     const totalQtd = op.quantidadeFisica || op.quantidade || 1;

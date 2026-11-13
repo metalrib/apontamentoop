@@ -1231,7 +1231,30 @@ function isRouterExclusivoSql(codigo, descricao) {
   return false;
 }
 
+function isBatenteSql(codigo, descricao) {
+  const cod = String(codigo || '').trim();
+  const desc = normalizarTextoSql(descricao);
+  const codClean = cod.replace(/\D/g, '');
+
+  if (desc.startsWith('FOLHA') || (codClean.startsWith('020') && parseInt(codClean.slice(3) || '0', 10) >= 9 && parseInt(codClean.slice(3) || '0', 10) <= 31 && desc.includes('FOLHA'))) {
+    return false;
+  }
+
+  return (
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    desc.startsWith('BATENTE') ||
+    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+    ['0200005', '0200006', '0200007', '0200008'].includes(codClean) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod) ||
+    (codClean.startsWith('020') && parseInt(codClean.slice(3) || '0', 10) >= 32) ||
+    (cod.startsWith('020.') && parseInt(cod.slice(4) || '0', 10) >= 32)
+  );
+}
+
 function isOfficeDoorCorrerSql(codigo, descricao, tipoOrdem) {
+  if (isBatenteSql(codigo, descricao)) return false;
   const cod = String(codigo || '').trim();
   const desc = normalizarTextoSql(descricao);
   const tipo = normalizarTextoSql(tipoOrdem);
@@ -1245,6 +1268,7 @@ function isOfficeDoorCorrerSql(codigo, descricao, tipoOrdem) {
 }
 
 function isOfficeDoorGiroSql(codigo, descricao, tipoOrdem) {
+  if (isBatenteSql(codigo, descricao)) return false;
   if (isOfficeDoorCorrerSql(codigo, descricao, tipoOrdem)) return false;
   const cod = String(codigo || '').trim();
   const desc = normalizarTextoSql(descricao);
@@ -1420,9 +1444,83 @@ try {
       }
     }
 
+    // Saneamento de Rotas Oficiais de Batente (Corte -> Dobra -> Preparação de Batentes -> Injeção e Finalização de Batentes)
+    const isBat = isBatenteSql(o.codigo, o.descricao);
+    if (isBat && (podeAtualizar || o.status !== 'FINALIZADA')) {
+      const targetBatenteSteps = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+      let precisaAtualizar = false;
+      let novasEtapas = targetBatenteSteps;
+
+      let parsed = null;
+      try { parsed = JSON.parse(o.etapas || '[]'); } catch {}
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const obj = {};
+        for (const step of targetBatenteSteps) {
+          if (parsed[step]) {
+            obj[step] = parsed[step];
+          } else {
+            obj[step] = {
+              status: 'PENDENTE',
+              concluidas: 0,
+              total: o.quantidadeFisica || 1
+            };
+            precisaAtualizar = true;
+          }
+        }
+        const chavesAtuais = Object.keys(parsed);
+        const temChavesEstranhas = chavesAtuais.some(k => !targetBatenteSteps.includes(k));
+        if (temChavesEstranhas || chavesAtuais.length !== targetBatenteSteps.length) {
+          precisaAtualizar = true;
+        }
+        novasEtapas = obj;
+      } else if (Array.isArray(parsed)) {
+        if (JSON.stringify(parsed) !== JSON.stringify(targetBatenteSteps)) {
+          precisaAtualizar = true;
+        }
+        novasEtapas = targetBatenteSteps;
+      } else {
+        precisaAtualizar = true;
+        novasEtapas = targetBatenteSteps;
+      }
+
+      let dadosObj = null;
+      try {
+        if (o.dados) {
+          dadosObj = JSON.parse(o.dados);
+          if (dadosObj) {
+            if (JSON.stringify(dadosObj.rota || []) !== JSON.stringify(targetBatenteSteps) || dadosObj.familia !== 'Batente') {
+              dadosObj.rota = targetBatenteSteps;
+              dadosObj.etapas = targetBatenteSteps;
+              dadosObj.familia = 'Batente';
+              dadosObj.tipoMontagem = 'Batente';
+              precisaAtualizar = true;
+            }
+          }
+        }
+      } catch {}
+
+      if (precisaAtualizar) {
+        db.prepare(`
+          UPDATE ordens
+          SET etapas = ?,
+              dados = COALESCE(?, dados),
+              atualizadoEm = ?
+          WHERE id = ?
+        `).run(
+          JSON.stringify(novasEtapas),
+          dadosObj ? JSON.stringify(dadosObj) : null,
+          Date.now(),
+          o.id
+        );
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP Batente ${o.numero} (${o.codigo}) saneada para rota oficial de batentes`);
+      }
+    }
+
     // Saneamento de Rotas Oficiais Office Door (Giro e Correr)
-    const isOdCorrer = isOfficeDoorCorrerSql(o.codigo, o.descricao, o.tipoOrdem);
-    const isOdGiro = !isOdCorrer && isOfficeDoorGiroSql(o.codigo, o.descricao, o.tipoOrdem);
+    const isOdCorrer = !isBat && isOfficeDoorCorrerSql(o.codigo, o.descricao, o.tipoOrdem);
+    const isOdGiro = !isBat && !isOdCorrer && isOfficeDoorGiroSql(o.codigo, o.descricao, o.tipoOrdem);
 
     if (isOdGiro && (podeAtualizar || o.status !== 'FINALIZADA')) {
       const aptsOp = db.prepare('SELECT * FROM apontamentos WHERE op_numero = ? OR op_numero = ?').all(o.numero, o.id);
@@ -2349,6 +2447,11 @@ app.post('/api/ordens', (req, res) => {
         routerVal = 1;
         if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
           statusVal = 'Aguardando Início em: Router';
+        }
+      } else if (isBatenteSql(codItem, descItem)) {
+        etapasVal = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+        if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
+          statusVal = 'AGUARDANDO INÍCIO EM: CORTE';
         }
       } else if (isOfficeDoorGiroSql(codItem, descItem, item.tipoOrdem)) {
         const querLaser = laserVal === 1;

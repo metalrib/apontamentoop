@@ -136,7 +136,20 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     String(order.descricao || order.produto || '').toUpperCase().startsWith('BAT-') ||
     String(order.descricao || order.produto || '').toUpperCase().startsWith('BAT_') ||
     String(order.descricao || order.produto || '').toUpperCase().startsWith('BATENTE') ||
-    String(order.descricao || order.produto || '').toUpperCase().includes('BATENTE');
+    String(order.descricao || order.produto || '').toUpperCase().includes('BATENTE') ||
+    (String(order.codigo || (order as any).codigoProduto || '').startsWith('020.') &&
+      !String(order.descricao || order.produto || '').toUpperCase().startsWith('FOLHA') &&
+      !String(order.descricao || order.produto || '').toUpperCase().includes('FOLHA'));
+
+  // Se a OP for Batente, expurga compulsoriamente qualquer etapa indevida de folha ou montagem de portas de rotaOp
+  if (isOpBatente) {
+    for (let i = rotaOp.length - 1; i >= 0; i--) {
+      const rNorm = normalizar(rotaOp[i]);
+      if (rNorm.includes('folha') || rNorm.includes('gaxeta') || (rNorm.includes('montagem') && !rNorm.includes('batente'))) {
+        rotaOp.splice(i, 1);
+      }
+    }
+  }
   const isOpTrilho = isTrilhoCorrer(order);
   const isOpEstante = isEstanteCompleta(order) || isQuadroEstante(order) || isPeEstanteSemPintura(order) || isPeEstanteComPintura(order);
   const isOpAbrigo = isAbrigoDoca(order);
@@ -190,7 +203,13 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     if (!isOpBatente && setorNorm.includes('batente')) {
       return false;
     }
-    if (isOpBatente && (setorNorm.includes('office') || setorNorm.includes('vai vem') || (setorNorm.includes('montagem') && !setorNorm.includes('batente')))) {
+    if (isOpBatente && (
+      setorNorm.includes('folha') ||
+      setorNorm.includes('gaxeta') ||
+      setorNorm.includes('office') ||
+      setorNorm.includes('vai vem') ||
+      (setorNorm.includes('montagem') && !setorNorm.includes('batente'))
+    )) {
       return false;
     }
 

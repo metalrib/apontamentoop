@@ -203,19 +203,30 @@ export function etapaPertenceARota(etapaSelecionada: string, rota: string[]): bo
     // Casamento exato ou equivalente para Montagem Vai-Vem
     if (selecionadaNorm === etapaNorm) return true;
 
+    // Isolamento absoluto: Folha vs Batente (NUNCA casar etapas de Folha com Batentes)
+    const selIsFolha = selecionadaNorm.includes('folha');
+    const stpIsFolha = etapaNorm.includes('folha');
+    const selIsBat = selecionadaNorm.includes('batente');
+    const stpIsBat = etapaNorm.includes('batente');
+    if ((selIsFolha && stpIsBat) || (selIsBat && stpIsFolha)) {
+      return false;
+    }
+
     // Equivalências explícitas para as etapas de Batente no Terminal 3:
     // 1. Preparação de Batentes (ou texto contendo preparacao + batente) <-> botão Preparação de Batentes
-    const selIsPrepBat = selecionadaNorm.includes('preparacao') && (selecionadaNorm.includes('batente') || etapaNorm.includes('batente'));
-    const stpIsPrepBat = etapaNorm.includes('preparacao') && (selecionadaNorm.includes('batente') || etapaNorm.includes('batente'));
+    const selIsPrepBat = selecionadaNorm.includes('preparacao') && (selecionadaNorm.includes('batente') || (etapaNorm.includes('batente') && !selIsFolha));
+    const stpIsPrepBat = etapaNorm.includes('preparacao') && ((selecionadaNorm.includes('batente') && !stpIsFolha) || etapaNorm.includes('batente'));
     if (selIsPrepBat && (stpIsPrepBat || etapaNorm === 'preparacao')) return true;
     if (stpIsPrepBat && (selIsPrepBat || selecionadaNorm === 'preparacao')) return true;
 
     // 2. Injeção e Finalização de Batentes / Injeção e Finalização (ou texto contendo injecao + batente ou injecao + finalizacao) <-> botão Injeção e Finalização de Batentes
     const selIsInjFinBat =
       (selecionadaNorm.includes('injecao') || selecionadaNorm.includes('injetora')) &&
+      !selIsFolha &&
       (selecionadaNorm.includes('batente') || selecionadaNorm.includes('finalizacao') || etapaNorm.includes('batente') || etapaNorm.includes('finalizacao'));
     const stpIsInjFinBat =
       (etapaNorm.includes('injecao') || etapaNorm.includes('injetora')) &&
+      !stpIsFolha &&
       (selecionadaNorm.includes('batente') || selecionadaNorm.includes('finalizacao') || etapaNorm.includes('batente') || etapaNorm.includes('finalizacao'));
     if (selIsInjFinBat && stpIsInjFinBat) return true;
     if (selIsInjFinBat && (etapaNorm === 'injecao' || etapaNorm === 'finalizacao' || etapaNorm.includes('finalizacao'))) return true;
@@ -1022,34 +1033,36 @@ export function obterEtapasDaRota(op: any): string[] {
     return ['Router'];
   }
 
-  // 1. ÂNCORAS DE FIXAÇÃO (021.xxxx ou descrição ANCORA) -> Terminal 1 (Corte/Dobra)
-  if (cod.startsWith('021.') || desc.startsWith('ANCORA') || desc.includes('ANCORA')) {
-    steps = ['Corte', 'Dobra'];
-  }
-
-  // 2. TRILHOS (028.xxxx)
-  else if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
-    steps = ['Corte de Trilho', 'Montagem de Trilho'];
-  }
-
-  // 3. FOLHAS AVULSAS (020.0009 a 020.0031 ou início FOLHA)
-  else if ((cod >= '020.0009' && cod <= '020.0021') || (cod >= '020.0022' && cod <= '020.0031') || desc.startsWith('FOLHA ') || desc.startsWith('FOLHA')) {
-    steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
-  }
-
-  // 4. BATENTES AVULSOS (Família 020.xxxx ou BATENTE / BAT - Padrão, Inox e c/ Resistência)
-  else if (
+  // 1. BATENTES AVULSOS (Família 020.xxxx ou BATENTE / BAT - Padrão, Inox e c/ Resistência) - PRIORIDADE ABSOLUTA SOBRE PORTAS E FOLHAS
+  const ehBatenteOp =
     isBatente(op) ||
     CODIGOS_BATENTES_PADRAO.has(cod) ||
     ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod) ||
-    (cod >= '020.0032' && cod <= '020.0099') ||
+    ['0200005', '0200006', '0200007', '0200008'].includes(cod.replace(/\D/g, '')) ||
     desc.startsWith('BAT ') ||
     desc.startsWith('BAT-') ||
     desc.startsWith('BAT_') ||
     desc.startsWith('BATENTE') ||
-    desc.includes('BATENTE')
-  ) {
-    steps = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+    (cod.startsWith('020.') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(cod.slice(4) || '0', 10) >= 32);
+
+  if (ehBatenteOp) {
+    return ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
+  }
+
+  // 2. ÂNCORAS DE FIXAÇÃO (021.xxxx ou descrição ANCORA) -> Terminal 1 (Corte/Dobra)
+  if (cod.startsWith('021.') || desc.startsWith('ANCORA') || desc.includes('ANCORA')) {
+    steps = ['Corte', 'Dobra'];
+  }
+
+  // 3. TRILHOS (028.xxxx)
+  else if (cod.startsWith('028.') || desc.startsWith('TRILHO')) {
+    steps = ['Corte de Trilho', 'Montagem de Trilho'];
+  }
+
+  // 4. FOLHAS AVULSAS (020.0009 a 020.0031 ou início FOLHA)
+  else if ((cod >= '020.0009' && cod <= '020.0021') || (cod >= '020.0022' && cod <= '020.0031') || desc.startsWith('FOLHA ') || desc.startsWith('FOLHA')) {
+    steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
   }
 
   // 5. PORTA VAI E VEM (TODAS - PADRÃO OU FORA DE MEDIDA / FAMÍLIA 011.xxxx)
@@ -1097,8 +1110,12 @@ export function obterEtapasDaRota(op: any): string[] {
     steps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
   }
 
-  // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR)
+  // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR E BATENTES)
   else if (
+    !ehBatenteOp &&
+    !isBatente(op) &&
+    !desc.startsWith('BAT') &&
+    !cod.startsWith('020.') &&
     !isOfficeDoorGiro({ codigo: cod, descricao: desc, tipoOrdem: desc }) &&
     !desc.includes('OFFICE DOOR') &&
     !desc.includes('OFFICE-DOOR') &&

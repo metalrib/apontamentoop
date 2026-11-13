@@ -334,7 +334,32 @@ function resolveBaseRoute(
     return { rule, steps: ['Router'], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 0. Office Door de Correr (código 010.xxxx, 010.0008 ou descrição com OFFICE DOOR COR)
+  // 0. Batentes (Família 020 / BAT - Padrão, Inox e com Resistência) - PRIORIDADE ABSOLUTA SOBRE PORTAS E FOLHAS
+  const isBatenteOrder =
+    isBatente(opObj || input) ||
+    (code && CODIGOS_BATENTES_PADRAO.has(code)) ||
+    ['0200005', '0200006', '0200007', '0200008'].includes(normalizarCodigo(code || '')) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code || '') ||
+    norm.startsWith('BAT ') ||
+    norm.startsWith('BAT-') ||
+    norm.startsWith('BAT_') ||
+    norm.startsWith('BATENTE') ||
+    (norm.includes('BATENTE') && !norm.startsWith('PT ') && !norm.startsWith('PORTA ')) ||
+    desc.startsWith('BAT') ||
+    (code && code.startsWith('020.') && !norm.startsWith('FOLHA') && !norm.includes('FOLHA') && parseInt(code.slice(4) || '0', 10) >= 32);
+
+  if (isBatenteOrder) {
+    const rule: RouteRule = {
+      keyword: 'BATENTE PADRAO',
+      label: 'Fabricação de Batente Padrão',
+      steps: ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'],
+      badge: 'Batente de Linha Padrão',
+      isStandardLine: true
+    };
+    return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 0.1 Office Door de Correr (código 010.xxxx, 010.0008 ou descrição com OFFICE DOOR COR)
   if (isOfficeDoorCorrer(opObj || { codigo: code, descricao: desc, tipoOrdem: desc })) {
     const temRouter = Boolean(
       opObj?.requerRouter || opObj?.requer_router || opObj?.encaminhar_router ||
@@ -931,6 +956,15 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
 
   if (normStep.includes('LASER') && normSector.includes('LASER')) {
     return true;
+  }
+
+  // Isolamento absoluto: Setores de Folha NUNCA casam com etapas de Batente e vice-versa
+  const isSectorFolha = normSector.includes('FOLHA');
+  const isStepFolha = normStep.includes('FOLHA');
+  const isSectorBat = normSector.includes('BATENTE');
+  const isStepBat = normStep.includes('BATENTE');
+  if ((isSectorFolha && isStepBat) || (isSectorBat && isStepFolha)) {
+    return false;
   }
 
   // Preparação de Batentes (Terminal 3)
