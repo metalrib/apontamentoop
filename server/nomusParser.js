@@ -120,8 +120,21 @@ function isDescricaoValida(desc) {
   if (!desc || typeof desc !== 'string') return false;
   const t = desc.trim().toUpperCase();
   if (!isValidDataValue(t)) return false;
-  if (t.includes('INCLUIR ITEN') || t.includes('INCLUIR ITEM') || t.startsWith('INCLUIR')) return false;
+  if (t.endsWith(':')) return false;
+  if (
+    t.includes('COLUNA') ||
+    t.includes('LINHA') ||
+    t.includes('FILTRO') ||
+    t.includes('DADO') ||
+    t.includes('EXPORTAR') ||
+    t.includes('DETALHE') ||
+    t.includes('INCLUIR') ||
+    t.includes('ZOHO') ||
+    t.includes('TABELA DINAMICA') ||
+    t.includes('TABELA DINÂMICA')
+  ) return false;
   if (t.startsWith('ORDEM OP') || t.startsWith('ORDEM DE PRODU') || t.startsWith('PRODUTO OP') || t.startsWith('OP ')) return false;
+  if (t.startsWith('PRODUTO 0') || (t.startsWith('PRODUTO ') && t.includes('-'))) return false;
   if (t === 'PRODUTO' || t === 'DESCRIÇÃO' || t === 'DESCRICAO' || t === 'ITEM' || t === 'LIBERADA' || t === 'EM PRODUÇÃO' || t === 'FINALIZADA') return false;
   return true;
 }
@@ -618,6 +631,12 @@ function parseNomusHtml(htmlContent) {
           idxCodigo = idx;
         } else if (
           !norm.includes('incluir') &&
+          !norm.includes('coluna') &&
+          !norm.includes('linha') &&
+          !norm.includes('filtro') &&
+          !norm.includes('dado') &&
+          !norm.includes('exportar') &&
+          !norm.includes('detalhe') &&
           !norm.includes('acao') &&
           !norm.includes('acoes') &&
           (norm.includes('desc') || norm.includes('item') || (norm.includes('produto') && !norm.includes('cod')) || norm.includes('especificacao'))

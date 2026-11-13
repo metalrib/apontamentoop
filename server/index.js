@@ -588,10 +588,22 @@ function isDescricaoValidaSql(d) {
   if (!d) return false;
   const up = String(d).toUpperCase().trim();
   if (!up || up === '-' || up === '—' || up === 'NULL' || up === 'UNDEFINED') return false;
-  if (up.includes('INCLUIR ITEN') || up.includes('INCLUIR ITEM') || up.startsWith('INCLUIR')) return false;
+  if (up.endsWith(':')) return false;
+  if (
+    up.includes('COLUNA') ||
+    up.includes('LINHA') ||
+    up.includes('FILTRO') ||
+    up.includes('DADO') ||
+    up.includes('EXPORTAR') ||
+    up.includes('DETALHE') ||
+    up.includes('INCLUIR') ||
+    up.includes('ZOHO') ||
+    up.includes('TABELA DINAMICA') ||
+    up.includes('TABELA DINÂMICA')
+  ) return false;
   if (up.startsWith('ORDEM OP') || up.startsWith('ORDEM DE PRODU') || up.startsWith('OP ')) return false;
-  if (up === 'PRODUTO' || up === 'DESCRIÇÃO' || up === 'DESCRICAO' || up === 'ITEM' || up === 'LIBERADA') return false;
   if (up.startsWith('PRODUTO OP') || up.startsWith('PRODUTO 0') || (up.startsWith('PRODUTO ') && up.includes('-'))) return false;
+  if (up === 'PRODUTO' || up === 'DESCRIÇÃO' || up === 'DESCRICAO' || up === 'ITEM' || up === 'LIBERADA') return false;
   return true;
 }
 
@@ -640,38 +652,135 @@ function sanearDescricoesPoluidas(database) {
       }
     }
 
-    // C) Whitelist padrão adicional de códigos Metalrib conhecidos
+    // C) Catálogo Padrão Completo de códigos Metalrib conhecidos
     const catalogoPadrao = {
-      '001.0109': 'PT GIR RESF 1.000A X 1.000L 4BAT REV CH',
       '001.0010': 'PT GIR RESF',
-      '001.0149': 'PT GIR RESF 2.100A X 1.000L 4BAT DIR CH',
-      '001.0150': 'PT GIR RESF 2.100A X 1.000L 4BAT ESQ CH',
+      '001.0101': 'PT GIR RESF 600A X 600L 4BAT REV CH',
+      '001.0109': 'PT GIR RESF 1.000A X 1.000L 4BAT REV CH',
+      '001.0112': 'PT GIR RESF 1.800A X 800L 4BAT REV PX',
+      '001.0113': 'PT GIR RESF 1.800A X 800L 4BAT REV CH',
+      '001.0116': 'PT GIR RESF 1.800A X 800L 3BAT ESQ PX',
+      '001.0117': 'PT GIR RESF 1.800A X 800L 3BAT DIR PX',
+      '001.0118': 'PT GIR RESF 1.800A X 800L 3BAT ESQ CH',
+      '001.0119': 'PT GIR RESF 1.800A X 800L 3BAT DIR CH',
+      '001.0122': 'PT GIR RESF 2.000A X 1.000L 4BAT REV PX',
+      '001.0123': 'PT GIR RESF 2.000A X 1.000L 4BAT REV CH',
+      '001.0126': 'PT GIR RESF 2.000A X 1.000L 3BAT ESQ PX',
+      '001.0128': 'PT GIR RESF 2.000A X 1.000L 3BAT ESQ CH',
+      '001.0129': 'PT GIR RESF 2.000A X 1.000L 3BAT DIR CH',
+      '001.0136': 'PT GIR RESF 2.000A X 1.200L 3BAT DIR CH',
+      '001.0149': 'PT GIR RESF 2.000A X 800L',
+      '001.0150': 'PT GIR RESF 2.000A X 900L',
+      '001.0152': 'PT GIR RESF 2.000A X 1.300L',
+      '001.0160': 'PT GIR RESF 2.100A X 1.200L',
+      '001.0215': 'PT GIR RESF 2.800A X 1.600L',
+      '003.0011': 'PT GIR SUPER CONG',
+      '003.0101': 'PT GIR CONG 600A X 600L 4BAT REV CH',
+      '003.0104': 'PT GIR CONG 800A X 800L 4BAT REV PX',
       '003.0112': 'PT GIR CONG 1.800A X 800L 4BAT REV PX',
       '003.0113': 'PT GIR CONG 1.800A X 800L 4BAT REV CH',
+      '003.0117': 'PT GIR CONG 1.800A X 800L 3BAT DIR PX',
+      '003.0118': 'PT GIR CONG 1.800A X 800L 3BAT ESQ CH',
+      '003.0119': 'PT GIR CONG 1.800A X 800L 3BAT DIR CH',
+      '003.0121': 'PT GIR CONG 1.800A X 800L 3BAT DIR AL',
+      '003.0122': 'PT GIR CONG 2.000A X 1.000L 4BAT REV PX',
+      '003.0123': 'PT GIR CONG 2.000A X 1.000L 4BAT REV CH',
+      '003.0128': 'PT GIR CONG 2.000A X 1.000L 3BAT ESQ CH',
       '003.0129': 'PT GIR CONG 2.000A X 1.000L 3BAT DIR CH',
       '003.0136': 'PT GIR CONG 2.000A X 1.200L 3BAT DIR CH',
-      '003.0149': 'PT GIR CONG 2.100A X 1.000L 4BAT DIR CH',
+      '003.0149': 'PT GIR CONG 2.000A X 800L',
+      '003.0162': 'PT GIR CONG 2.100A X 1.400L',
       '003.0187': 'PT GIR CONG 2.400A X 1.600L',
+      '004.0120': 'PT GIR I304 CONG 1.800A X 800L CH',
       '005.0010': 'PT COR RESF',
       '005.0100': 'PT COR RESF 1.800A X 800L 4BAT ESQ',
+      '005.0104': 'PT COR RESF 2.000A X 1.000L 4BAT ESQ',
+      '005.0105': 'PT COR RESF 2.000A X 1.000L 4BAT DIR',
+      '005.0106': 'PT COR RESF 2.000A X 1.000L 3BAT ESQ',
+      '005.0111': 'PT COR RESF 2.000A X 1.200L 3BAT DIR',
+      '005.0149': 'PT COR RESF 2.100A X 1.000L',
+      '005.0163': 'PT COR RESF 2.200A X 1.200L',
+      '005.0165': 'PT COR RESF 2.200A X 1.400L',
+      '005.0225': 'PT COR RESF 2.600A X 1.600L',
+      '005.0275': 'PT COR RESF 2.900A X 1.200L',
+      '007.0011': 'PT COR SUPER CONG',
+      '007.0100': 'PT COR CONG 1.800A X 800L 4BAT ESQ',
+      '007.0104': 'PT COR CONG 2.000A X 1.000L 4BAT ESQ',
+      '007.0105': 'PT COR CONG 2.000A X 1.000L 4BAT DIR',
+      '007.0106': 'PT COR CONG 2.000A X 1.000L 3BAT ESQ',
+      '007.0107': 'PT COR CONG 2.000A X 1.000L 3BAT DIR',
+      '007.0110': 'PT COR CONG 2.000A X 1.200L 3BAT ESQ',
+      '007.0150': 'PT COR CONG 2.100A X 1.100L',
+      '007.0193': 'PT COR CONG 2.400A X 1.500L',
       '009.0011': 'PT OFFICE DOOR GIR C/ VISOR',
+      '009.0102': 'PT OFFICE DOOR GIR 2.100A X 900L ESQ',
+      '009.0103': 'PT OFFICE DOOR GIR 2.100A X 900L DIR',
+      '009.0108': 'PT OFFICE DOOR GIR 2.100A X 800L ESQ C/ VISOR',
       '009.0109': 'PT OFFICE DOOR GIR 2.100A X 800L DIR C/ VISOR',
       '010.0008': 'PT OFFICE DOOR CORRER',
+      '011.0010': 'PT VAI VEM INJ SIMPLES',
       '011.0012': 'PT VAI VEM INJ SIMPLES C/ BUMPER',
       '011.0013': 'PT VAI VEM INJ DUPLA C/ BUMPER',
       '011.0113': 'PT VAI VEM INJ 2.100A X 900L SIMPLES C/ BUMPER',
+      '011.0114': 'PT VAI VEM INJ 2.100A X 1.000L SIMPLES C/ BUMPER',
+      '011.0117': 'PT VAI VEM INJ 2.100A X 1.200L DUPLA C/ BUMPER',
+      '011.0118': 'PT VAI VEM INJ 2.100A X 1.400L DUPLA C/ BUMPER',
+      '014.0010': 'ABRIGO DOCA RETRATIL 3.600A X 3.400L X 600P',
+      '014.0011': 'ALMOFADÃO',
+      '015.0008': 'ESTANTE WALK IN 1.950MM C/ CREM - BRANCA',
       '020.0005': 'BATENTE PORTA GIRO',
+      '020.0006': 'BATENTE PORTA GIRO C/ RESIST',
+      '020.0007': 'BATENTE PORTA CORRER',
       '020.0008': 'BATENTE PORTA CORRER C/ RESIST',
+      '020.0010': 'FOLHA GIRO 600A X 600L X 100MM',
       '020.0013': 'FOLHA GIRO 1.000A X 1.000L X 60MM',
       '020.0015': 'FOLHA GIRO 1.800A X 800L X 60MM',
       '020.0016': 'FOLHA GIRO 1.800A X 800L X 100MM',
+      '020.0017': 'FOLHA GIRO 2.000A X 1.000L X 60MM',
+      '020.0018': 'FOLHA GIRO 2.000A X 1.000L X 100MM ALMOFADA',
       '020.0019': 'FOLHA GIRO 2.000A X 1.000L X 100MM CHAVE',
-      '020.0024': 'FOLHA CORRER RESF',
-      '020.0031': 'FOLHA CORRER CONG',
-      '020.0049': 'BATENTE PORTA CORRER RESF',
-      '020.0054': 'BATENTE PORTA GIRO 4BAT',
-      '020.0059': 'BATENTE PORTA GIRO CONG',
-      '022.0027': 'PERFIL PP L 40 X 140 - 3.000MM'
+      '020.0024': 'FOLHA CORRER 1.800A X 800L X 100MM 4BAT',
+      '020.0025': 'FOLHA CORRER 1.800A X 800L X 100MM 3BAT',
+      '020.0027': 'FOLHA CORRER 2.000A X 1.000L X 60MM 3BAT',
+      '020.0028': 'FOLHA CORRER 2.000A X 1.000L X 100MM 4BAT',
+      '020.0030': 'FOLHA CORRER 2.000A X 1.200L X 60MM 3BAT',
+      '020.0031': 'FOLHA CORRER 2.000A X 1.200L X 100MM 3BAT',
+      '020.0032': 'BAT GIRO 600A X 600L 4BAT',
+      '020.0038': 'BAT GIRO 1.800A X 800L 4BAT',
+      '020.0039': 'BAT GIRO 1.800A X 800L 4BAT C/ RESIST',
+      '020.0044': 'BAT GIRO 2.000A X 1.000L 3BAT',
+      '020.0049': 'BAT CORRER 1.800A X 800L 4BAT C/ RESIST',
+      '020.0053': 'BAT CORRER 2.000A X 1.000L 4BAT C/ RESIST',
+      '020.0054': 'BAT CORRER 2.000A X 1.000L 3BAT',
+      '020.0059': 'BATENTE INOX PORTA GIRO C/ RESIST',
+      '021.0036': 'ANCORA AÇO - 240 X 53 X 4,75',
+      '021.0037': 'ANCORA REBITE ROSCA BAT GIRO 50X95',
+      '021.0039': 'ANCORA DOB/BL/VV 50X250X1,5MM',
+      '021.0040': 'ANCORA DOB/BL/VV 70X250X1,5MM',
+      '021.0041': 'ANCORA DOB/BL/VV 100X250X1,5MM',
+      '021.0051': 'ANCORA ROLDANA 100X350X1,5MM',
+      '021.0079': 'ANCORA ENG/REG 60X250X1,5MM',
+      '021.0082': 'ANCORA ROLDANA 60X350X1,5MM',
+      '021.0084': 'ANCORA ENG/REG 120X250X1,5MM',
+      '021.0085': 'ANCORA PAINEL 120X600X1,5MM',
+      '021.0087': 'ANCORA ROLDANA 120X350X1,5MM',
+      '022.0026': 'PERFIL PP L 40 X 110 - 3.000MM',
+      '022.0027': 'PERFIL PP L 40 X 140 - 3.000MM',
+      '022.0028': 'PERFIL PP L 40 X 190 - 3.000MM',
+      '022.0034': 'PERFIL PP U 70 X 40 - 3.000MM',
+      '022.0037': 'PERFIL PP U 100 X 40 - 3.000MM',
+      '024.0019': 'PENDURAL INOX P/ CORTINA 200MM (190 X 19)',
+      '024.0021': 'TRILHO INOX 1.000MM P/ CORTINA',
+      '027.0006': 'VISOR POLICARBONATO 500 X 340 X 3MM',
+      '028.0014': 'TRILHO LGT PT CORRER 1.000MM LARG ESQ',
+      '028.0018': 'TRILHO LGT PT CORRER 1.200MM LARG ESQ',
+      '028.0023': 'TRILHO LGT PT CORRER 1.500MM LARG DIR',
+      '028.0026': 'TRILHO LGT PT CORRER 1.600MM LARG ESQ',
+      '028.0027': 'TRILHO LGT PT CORRER 1.700MM LARG DIR',
+      '028.0033': 'TRILHO LGT PT CORRER 2.000MM LARG DIR',
+      '028.0203': 'TRILHO GUIA INFERIOR PT CORRER',
+      '028.0278': 'TRILHO PT OFFICE DOOR CORRER',
+      '090.0001': 'ESTANTE'
     };
 
     for (const [cod, desc] of Object.entries(catalogoPadrao)) {
@@ -680,16 +789,24 @@ function sanearDescricoesPoluidas(database) {
       }
     }
 
-    // Localiza ordens com descrição poluída ("INCLUIR ITENS", "ORDEM OP", placeholders "PRODUTO OP", etc)
+    // Localiza ordens com descrição poluída (ex: "COLUNAS:", "LINHAS:", "FILTROS:", "INCLUIR ITENS", etc)
     const poluidas = database.prepare(`
       SELECT rowid, id, numero, codigo, descricao, dados FROM ordens 
-      WHERE UPPER(descricao) LIKE '%INCLUIR ITEN%' 
-         OR UPPER(descricao) LIKE '%INCLUIR ITEM%'
-         OR UPPER(descricao) LIKE 'INCLUIR%'
+      WHERE UPPER(descricao) LIKE '%COLUNA%' 
+         OR descricao LIKE '%:'
+         OR UPPER(descricao) LIKE '%LINHA%'
+         OR UPPER(descricao) LIKE '%FILTRO%'
+         OR UPPER(descricao) LIKE '%DADO%'
+         OR UPPER(descricao) LIKE '%EXPORTAR%'
+         OR UPPER(descricao) LIKE '%DETALHE%'
+         OR UPPER(descricao) LIKE '%INCLUIR%'
          OR UPPER(descricao) LIKE '%ORDEM OP%'
          OR UPPER(descricao) LIKE 'PRODUTO%'
          OR descricao IS NULL 
          OR TRIM(descricao) = ''
+         OR dados LIKE '%COLUNAS:%'
+         OR dados LIKE '%COLUNA%'
+         OR dados LIKE '%"descricao":":%'
     `).all();
 
     if (poluidas.length > 0) {
@@ -704,16 +821,23 @@ function sanearDescricoesPoluidas(database) {
           const numClean = normalizarIdOP(row.numero || row.id);
           const codClean = String(row.codigo || '').trim();
 
-          const descRecuperada = catalogoPorNumeroOp.get(numClean) || catalogoPorCodigo.get(codClean);
+          let descRecuperada = catalogoPorNumeroOp.get(numClean) || catalogoPorCodigo.get(codClean);
+          if (!descRecuperada && isDescricaoValidaSql(row.descricao)) {
+            descRecuperada = row.descricao.trim();
+          }
+
+          let dadosObj = {};
+          try { dadosObj = JSON.parse(row.dados || '{}'); } catch {}
 
           if (descRecuperada && isDescricaoValidaSql(descRecuperada)) {
-            let dadosObj = {};
-            try { dadosObj = JSON.parse(row.dados || '{}'); } catch {}
             dadosObj.descricao = descRecuperada;
             dadosObj.produto = descRecuperada;
-
             updateStmt.run(descRecuperada, JSON.stringify(dadosObj), Date.now(), row.rowid);
             restauradas++;
+          } else {
+            dadosObj.descricao = '';
+            dadosObj.produto = '';
+            updateStmt.run('', JSON.stringify(dadosObj), Date.now(), row.rowid);
           }
         }
       });
@@ -1826,15 +1950,30 @@ app.post('/api/ordens', (req, res) => {
       codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
       descricao = CASE 
         WHEN excluded.descricao != '' 
-             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%INCLUIR ITEN%' 
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%COLUNA%'
+             AND excluded.descricao NOT LIKE '%:'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%LINHA%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%FILTRO%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%DADO%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%EXPORTAR%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%DETALHE%'
+             AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%INCLUIR%'
              AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'ORDEM OP%' 
              AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'PRODUTO OP%' 
         THEN excluded.descricao 
-        WHEN UPPER(TRIM(ordens.descricao)) LIKE '%INCLUIR ITEN%'
-             OR UPPER(TRIM(ordens.descricao)) LIKE '%ORDEM OP%'
-             OR UPPER(TRIM(ordens.descricao)) LIKE 'PRODUTO OP%'
-        THEN CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE '' END
-        ELSE ordens.descricao 
+        WHEN ordens.descricao != ''
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%COLUNA%'
+             AND ordens.descricao NOT LIKE '%:'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%LINHA%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%FILTRO%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%DADO%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%EXPORTAR%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%DETALHE%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%INCLUIR%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE 'ORDEM OP%'
+             AND UPPER(TRIM(ordens.descricao)) NOT LIKE 'PRODUTO OP%'
+        THEN ordens.descricao 
+        ELSE ''
       END,
       cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
       tipoOrdem = CASE WHEN excluded.tipoOrdem != '' THEN excluded.tipoOrdem ELSE ordens.tipoOrdem END,
@@ -1904,7 +2043,12 @@ app.post('/api/ordens', (req, res) => {
 
       let descItemFinal = (item.descricao || item.produto || '').trim();
       if (!isDescricaoValidaSql(descItemFinal)) {
-        descItemFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codItem) || '';
+        const opExistente = db.prepare('SELECT descricao FROM ordens WHERE numero = ? OR id = ?').get(formattedNum, formattedNum);
+        if (opExistente && isDescricaoValidaSql(opExistente.descricao)) {
+          descItemFinal = opExistente.descricao.trim();
+        } else {
+          descItemFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codItem) || '';
+        }
       }
 
       stmt.run({
@@ -2016,15 +2160,30 @@ app.post('/api/importar-nomus-auto', (req, res) => {
         codigo = CASE WHEN excluded.codigo != '' THEN excluded.codigo ELSE ordens.codigo END,
         descricao = CASE 
           WHEN excluded.descricao != '' 
-               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%INCLUIR ITEN%' 
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%COLUNA%'
+               AND excluded.descricao NOT LIKE '%:'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%LINHA%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%FILTRO%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%DADO%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%EXPORTAR%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%DETALHE%'
+               AND UPPER(TRIM(excluded.descricao)) NOT LIKE '%INCLUIR%'
                AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'ORDEM OP%' 
                AND UPPER(TRIM(excluded.descricao)) NOT LIKE 'PRODUTO OP%' 
           THEN excluded.descricao 
-          WHEN UPPER(TRIM(ordens.descricao)) LIKE '%INCLUIR ITEN%'
-               OR UPPER(TRIM(ordens.descricao)) LIKE '%ORDEM OP%'
-               OR UPPER(TRIM(ordens.descricao)) LIKE 'PRODUTO OP%'
-          THEN CASE WHEN excluded.descricao != '' THEN excluded.descricao ELSE '' END
-          ELSE ordens.descricao 
+          WHEN ordens.descricao != ''
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%COLUNA%'
+               AND ordens.descricao NOT LIKE '%:'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%LINHA%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%FILTRO%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%DADO%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%EXPORTAR%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%DETALHE%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE '%INCLUIR%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE 'ORDEM OP%'
+               AND UPPER(TRIM(ordens.descricao)) NOT LIKE 'PRODUTO OP%'
+          THEN ordens.descricao 
+          ELSE ''
         END,
         cliente = CASE WHEN excluded.cliente != '' THEN excluded.cliente ELSE ordens.cliente END,
         tipoOrdem = CASE WHEN excluded.tipoOrdem != '' THEN excluded.tipoOrdem ELSE ordens.tipoOrdem END,
@@ -2069,12 +2228,21 @@ app.post('/api/importar-nomus-auto', (req, res) => {
         const codClean = String(op.codigo || op.codigoProduto || '').trim();
         let descFinal = (op.descricao || '').trim();
         if (!isDescricaoValidaSql(descFinal)) {
-          descFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codClean) || '';
+          const opExistente = db.prepare('SELECT descricao FROM ordens WHERE numero = ? OR id = ?').get(canonicalNum, canonicalNum);
+          if (opExistente && isDescricaoValidaSql(opExistente.descricao)) {
+            descFinal = opExistente.descricao.trim();
+          } else {
+            descFinal = catalogoPorNumeroOp.get(cleanId) || catalogoPorCodigo.get(codClean) || '';
+          }
         }
         if (descFinal && isDescricaoValidaSql(descFinal)) {
           op.descricao = descFinal;
+          op.produto = descFinal;
           if (codClean && !catalogoPorCodigo.has(codClean)) catalogoPorCodigo.set(codClean, descFinal);
           if (cleanId && !catalogoPorNumeroOp.has(cleanId)) catalogoPorNumeroOp.set(cleanId, descFinal);
+        } else {
+          op.descricao = '';
+          op.produto = '';
         }
 
         upsertStmt.run({

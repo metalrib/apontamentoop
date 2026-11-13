@@ -3867,8 +3867,21 @@ export async function saveMultipleOrders(
         if (!d) return false;
         const up = String(d).trim().toUpperCase();
         if (!up || up === '-' || up === '—' || up === 'NULL' || up === 'UNDEFINED') return false;
-        if (up.includes('INCLUIR ITEN') || up.includes('INCLUIR ITEM') || up.startsWith('INCLUIR')) return false;
+        if (up.endsWith(':')) return false;
+        if (
+          up.includes('COLUNA') ||
+          up.includes('LINHA') ||
+          up.includes('FILTRO') ||
+          up.includes('DADO') ||
+          up.includes('EXPORTAR') ||
+          up.includes('DETALHE') ||
+          up.includes('INCLUIR') ||
+          up.includes('ZOHO') ||
+          up.includes('TABELA DINAMICA') ||
+          up.includes('TABELA DINÂMICA')
+        ) return false;
         if (up.startsWith('ORDEM OP') || up.startsWith('ORDEM DE PRODU') || up.startsWith('PRODUTO OP') || up.startsWith('OP ')) return false;
+        if (up.startsWith('PRODUTO 0') || (up.startsWith('PRODUTO ') && up.includes('-'))) return false;
         if (up === 'PRODUTO' || up === 'DESCRIÇÃO' || up === 'DESCRICAO' || up === 'ITEM') return false;
         return true;
       };
