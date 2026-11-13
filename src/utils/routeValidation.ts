@@ -158,9 +158,24 @@ export function isFolhaOrder(op: any, explicitCodigo?: string): boolean {
   ) {
     return true;
   }
-  if ((rawCod >= '020.0009' && rawCod <= '020.0031') || (rawCod.startsWith('020.') && !CODIGOS_BATENTES_PADRAO.has(rawCod)) || cleanDigits.startsWith('020')) {
-    if (CODIGOS_BATENTES_PADRAO.has(rawCod)) return false;
-    if (desc.startsWith('BAT ') || desc.startsWith('BAT-') || desc.startsWith('BATENTE')) return false;
+  if (
+    CODIGOS_BATENTES_PADRAO.has(rawCod) ||
+    CODIGOS_BATENTES_PADRAO.has(cleanDigits) ||
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    desc.startsWith('BATENTE') ||
+    desc.includes('BATENTE') ||
+    fam.includes('BATENTE')
+  ) {
+    return false;
+  }
+
+  if (
+    (rawCod >= '020.0009' && rawCod <= '020.0031') ||
+    (rawCod.startsWith('020.') && !CODIGOS_BATENTES_PADRAO.has(rawCod)) ||
+    (cleanDigits.startsWith('020') && parseInt(cleanDigits.slice(3) || '0', 10) <= 31)
+  ) {
     return true;
   }
   return false;
@@ -187,6 +202,25 @@ export function etapaPertenceARota(etapaSelecionada: string, rota: string[]): bo
     const etapaNorm = normalizar(etapa);
     // Casamento exato ou equivalente para Montagem Vai-Vem
     if (selecionadaNorm === etapaNorm) return true;
+
+    // Equivalências explícitas para as etapas de Batente no Terminal 3:
+    // 1. Preparação de Batentes (ou texto contendo preparacao + batente) <-> botão Preparação de Batentes
+    const selIsPrepBat = selecionadaNorm.includes('preparacao') && (selecionadaNorm.includes('batente') || etapaNorm.includes('batente'));
+    const stpIsPrepBat = etapaNorm.includes('preparacao') && (selecionadaNorm.includes('batente') || etapaNorm.includes('batente'));
+    if (selIsPrepBat && (stpIsPrepBat || etapaNorm === 'preparacao')) return true;
+    if (stpIsPrepBat && (selIsPrepBat || selecionadaNorm === 'preparacao')) return true;
+
+    // 2. Injeção e Finalização de Batentes / Injeção e Finalização (ou texto contendo injecao + batente ou injecao + finalizacao) <-> botão Injeção e Finalização de Batentes
+    const selIsInjFinBat =
+      (selecionadaNorm.includes('injecao') || selecionadaNorm.includes('injetora')) &&
+      (selecionadaNorm.includes('batente') || selecionadaNorm.includes('finalizacao') || etapaNorm.includes('batente') || etapaNorm.includes('finalizacao'));
+    const stpIsInjFinBat =
+      (etapaNorm.includes('injecao') || etapaNorm.includes('injetora')) &&
+      (selecionadaNorm.includes('batente') || selecionadaNorm.includes('finalizacao') || etapaNorm.includes('batente') || etapaNorm.includes('finalizacao'));
+    if (selIsInjFinBat && stpIsInjFinBat) return true;
+    if (selIsInjFinBat && (etapaNorm === 'injecao' || etapaNorm === 'finalizacao' || etapaNorm.includes('finalizacao'))) return true;
+    if (stpIsInjFinBat && (selecionadaNorm === 'injecao' || selecionadaNorm === 'finalizacao' || selecionadaNorm.includes('finalizacao'))) return true;
+
     if (
       selecionadaNorm.includes('vai vem') &&
       etapaNorm.includes('vai vem') && 
@@ -1003,8 +1037,18 @@ export function obterEtapasDaRota(op: any): string[] {
     steps = ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
   }
 
-  // 4. BATENTES AVULSOS (020.0032 a 020.0057 ou início BAT)
-  else if ((cod >= '020.0032' && cod <= '020.0057') || ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod) || desc.startsWith('BAT ') || desc.startsWith('BATENTE')) {
+  // 4. BATENTES AVULSOS (Família 020.xxxx ou BATENTE / BAT - Padrão, Inox e c/ Resistência)
+  else if (
+    isBatente(op) ||
+    CODIGOS_BATENTES_PADRAO.has(cod) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod) ||
+    (cod >= '020.0032' && cod <= '020.0099') ||
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    desc.startsWith('BATENTE') ||
+    desc.includes('BATENTE')
+  ) {
     steps = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
   }
 
@@ -1493,45 +1537,93 @@ export function isTrilhoCorrer(op: any): boolean {
 }
 
 export function isBatente(op: any): boolean {
+  if (!op) return false;
   const code = extractValidationCode(op);
-  const norm = normalizeValidationText(op?.descricao || (typeof op === 'string' ? op : ''));
-  const desc = (typeof op === 'string' ? op : (op?.descricao || op?.description || '')).toUpperCase();
+  const cleanCode = code.replace(/\D/g, '');
+  const rawDesc = typeof op === 'string' ? op : (op?.descricao || op?.produto || op?.description || '');
+  const desc = rawDesc.toUpperCase().trim();
+  const norm = normalizeValidationText(rawDesc);
+  const tipo = (typeof op === 'object' && op ? (op?.tipoOrdem || op?.tipo || op?.familia || '') : '').toUpperCase().trim();
 
-  // Blindagem: se for porta frigorífica ou folha avulsa, NUNCA é batente avulso
+  // 1. Se for explicitamente classificado como Batente pelo tipo de ordem/família
+  if (tipo === 'BATENTE' || tipo.includes('BATENTE')) {
+    return true;
+  }
+
+  // 2. Se a descrição começar com termos explícitos de batente (BATENTE, BAT , BAT-, BAT_)
+  const startsWithBatente =
+    desc.startsWith('BATENTE') ||
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    norm.startsWith('BATENTE') ||
+    norm.startsWith('BAT ') ||
+    norm.startsWith('BAT-') ||
+    norm.startsWith('BAT_');
+
+  if (startsWithBatente) {
+    return true;
+  }
+
+  // 3. Blindagem contra portas montadas, folhas avulsas ou outros componentes
   if (
     code.startsWith('001.') ||
     code.startsWith('002.') ||
     code.startsWith('003.') ||
+    code.startsWith('004.') ||
     code.startsWith('005.') ||
+    code.startsWith('006.') ||
     code.startsWith('007.') ||
+    code.startsWith('008.') ||
+    code.startsWith('009.') ||
+    code.startsWith('010.') ||
+    code.startsWith('011.') ||
+    code.startsWith('014.') ||
+    code.startsWith('015.') ||
+    code.startsWith('021.') ||
+    code.startsWith('022.') ||
+    code.startsWith('024.') ||
+    code.startsWith('025.') ||
+    code.startsWith('027.') ||
+    code.startsWith('028.') ||
+    code.startsWith('029.') ||
+    code.startsWith('090.') ||
     desc.startsWith('PT GIR') ||
     desc.startsWith('PT COR') ||
-    desc.includes('PORTA GIRO') ||
-    desc.includes('PORTA GIRATÓRIA') ||
-    desc.includes('PORTA DE CORRER') ||
+    desc.startsWith('PORTA GIR') ||
+    desc.startsWith('PORTA DE CORRER') ||
+    desc.startsWith('PORTA CORRER') ||
     norm.startsWith('PT GIR') ||
     norm.startsWith('PT COR') ||
-    norm.includes('PORTA GIRO') ||
-    norm.includes('PORTA GIRATORIA') ||
-    norm.includes('PORTA DE CORRER') ||
+    norm.startsWith('PORTA GIR') ||
+    norm.startsWith('PORTA DE CORRER') ||
+    norm.startsWith('PORTA CORRER') ||
     desc.startsWith('FOLHA') ||
     norm.startsWith('FOLHA') ||
+    isFolhaOrder(op, code) ||
     (code >= '020.0009' && code <= '020.0031')
   ) {
     return false;
   }
 
+  // 4. Se o código pertencer à família de batentes (incluindo 020.0059 Inox e com Resistência)
   const isBatenteCode =
-    (code >= '020.0032' && code <= '020.0057') ||
-    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code);
+    CODIGOS_BATENTES_PADRAO.has(code) ||
+    CODIGOS_BATENTES_PADRAO.has(cleanCode) ||
+    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code) ||
+    (code >= '020.0032' && code <= '020.0099') ||
+    (cleanCode.startsWith('020') && parseInt(cleanCode.slice(3) || '0', 10) >= 32);
 
-  return (
-    isBatenteCode ||
-    desc.startsWith('BATENTE') ||
-    desc.startsWith('BAT ') ||
-    norm.startsWith('BATENTE') ||
-    norm.startsWith('BAT ')
-  );
+  if (isBatenteCode) {
+    return true;
+  }
+
+  // 5. Descrição contendo termo Batente sem ser porta montada
+  if (norm.includes('BATENTE') || desc.includes('BATENTE')) {
+    return true;
+  }
+
+  return false;
 }
 
 /**

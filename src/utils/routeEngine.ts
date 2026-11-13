@@ -547,9 +547,16 @@ function resolveBaseRoute(
     }
   }
 
-  // 5. Portas Giratórias (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR)
+  // 5. Portas Giratórias (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR E BATENTES)
   const isGiro =
+    !isBatente(opObj || { codigo: code, descricao: desc, tipoOrdem: desc }) &&
     !isOfficeDoorGiro(opObj || { codigo: code, descricao: desc, tipoOrdem: desc }) &&
+    !norm.startsWith('BAT ') &&
+    !norm.startsWith('BAT-') &&
+    !norm.startsWith('BAT_') &&
+    !norm.startsWith('BATENTE') &&
+    !desc.startsWith('BAT') &&
+    !code.startsWith('020.') &&
     !norm.includes('OFFICE DOOR') &&
     !norm.includes('OFFICE-DOOR') &&
     (
@@ -622,14 +629,23 @@ function resolveBaseRoute(
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: false };
   }
 
-  // 7. Portas de Correr (Padrão vs Especial e Emendadas)
+  // 7. Portas de Correr (Padrão vs Especial e Emendadas - EXCLUI BATENTES)
   if (
-    norm.includes('PT COR') ||
-    norm.includes('PORTA CORRER') ||
-    norm.includes('PORTA DE CORRER') ||
-    norm.includes('EMENDADA') ||
-    isPortaCorrerPadrao(code || '', desc || '') ||
-    (code && (code.startsWith('007.') || code.startsWith('005.')))
+    !isBatente(opObj || { codigo: code, descricao: desc, tipoOrdem: desc }) &&
+    !norm.startsWith('BAT ') &&
+    !norm.startsWith('BAT-') &&
+    !norm.startsWith('BAT_') &&
+    !norm.startsWith('BATENTE') &&
+    !desc.startsWith('BAT') &&
+    !code.startsWith('020.') &&
+    (
+      norm.includes('PT COR') ||
+      norm.includes('PORTA CORRER') ||
+      norm.includes('PORTA DE CORRER') ||
+      norm.includes('EMENDADA') ||
+      isPortaCorrerPadrao(code || '', desc || '') ||
+      (code && (code.startsWith('007.') || code.startsWith('005.')))
+    )
   ) {
     const exigeEmenda = desc.toUpperCase().includes('EMENDA') || verificarSeExigeEmenda(desc || '');
     const codLimpo = normalizarCodigo(code || '');
@@ -822,7 +838,13 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
   const isStepBatente = normStep.includes('BATENTE');
   const isSectorBatente = normSector.includes('BATENTE');
   if (isStepBatente !== isSectorBatente) {
-    return false;
+    const isStepInjFin = normStep.includes('INJECAO') || normStep.includes('FINALIZACAO');
+    const isSectorInjFin = normSector.includes('INJECAO') || normSector.includes('FINALIZACAO');
+    const isStepPrep = normStep.includes('PREPARACAO');
+    const isSectorPrep = normSector.includes('PREPARACAO');
+    if (!(isStepInjFin && isSectorInjFin) && !(isStepPrep && isSectorPrep)) {
+      return false;
+    }
   }
 
   // 4. Trilhos vs Não-Trilho
@@ -912,13 +934,30 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
   }
 
   // Preparação de Batentes (Terminal 3)
-  if (normStep.includes('PREPARACAO') && normStep.includes('BATENTE')) {
-    return normSector.includes('PREPARACAO') && normSector.includes('BATENTE');
+  const isSectorPrepBat = normSector.includes('PREPARACAO') && normSector.includes('BATENTE');
+  const isStepPrepBat = normStep.includes('PREPARACAO') && normStep.includes('BATENTE');
+  if (isSectorPrepBat && (isStepPrepBat || normStep === 'PREPARACAO')) {
+    return true;
+  }
+  if (isStepPrepBat && (isSectorPrepBat || normSector === 'PREPARACAO')) {
+    return true;
   }
 
   // Injeção e Finalização Batentes (Terminal 3)
-  if ((normStep.includes('INJECAO') || normStep.includes('FINALIZACAO')) && normStep.includes('BATENTE')) {
-    return (normSector.includes('INJECAO') || normSector.includes('FINALIZACAO')) && normSector.includes('BATENTE');
+  const isSectorInjFinBat =
+    (normSector.includes('INJECAO') || normSector.includes('INJETORA')) &&
+    (normSector.includes('BATENTE') || normSector.includes('FINALIZACAO'));
+  const isStepInjFinBat =
+    (normStep.includes('INJECAO') || normStep.includes('INJETORA')) &&
+    (normStep.includes('BATENTE') || normStep.includes('FINALIZACAO'));
+  if (isSectorInjFinBat && isStepInjFinBat) {
+    return true;
+  }
+  if (isSectorInjFinBat && (normStep === 'INJECAO' || normStep === 'FINALIZACAO' || normStep.includes('FINALIZACAO'))) {
+    return true;
+  }
+  if (isStepInjFinBat && (normSector === 'INJECAO' || normSector === 'FINALIZACAO' || normSector.includes('FINALIZACAO'))) {
+    return true;
   }
 
   // Compatibilidade com setor antigo: Montagem e Injeção de Batentes
@@ -1075,11 +1114,13 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
   if (normA.includes('CORTE') && normB.includes('CORTE')) return true;
 
   // Batentes
-  if (normA.includes('BATENTE') && normB.includes('BATENTE')) {
-    if (normA.includes('PREPARACAO') && normB.includes('PREPARACAO')) return true;
-    if ((normA.includes('INJECAO') || normA.includes('FINALIZACAO')) && (normB.includes('INJECAO') || normB.includes('FINALIZACAO'))) return true;
-    return false;
-  }
+  const aIsPrepBat = normA.includes('PREPARACAO') && (normA.includes('BATENTE') || normB.includes('BATENTE'));
+  const bIsPrepBat = normB.includes('PREPARACAO') && (normA.includes('BATENTE') || normB.includes('BATENTE'));
+  if (aIsPrepBat && bIsPrepBat) return true;
+
+  const aIsInjFinBat = (normA.includes('INJECAO') || normA.includes('FINALIZACAO')) && (normA.includes('BATENTE') || normB.includes('BATENTE') || normA.includes('FINALIZACAO') || normB.includes('FINALIZACAO'));
+  const bIsInjFinBat = (normB.includes('INJECAO') || normB.includes('FINALIZACAO')) && (normA.includes('BATENTE') || normB.includes('BATENTE') || normA.includes('FINALIZACAO') || normB.includes('FINALIZACAO'));
+  if (aIsInjFinBat && bIsInjFinBat) return true;
 
   // Dobra (T1): NUNCA deve ser compatível com Preparação (T2)
   if ((normA.includes('DOBRA') && !normB.includes('DOBRA')) || (normB.includes('DOBRA') && !normA.includes('DOBRA'))) {
@@ -1137,7 +1178,13 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
   const aBatente = normA.includes('BATENTE');
   const bBatente = normB.includes('BATENTE');
   if (aBatente !== bBatente) {
-    return false;
+    const aInjFin = normA.includes('INJECAO') || normA.includes('FINALIZACAO');
+    const bInjFin = normB.includes('INJECAO') || normB.includes('FINALIZACAO');
+    const aPrep = normA.includes('PREPARACAO');
+    const bPrep = normB.includes('PREPARACAO');
+    if (!(aInjFin && bInjFin) && !(aPrep && bPrep)) {
+      return false;
+    }
   }
 
   const aTrilho = normA.includes('TRILHO');

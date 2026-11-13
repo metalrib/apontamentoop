@@ -127,7 +127,16 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const isOdGiro = isOfficeDoorGiro(order);
   const isOpOffice = isOdCorrer || isOdGiro || String(order.descricao || order.produto || '').toUpperCase().includes('OFFICE');
   const isOpVaiVem = isVaiVemOrder(order);
-  const isOpBatente = isBatente(order);
+  const isOpBatente =
+    isBatente(order) ||
+    order.tipoOrdem === 'Batente' ||
+    order.tipo === 'Batente' ||
+    String(order.familia || '').toUpperCase().includes('BATENTE') ||
+    String(order.descricao || order.produto || '').toUpperCase().startsWith('BAT ') ||
+    String(order.descricao || order.produto || '').toUpperCase().startsWith('BAT-') ||
+    String(order.descricao || order.produto || '').toUpperCase().startsWith('BAT_') ||
+    String(order.descricao || order.produto || '').toUpperCase().startsWith('BATENTE') ||
+    String(order.descricao || order.produto || '').toUpperCase().includes('BATENTE');
   const isOpTrilho = isTrilhoCorrer(order);
   const isOpEstante = isEstanteCompleta(order) || isQuadroEstante(order) || isPeEstanteSemPintura(order) || isPeEstanteComPintura(order);
   const isOpAbrigo = isAbrigoDoca(order);
@@ -218,6 +227,17 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
       return true;
     }
 
+    // Equivalências explícitas para etapas de Batente no Terminal 3:
+    if (isOpBatente) {
+      const isSetorPrepBat = setorNorm.includes('preparacao') && setorNorm.includes('batente');
+      const isSetorInjFinBat = (setorNorm.includes('injecao') || setorNorm.includes('finalizacao')) && setorNorm.includes('batente');
+      const rotaTemPrep = steps.some(st => normalizar(st).includes('preparacao')) || rotaOp.some(st => normalizar(st).includes('preparacao'));
+      const rotaTemInjFin = steps.some(st => normalizar(st).includes('injecao') || normalizar(st).includes('finalizacao')) || rotaOp.some(st => normalizar(st).includes('injecao') || normalizar(st).includes('finalizacao'));
+
+      if (isSetorPrepBat && rotaTemPrep) return true;
+      if (isSetorInjFinBat && rotaTemInjFin) return true;
+    }
+
     return false;
   });
 
@@ -238,7 +258,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
   const validSectors = postosExibiveis.filter((s) => {
     if (isAncora && isTerminal5 && s.includes('Solda')) return true;
     if (s.toLowerCase().includes('laser') && Boolean(order.requer_laser || (order as any).requerLaser)) return true;
-    const isStep = findStepForSector(s, steps) !== null;
+    const isStep = findStepForSector(s, steps) !== null || (isOpBatente && s.toLowerCase().includes('batente'));
     if (!isStep) return false;
     const v = validarPostoIndustrial(order, s, apontamentos, terminal.id);
     return v.valido;
@@ -416,7 +436,14 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
     for (const step of steps) {
       const stepSector = postosExibiveis.find((sec) => {
         if (findStepForSector(sec, [step]) !== null) return true;
-        return normalizar(sec) === normalizar(step);
+        if (normalizar(sec) === normalizar(step)) return true;
+        if (isOpBatente) {
+          const sNorm = normalizar(sec);
+          const stNorm = normalizar(step);
+          if (sNorm.includes('preparacao') && sNorm.includes('batente') && stNorm.includes('preparacao')) return true;
+          if (sNorm.includes('batente') && (sNorm.includes('injecao') || sNorm.includes('finalizacao')) && (stNorm.includes('injecao') || stNorm.includes('finalizacao'))) return true;
+        }
+        return false;
       });
 
       if (stepSector) {
@@ -492,7 +519,13 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
           {postosExibiveis.map((sector, idx) => {
-            const matchedStep = findStepForSector(sector, steps);
+            const matchedStep =
+              findStepForSector(sector, steps) ||
+              (isOpBatente && normalizar(sector).includes('preparacao') && normalizar(sector).includes('batente')
+                ? steps.find((s) => normalizar(s).includes('preparacao')) || null
+                : isOpBatente && (normalizar(sector).includes('injecao') || normalizar(sector).includes('finalizacao')) && normalizar(sector).includes('batente')
+                ? steps.find((s) => normalizar(s).includes('injecao') || normalizar(s).includes('finalizacao')) || null
+                : null);
             const isSobDemanda = isAncora && isTerminal5 && sector.includes('Solda');
             const isPartOfRoute = matchedStep !== null || isSobDemanda;
             const stepEval = matchedStep ? evaluation[matchedStep] : null;

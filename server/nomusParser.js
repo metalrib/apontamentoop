@@ -336,8 +336,15 @@ function processarRotaProduto(op) {
     };
   }
 
-  // 1. Batentes (020.xxxx / BAT)
-  if (codNormalizado.startsWith('020') && (desc.startsWith('BAT') || desc.startsWith('BATENTE') || parseInt(codNormalizado.slice(3) || '0', 10) >= 32)) {
+  // 1. Batentes (020.xxxx / BAT - Padrão, Inox e com Resistência)
+  if (
+    (codNormalizado.startsWith('020') && (desc.startsWith('BAT') || desc.startsWith('BATENTE') || parseInt(codNormalizado.slice(3) || '0', 10) >= 32 || ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado))) ||
+    desc.startsWith('BAT ') ||
+    desc.startsWith('BAT-') ||
+    desc.startsWith('BAT_') ||
+    desc.startsWith('BATENTE') ||
+    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA '))
+  ) {
     return {
       familia: 'Batente',
       tipoMontagem: 'Batente',
