@@ -37,7 +37,8 @@ export {
   isRotaExclusivaLaser,
   isRotaLaserDobra,
   isRotaExclusivaRouter,
-  isOfficeDoorGiro
+  isOfficeDoorGiro,
+  CODIGOS_BATENTES_PADRAO
 };
 import {
   verificarSeExigeEmenda,

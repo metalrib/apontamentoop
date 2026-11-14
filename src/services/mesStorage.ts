@@ -9,6 +9,7 @@ import {
   CODIGOS_PORTAS_CORRER_PADRAO,
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_CORRER,
+  CODIGOS_BATENTES_PADRAO,
   normalizarCodigo,
   OpOcorrencia,
   isPortaCorrerPadrao,
@@ -21,7 +22,27 @@ import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapa
 import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
 import { io, Socket } from 'socket.io-client';
 
-export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP };
+// Códigos padrão de batentes para resiliência total contra desordem de inicialização
+export const CODIGOS_BATENTES_FALLBACK = new Set([
+  '020.0005', '020.0006', '020.0007', '020.0008',
+  '0200005', '0200006', '0200007', '0200008',
+  '020.0032', '020.0033', '020.0034', '020.0035', '020.0036', '020.0037',
+  '020.0038', '020.0039', '020.0040', '020.0041', '020.0042', '020.0043',
+  '020.0044', '020.0045', '020.0046', '020.0047', '020.0048', '020.0049',
+  '020.0050', '020.0051', '020.0052', '020.0053', '020.0054', '020.0055',
+  '020.0056', '020.0057', '020.0058', '020.0059', '020.0060', '020.0061',
+  '020.0062', '020.0063', '020.0064', '020.0065', '020.0066', '020.0067',
+  '020.0068', '020.0069', '020.0070',
+  '0200032', '0200033', '0200034', '0200035', '0200036', '0200037',
+  '0200038', '0200039', '0200040', '0200041', '0200042', '0200043',
+  '0200044', '0200045', '0200046', '0200047', '0200048', '0200049',
+  '0200050', '0200051', '0200052', '0200053', '0200054', '0200055',
+  '0200056', '0200057', '0200058', '0200059', '0200060', '0200061',
+  '0200062', '0200063', '0200064', '0200065', '0200066', '0200067',
+  '0200068', '0200069', '0200070'
+]);
+
+export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, CODIGOS_BATENTES_PADRAO };
 
 /**
  * Sanitiza recursivamente qualquer objeto ou payload antes de enviar para o Firebase Realtime Database.
@@ -274,8 +295,8 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T, permi
     (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
     ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
     ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
-    CODIGOS_BATENTES_PADRAO.has(codRaw) ||
-    CODIGOS_BATENTES_PADRAO.has(codNormalizado) ||
+    (CODIGOS_BATENTES_PADRAO?.has(codRaw) ?? CODIGOS_BATENTES_FALLBACK.has(codRaw)) ||
+    (CODIGOS_BATENTES_PADRAO?.has(codNormalizado) ?? CODIGOS_BATENTES_FALLBACK.has(codNormalizado)) ||
     (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
 
   if (ehBatente) {
