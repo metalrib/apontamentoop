@@ -10,6 +10,7 @@ import {
   CODIGOS_GIRATORIA_PADRAO,
   CODIGOS_PADRAO_CORRER,
   CODIGOS_BATENTES_PADRAO,
+  CODIGOS_FOLHAS_PADRAO,
   normalizarCodigo,
   OpOcorrencia,
   isPortaCorrerPadrao,
@@ -42,7 +43,7 @@ export const CODIGOS_BATENTES_FALLBACK = new Set([
   '0200068', '0200069', '0200070'
 ]);
 
-export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, CODIGOS_BATENTES_PADRAO };
+export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, CODIGOS_BATENTES_PADRAO, CODIGOS_FOLHAS_PADRAO };
 
 /**
  * Sanitiza recursivamente qualquer objeto ou payload antes de enviar para o Firebase Realtime Database.
@@ -286,18 +287,103 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T, permi
 
   const docId = (op.op_numero || (op as any).numeroOP || op.numero || (op as any).id || '').trim();
 
-  // 1. BATENTES (020.xxxx / BAT - Padrão, Inox e com Resistência) - AUTO-CORREÇÃO COMPULSÓRIA
+  // 0. FOLHAS AVULSAS (020.xxxx / FOLHA - Padrão, Giro, Correr) - AUTO-CORREÇÃO COMPULSÓRIA
+  const ehFolha =
+    desc.startsWith('FOLHA') ||
+    desc.startsWith('FOLHA GIRO') ||
+    desc.startsWith('FOLHA CORRER') ||
+    CODIGOS_FOLHAS_PADRAO.has(codRaw) ||
+    CODIGOS_FOLHAS_PADRAO.has(codNormalizado) ||
+    (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) >= 9 && parseInt(codNormalizado.slice(3) || '0', 10) <= 31);
+
+  if (ehFolha) {
+    const temLaser = Boolean(
+      (op as any).requerLaser || (op as any).requer_laser ||
+      (Array.isArray((op as any).etapas) && (op as any).etapas.includes('Laser')) ||
+      ((op as any).etapas && typeof (op as any).etapas === 'object' && 'Laser' in (op as any).etapas) ||
+      (op as any).etapaAtual === 'Laser'
+    );
+    const rotaOficialFolha = temLaser
+      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas']
+      : ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
+
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+
+    const temEtapaBatente = rotaAtual.some((e: any) => {
+      const nome = typeof e === 'string' ? e : (e?.nome || e?.step || '');
+      return nome.includes('Batente') || nome.includes('BAT');
+    });
+
+    const temEtapaIndevida = rotaAtual.some((e: any) => {
+      const nome = typeof e === 'string' ? e : (e?.nome || e?.step || '');
+      return (nome.includes('Porta') && !nome.includes('Folha')) || nome.includes('Gaxeta') || nome.includes('Batente');
+    });
+
+    const faltaEtapasFolha = !rotaAtual.includes('Preparação de Folha') || !rotaAtual.includes('Injeção de Folhas');
+
+    if (temEtapaBatente || temEtapaIndevida || faltaEtapasFolha || op.familia !== 'Folha Avulsa' || op.tipoMontagem !== 'Folha Avulsa') {
+      op.rota = rotaOficialFolha;
+      op.familia = 'Folha Avulsa';
+      op.tipoMontagem = 'Folha Avulsa';
+
+      if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+        const novoEtapasObj: Record<string, any> = {};
+        for (const step of rotaOficialFolha) {
+          if ((op.etapas as any)[step]) {
+            novoEtapasObj[step] = (op.etapas as any)[step];
+          } else if (step === 'Preparação de Folha' && (op.etapas as any)['Preparação de Batentes']) {
+            novoEtapasObj[step] = (op.etapas as any)['Preparação de Batentes'];
+          } else if (step === 'Injeção de Folhas' && ((op.etapas as any)['Injeção e Finalização de Batentes'] || (op.etapas as any)['Injeção'])) {
+            novoEtapasObj[step] = (op.etapas as any)['Injeção e Finalização de Batentes'] || (op.etapas as any)['Injeção'];
+          } else {
+            novoEtapasObj[step] = {
+              status: 'PENDENTE',
+              concluidas: 0,
+              total: op.quantidadeFisica || op.quantidade_total || op.quantidade || 1
+            };
+          }
+        }
+        op.etapas = novoEtapasObj as any;
+      } else {
+        op.etapas = rotaOficialFolha;
+      }
+
+      if (op.status && op.status.includes('Preparação de Batentes')) {
+        op.status = op.status.replace('Preparação de Batentes', 'Preparação de Folha');
+      }
+      if (op.status && op.status.includes('Injeção e Finalização de Batentes')) {
+        op.status = op.status.replace('Injeção e Finalização de Batentes', 'Injeção de Folhas');
+      }
+
+      if (docId && permitirPersistencia) {
+        persistirCorrecaoOp(docId, {
+          rota: rotaOficialFolha,
+          etapas: op.etapas,
+          status: op.status,
+          familia: 'Folha Avulsa',
+          tipoMontagem: 'Folha Avulsa'
+        });
+      }
+    }
+    return op;
+  }
+
+  // 1. BATENTES (020.xxxx / BAT - Padrão, Inox e com Resistência) - AUTO-CORREÇÃO COMPULSÓRIA (SOMENTE SE NÃO FOR FOLHA)
   const ehBatente =
-    desc.startsWith('BAT ') ||
-    desc.startsWith('BAT-') ||
-    desc.startsWith('BAT_') ||
-    desc.startsWith('BATENTE') ||
-    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
-    ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
-    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
-    (CODIGOS_BATENTES_PADRAO?.has(codRaw) ?? CODIGOS_BATENTES_FALLBACK.has(codRaw)) ||
-    (CODIGOS_BATENTES_PADRAO?.has(codNormalizado) ?? CODIGOS_BATENTES_FALLBACK.has(codNormalizado)) ||
-    (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
+    !ehFolha &&
+    !desc.startsWith('FOLHA') &&
+    (
+      desc.startsWith('BAT ') ||
+      desc.startsWith('BAT-') ||
+      desc.startsWith('BAT_') ||
+      desc.startsWith('BATENTE') ||
+      (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+      ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
+      ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
+      (CODIGOS_BATENTES_PADRAO?.has(codRaw) ?? CODIGOS_BATENTES_FALLBACK.has(codRaw)) ||
+      (CODIGOS_BATENTES_PADRAO?.has(codNormalizado) ?? CODIGOS_BATENTES_FALLBACK.has(codNormalizado)) ||
+      (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32)
+    );
 
   if (ehBatente) {
     const rotaOficialBatente = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];

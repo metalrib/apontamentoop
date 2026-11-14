@@ -376,16 +376,36 @@ function processarRotaProduto(opOrCode, descArg, tipoOrdemArg) {
     };
   }
 
-  // 1. Batentes (020.xxxx / BAT - Padrão, Inox e com Resistência) - PRIORIDADE SOBRE PORTAS E FOLHAS
+  // 1. Folhas Avulsas (020.0009 a 020.0031 / FOLHA) - PRIORIDADE SOBRE BATENTES E PORTAS
+  const ehFolha =
+    desc.startsWith('FOLHA') ||
+    desc.startsWith('FOLHA GIRO') ||
+    desc.startsWith('FOLHA CORRER') ||
+    (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) >= 9 && parseInt(codNormalizado.slice(3) || '0', 10) <= 31);
+
+  if (ehFolha) {
+    return {
+      familia: 'Folha Avulsa',
+      tipoMontagem: 'Folha Avulsa',
+      rota: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'],
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+    };
+  }
+
+  // 2. Batentes (020.xxxx / BAT - Padrão, Inox e com Resistência) - SOMENTE SE NÃO FOR FOLHA
   const ehBatente =
-    desc.startsWith('BAT ') ||
-    desc.startsWith('BAT-') ||
-    desc.startsWith('BAT_') ||
-    desc.startsWith('BATENTE') ||
-    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
-    ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
-    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
-    (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
+    !ehFolha &&
+    !desc.startsWith('FOLHA') &&
+    (
+      desc.startsWith('BAT ') ||
+      desc.startsWith('BAT-') ||
+      desc.startsWith('BAT_') ||
+      desc.startsWith('BATENTE') ||
+      (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+      ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
+      ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codRaw) ||
+      (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32)
+    );
 
   if (ehBatente) {
     return {
@@ -396,23 +416,13 @@ function processarRotaProduto(opOrCode, descArg, tipoOrdemArg) {
     };
   }
 
-  // 2. Trilhos (028.xxxx / TRILHO)
+  // 3. Trilhos (028.xxxx / TRILHO)
   if (codNormalizado.startsWith('028') || desc.startsWith('TRILHO')) {
     return {
       familia: 'Trilho',
       tipoMontagem: 'Trilho',
       rota: ['Corte de Trilho', 'Montagem de Trilho'],
       statusAtual: 'AGUARDANDO INÍCIO EM: Corte de Trilho'
-    };
-  }
-
-  // 3. Folhas Avulsas (020.0009 a 020.0031 / FOLHA)
-  if (desc.startsWith('FOLHA') || (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) <= 31)) {
-    return {
-      familia: 'Folha Avulsa',
-      tipoMontagem: 'Folha Avulsa',
-      rota: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'],
-      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
     };
   }
 

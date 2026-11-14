@@ -1231,12 +1231,25 @@ function isRouterExclusivoSql(codigo, descricao) {
   return false;
 }
 
-function isBatenteSql(codigo, descricao) {
+function isFolhaSql(codigo, descricao) {
   const cod = String(codigo || '').trim();
   const desc = normalizarTextoSql(descricao);
   const codClean = cod.replace(/\D/g, '');
 
-  if (desc.startsWith('FOLHA') || (codClean.startsWith('020') && parseInt(codClean.slice(3) || '0', 10) >= 9 && parseInt(codClean.slice(3) || '0', 10) <= 31 && desc.includes('FOLHA'))) {
+  if (desc.startsWith('FOLHA')) return true;
+  if (codClean.startsWith('020') && parseInt(codClean.slice(3) || '0', 10) >= 9 && parseInt(codClean.slice(3) || '0', 10) <= 31) {
+    return true;
+  }
+  return false;
+}
+
+function isBatenteSql(codigo, descricao) {
+  if (isFolhaSql(codigo, descricao)) return false;
+  const cod = String(codigo || '').trim();
+  const desc = normalizarTextoSql(descricao);
+  const codClean = cod.replace(/\D/g, '');
+
+  if (desc.startsWith('FOLHA')) {
     return false;
   }
 
@@ -1444,8 +1457,108 @@ try {
       }
     }
 
+    // Saneamento de Rotas Oficiais de Folha Avulsa (Corte -> Dobra -> Preparação de Folha -> Injeção de Folhas)
+    const isFolha = isFolhaSql(o.codigo, o.descricao);
+    if (isFolha && (podeAtualizar || o.status !== 'FINALIZADA')) {
+      const aptsOp = db.prepare('SELECT * FROM apontamentos WHERE op_numero = ? OR op_numero = ?').all(o.numero, o.id);
+      const hasLaserApt = aptsOp.some(a => a.etapa_rota === 'Laser' || a.setor === 'Laser');
+      const querLaser = Boolean(o.requerLaser || o.requer_laser || hasLaserApt);
+
+      const targetFolhaSteps = querLaser
+        ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas']
+        : ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
+
+      let precisaAtualizar = false;
+      let novasEtapas = targetFolhaSteps;
+
+      let parsed = null;
+      try { parsed = JSON.parse(o.etapas || '[]'); } catch {}
+
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const obj = {};
+        for (const step of targetFolhaSteps) {
+          if (parsed[step]) {
+            obj[step] = parsed[step];
+          } else if (step === 'Preparação de Folha' && parsed['Preparação de Batentes']) {
+            obj[step] = parsed['Preparação de Batentes'];
+            precisaAtualizar = true;
+          } else if (step === 'Injeção de Folhas' && (parsed['Injeção e Finalização de Batentes'] || parsed['Injeção'])) {
+            obj[step] = parsed['Injeção e Finalização de Batentes'] || parsed['Injeção'];
+            precisaAtualizar = true;
+          } else {
+            obj[step] = {
+              status: 'PENDENTE',
+              concluidas: 0,
+              total: o.quantidadeFisica || 1
+            };
+            precisaAtualizar = true;
+          }
+        }
+        const chavesAtuais = Object.keys(parsed);
+        const temChavesEstranhas = chavesAtuais.some(k => !targetFolhaSteps.includes(k));
+        if (temChavesEstranhas || chavesAtuais.length !== targetFolhaSteps.length) {
+          precisaAtualizar = true;
+        }
+        novasEtapas = obj;
+      } else if (Array.isArray(parsed)) {
+        if (JSON.stringify(parsed) !== JSON.stringify(targetFolhaSteps)) {
+          precisaAtualizar = true;
+        }
+        novasEtapas = targetFolhaSteps;
+      } else {
+        precisaAtualizar = true;
+        novasEtapas = targetFolhaSteps;
+      }
+
+      let novoStatus = o.status;
+      if (novoStatus && novoStatus.includes('Preparação de Batentes')) {
+        novoStatus = novoStatus.replace('Preparação de Batentes', 'Preparação de Folha');
+        precisaAtualizar = true;
+      }
+      if (novoStatus && novoStatus.includes('Injeção e Finalização de Batentes')) {
+        novoStatus = novoStatus.replace('Injeção e Finalização de Batentes', 'Injeção de Folhas');
+        precisaAtualizar = true;
+      }
+
+      let dadosObj = null;
+      try {
+        if (o.dados) {
+          dadosObj = JSON.parse(o.dados);
+          if (dadosObj) {
+            if (JSON.stringify(dadosObj.rota || []) !== JSON.stringify(targetFolhaSteps) || dadosObj.familia !== 'Folha Avulsa') {
+              dadosObj.rota = targetFolhaSteps;
+              dadosObj.etapas = targetFolhaSteps;
+              dadosObj.familia = 'Folha Avulsa';
+              dadosObj.tipoMontagem = 'Folha Avulsa';
+              precisaAtualizar = true;
+            }
+          }
+        }
+      } catch {}
+
+      if (precisaAtualizar || o.tipoOrdem === 'Batente') {
+        db.prepare(`
+          UPDATE ordens
+          SET etapas = ?,
+              status = ?,
+              tipoOrdem = 'Folha Avulsa',
+              dados = COALESCE(?, dados),
+              atualizadoEm = ?
+          WHERE id = ?
+        `).run(
+          JSON.stringify(novasEtapas),
+          novoStatus,
+          dadosObj ? JSON.stringify(dadosObj) : null,
+          Date.now(),
+          o.id
+        );
+        ordensAtualizadasCount++;
+        console.log(`[SQLite Migration] OP Folha ${o.numero} (${o.codigo}) saneada para rota oficial de folhas (Preparação de Folha / Injeção de Folhas)`);
+      }
+    }
+
     // Saneamento de Rotas Oficiais de Batente (Corte -> Dobra -> Preparação de Batentes -> Injeção e Finalização de Batentes)
-    const isBat = isBatenteSql(o.codigo, o.descricao);
+    const isBat = !isFolha && isBatenteSql(o.codigo, o.descricao);
     if (isBat && (podeAtualizar || o.status !== 'FINALIZADA')) {
       const targetBatenteSteps = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];
       let precisaAtualizar = false;
@@ -2457,6 +2570,13 @@ app.post('/api/ordens', (req, res) => {
         routerVal = 1;
         if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
           statusVal = 'Aguardando Início em: Router';
+        }
+      } else if (isFolhaSql(codItem, descItem)) {
+        etapasVal = laserVal === 1
+          ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas']
+          : ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
+        if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
+          statusVal = 'AGUARDANDO INÍCIO EM: CORTE';
         }
       } else if (isBatenteSql(codItem, descItem)) {
         etapasVal = ['Corte', 'Dobra', 'Preparação de Batentes', 'Injeção e Finalização de Batentes'];

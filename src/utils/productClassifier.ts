@@ -60,17 +60,47 @@ export function identificarFamiliaProduto(
     return 'PORTA_EMENDADA';
   }
 
-  // 2. PORTAS GIRATÓRIAS (Códigos 001.xxx e 003.xxx são sempre Portas Giratórias, mesmo contendo 3BAT/4BAT)
+  // 1. FOLHAS (Prioridade absoluta se iniciar com FOLHA ou código da família de folhas)
+  if (
+    norm.startsWith('FOLHA') ||
+    code.startsWith('020.001') ||
+    code.startsWith('020.002') ||
+    code.startsWith('020.0030') ||
+    code.startsWith('020.0031') ||
+    CODIGOS_FOLHAS_PADRAO.has(code)
+  ) {
+    return 'FOLHA';
+  }
+
+  // 2. BATENTES (Se a descrição começar com BAT/BATENTE ou código for de batente - SOMENTE SE NÃO FOR FOLHA)
+  // IMPORTANTE: NÃO usar desc.includes('BAT') puro, pois '3BAT' e '4BAT' são atributos da porta!
+  const isBatenteCode =
+    !norm.startsWith('FOLHA') &&
+    (['020.0005', '020.0006', '020.0007', '020.0008', '020.003', '020.004', '020.005'].some(prefix => code.startsWith(prefix)) ||
+    CODIGOS_BATENTES_PADRAO.has(code));
+
+  const isBatenteDesc =
+    !norm.startsWith('FOLHA') &&
+    (norm.startsWith('BAT ') ||
+    norm.startsWith('BAT-') ||
+    norm.startsWith('BATENTE ') ||
+    norm.startsWith('BATENTES '));
+
+  if (isBatenteCode || isBatenteDesc) {
+    return 'BATENTE';
+  }
+
+  // 3. PORTAS GIRATÓRIAS (Códigos 001.xxx e 003.xxx - EXCLUI BATENTES E FOLHAS)
   if (
     code.startsWith('001.') ||
     code.startsWith('003.') ||
     CODIGOS_PADRAO_GIRO.has(code) ||
-    ((norm.includes('PT GIR') || norm.includes('PORTA GIR') || norm.includes('PORTA GIRATORIA')) && !norm.startsWith('BAT ') && !norm.startsWith('BATENTE '))
+    ((norm.includes('PT GIR') || norm.includes('PORTA GIR') || norm.includes('PORTA GIRATORIA')) && !norm.startsWith('BAT ') && !norm.startsWith('BATENTE ') && !norm.startsWith('FOLHA'))
   ) {
     return 'PORTA_GIRATORIA';
   }
 
-  // 2. PORTAS VAI-VEM (Código 011.xxx)
+  // 4. PORTAS VAI-VEM (Código 011.xxx)
   if (
     code.startsWith('011.') ||
     norm.includes('VAI VEM') ||
@@ -80,42 +110,14 @@ export function identificarFamiliaProduto(
     return 'VAI_VEM';
   }
 
-  // 3. PORTAS DE CORRER (Códigos 005.xxx e 007.xxx)
+  // 5. PORTAS DE CORRER (Códigos 005.xxx e 007.xxx - EXCLUI BATENTES E FOLHAS)
   if (
     code.startsWith('005.') ||
     code.startsWith('007.') ||
     CODIGOS_PADRAO_CORRER.has(code) ||
-    norm.includes('CORRER') ||
-    norm.includes('PT COR') ||
-    norm.includes('PORTA COR')
+    ((norm.includes('CORRER') || norm.includes('PT COR') || norm.includes('PORTA COR')) && !norm.startsWith('BAT ') && !norm.startsWith('BATENTE ') && !norm.startsWith('FOLHA'))
   ) {
     return 'PORTA_CORRER';
-  }
-
-  // 4. FOLHAS (Códigos 020.001x ou texto com FOLHA)
-  if (
-    norm.includes('FOLHA') ||
-    norm.includes('FOLHAS') ||
-    code.startsWith('020.001') ||
-    CODIGOS_FOLHAS_PADRAO.has(code)
-  ) {
-    return 'FOLHA';
-  }
-
-  // 5. BATENTES (Apenas códigos de batentes específicos ou quando a descrição começa com BAT/BATENTE)
-  // IMPORTANTE: NÃO usar desc.includes('BAT') puro, pois '3BAT' e '4BAT' são atributos da porta!
-  const isBatenteCode =
-    ['020.0005', '020.0006', '020.0007', '020.0008', '020.003', '020.004', '020.005'].some(prefix => code.startsWith(prefix)) ||
-    CODIGOS_BATENTES_PADRAO.has(code);
-
-  const isBatenteDesc =
-    norm.startsWith('BAT ') ||
-    norm.startsWith('BAT-') ||
-    norm.startsWith('BATENTE ') ||
-    norm.startsWith('BATENTES ');
-
-  if (isBatenteCode || isBatenteDesc) {
-    return 'BATENTE';
   }
 
   // 6. ACESSÓRIOS / MIUDEZAS (Âncoras, Trilhos, Perfis)
@@ -210,19 +212,23 @@ export function classificarModeloOP(op?: any): ModeloProduto {
     return 'Office Door';
   }
 
-  // 2. Batentes: se começar com BATENTE ou BAT ou código iniciar com 020. (desde que não seja folha)
-  if (
-    desc.startsWith('BATENTE') ||
-    desc.startsWith('BAT ') ||
-    desc.startsWith('BAT-') ||
-    (cod.startsWith('020.') && !desc.startsWith('FOLHA'))
-  ) {
-    return 'Batentes';
+  // 2. Folha: se começar com FOLHA ou código de folha
+  if (desc.startsWith('FOLHA') || (cod.startsWith('020.') && parseInt(cod.slice(4) || '0', 10) <= 31)) {
+    return 'Folha';
   }
 
-  // 3. Folha: se começar com FOLHA
-  if (desc.startsWith('FOLHA')) {
-    return 'Folha';
+  // 3. Batentes: se começar com BATENTE ou BAT ou código iniciar com 020. (desde que não seja folha)
+  if (
+    !desc.startsWith('FOLHA') &&
+    (
+      desc.startsWith('BATENTE') ||
+      desc.startsWith('BAT ') ||
+      desc.startsWith('BAT-') ||
+      (cod.startsWith('020.') && parseInt(cod.slice(4) || '0', 10) >= 32) ||
+      ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod)
+    )
+  ) {
+    return 'Batentes';
   }
 
   // 4. Trilhos: se contiver TRILHO

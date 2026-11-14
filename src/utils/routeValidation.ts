@@ -1562,6 +1562,16 @@ export function isBatente(op: any): boolean {
   const norm = normalizeValidationText(rawDesc);
   const tipo = (typeof op === 'object' && op ? (op?.tipoOrdem || op?.tipo || op?.familia || '') : '').toUpperCase().trim();
 
+  // 0. Se for Folha Avulsa (iniciar com FOLHA ou código de folha), JAMAIS é Batente
+  if (
+    desc.startsWith('FOLHA') ||
+    norm.startsWith('FOLHA') ||
+    isFolhaOrder(op, code) ||
+    (code >= '020.0009' && code <= '020.0031')
+  ) {
+    return false;
+  }
+
   // 1. Se for explicitamente classificado como Batente pelo tipo de ordem/família
   if (tipo === 'BATENTE' || tipo.includes('BATENTE')) {
     return true;

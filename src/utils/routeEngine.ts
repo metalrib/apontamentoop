@@ -335,19 +335,51 @@ function resolveBaseRoute(
     return { rule, steps: ['Router'], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 0. Batentes (Família 020 / BAT - Padrão, Inox e com Resistência) - PRIORIDADE ABSOLUTA SOBRE PORTAS E FOLHAS
+  // 0. Folhas Avulsas (020.0009 a 020.0031 / FOLHA) - PRIORIDADE SOBRE BATENTES E PORTAS MONTADAS
+  const isFolhaOrder =
+    norm.startsWith('FOLHA') ||
+    desc.startsWith('FOLHA') ||
+    (code && CODIGOS_FOLHAS_PADRAO.has(code)) ||
+    (code && ['0200009', '0200010', '0200011', '0200012', '0200013', '0200014', '0200015', '0200016', '0200017', '0200018', '0200019', '0200020', '0200021', '0200022', '0200023', '0200024', '0200025', '0200026', '0200027', '0200028', '0200029', '0200030', '0200031'].includes(normalizarCodigo(code)));
+
+  if (isFolhaOrder) {
+    const temLaser = Boolean(
+      opObj?.requerLaser || opObj?.requer_laser ||
+      (Array.isArray(opObj?.etapas) && opObj.etapas.includes('Laser')) ||
+      (opObj?.etapas && typeof opObj.etapas === 'object' && 'Laser' in opObj.etapas) ||
+      opObj?.etapaAtual === 'Laser'
+    );
+    const steps = temLaser
+      ? ['Corte', 'Laser', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas']
+      : ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'];
+    const rule: RouteRule = {
+      keyword: 'FOLHA PADRAO',
+      label: 'Fabricação de Folha Padrão',
+      steps,
+      badge: 'Folha de Linha Padrão',
+      isStandardLine: true
+    };
+    return { rule, steps, badge: rule.badge!, isStandardLine: true };
+  }
+
+  // 0.1 Batentes (Família 020 / BAT - Padrão, Inox e com Resistência) - SOMENTE SE NÃO FOR FOLHA
   const isBatenteOrder =
-    isBatente(opObj || input) ||
-    (code && CODIGOS_BATENTES_PADRAO.has(code)) ||
-    ['0200005', '0200006', '0200007', '0200008'].includes(normalizarCodigo(code || '')) ||
-    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code || '') ||
-    norm.startsWith('BAT ') ||
-    norm.startsWith('BAT-') ||
-    norm.startsWith('BAT_') ||
-    norm.startsWith('BATENTE') ||
-    (norm.includes('BATENTE') && !norm.startsWith('PT ') && !norm.startsWith('PORTA ')) ||
-    desc.startsWith('BAT') ||
-    (code && code.startsWith('020.') && !norm.startsWith('FOLHA') && !norm.includes('FOLHA') && parseInt(code.slice(4) || '0', 10) >= 32);
+    !isFolhaOrder &&
+    !norm.startsWith('FOLHA') &&
+    !desc.startsWith('FOLHA') &&
+    (
+      isBatente(opObj || input) ||
+      (code && CODIGOS_BATENTES_PADRAO.has(code)) ||
+      ['0200005', '0200006', '0200007', '0200008'].includes(normalizarCodigo(code || '')) ||
+      ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code || '') ||
+      norm.startsWith('BAT ') ||
+      norm.startsWith('BAT-') ||
+      norm.startsWith('BAT_') ||
+      norm.startsWith('BATENTE') ||
+      (norm.includes('BATENTE') && !norm.startsWith('PT ') && !norm.startsWith('PORTA ')) ||
+      desc.startsWith('BAT') ||
+      (code && code.startsWith('020.') && parseInt(code.slice(4) || '0', 10) >= 32)
+    );
 
   if (isBatenteOrder) {
     const rule: RouteRule = {
@@ -519,24 +551,24 @@ function resolveBaseRoute(
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 2. Folhas Padrão (se o código estiver em CODIGOS_FOLHAS_PADRAO)
+  // 2. Folhas Padrão (se o código estiver em CODIGOS_FOLHAS_PADRAO ou descrição com FOLHA)
   // Rota: "Fabricação de Folha Padrão"
-  // Etapas: Corte - Guilhotina (T1) -> Dobra e Preparação (T1) -> Preparação de Folhas (T2) -> Injetora de Folhas (T2).
+  // Etapas: Corte (T1) -> Dobra (T1) -> Preparação de Folha (T2) -> Injeção de Folhas (T2).
   // Destino: Estoque de Folhas (não exige montagem de ferragens nem gaxeta).
   // Badge: "Folha de Linha Padrão".
-  if (code && CODIGOS_FOLHAS_PADRAO.has(code)) {
+  if ((code && CODIGOS_FOLHAS_PADRAO.has(code)) || norm.startsWith('FOLHA') || desc.startsWith('FOLHA')) {
     const rule: RouteRule = {
       keyword: 'FOLHA PADRAO',
       label: 'Fabricação de Folha Padrão',
-      steps: ['Corte', 'Dobra', 'Preparação', 'Injeção'],
+      steps: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'],
       badge: 'Folha de Linha Padrão',
       isStandardLine: true
     };
     return { rule, steps: [...rule.steps], badge: rule.badge!, isStandardLine: true };
   }
 
-  // 3. Batentes Padrão (se o código estiver em CODIGOS_BATENTES_PADRAO ou for da família 020 / BAT)
-  if ((code && CODIGOS_BATENTES_PADRAO.has(code)) || isBatente(input)) {
+  // 3. Batentes Padrão (se o código estiver em CODIGOS_BATENTES_PADRAO ou for da família 020 / BAT - SOMENTE SE NÃO FOR FOLHA)
+  if (!norm.startsWith('FOLHA') && !desc.startsWith('FOLHA') && ((code && CODIGOS_BATENTES_PADRAO.has(code)) || isBatente(input))) {
     const rule: RouteRule = {
       keyword: 'BATENTE PADRAO',
       label: 'Fabricação de Batente Padrão',
