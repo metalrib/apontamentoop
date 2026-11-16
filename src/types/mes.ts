@@ -609,6 +609,27 @@ export interface OpMessage {
   data_hora: string;
 }
 
+export interface OpMessageRow {
+  id: string;
+  order_id?: string;
+  order_numero: string;
+  order_desc?: string;
+  remetente: 'pcp' | 'producao';
+  texto: string;
+  timestamp: number;
+  lida_pcp: number;
+  lida_producao: number;
+  arquivada: number;
+  respostas_json?: string;
+  respostas?: {
+    id: string;
+    remetente: 'pcp' | 'producao';
+    autor: string;
+    texto: string;
+    timestamp: number;
+  }[];
+}
+
 export interface OpOcorrencia {
   id: string;
   dataHora: string;
@@ -648,6 +669,11 @@ export interface ProductionOrder {
   prazoEntrega?: string;          // alias de data_entrega
   status_nomus?: string;          // ex: Requisitada totalmente, Liberada, etc.
   statusNomus?: string;           // alias de status_nomus
+  status_macro?: 'planejada' | 'req_parcial' | 'req_total' | 'liberada' | 'produzindo_hoje' | 'falta_injetar' | 'falta_embalar' | 'embalada' | 'atrasada' | string;
+  categoria?: 'folha' | 'batente' | 'porta_correr' | 'porta_giratoria' | 'porta_vai_vem' | 'porta_office' | 'trilho' | 'pendural' | 'ancora' | 'cortina' | 'quadro_comando' | 'outros' | string;
+  motivo_atraso?: string;
+  favorito?: number | boolean;
+  prioridade?: 'baixa' | 'media' | 'alta' | 'critica' | string;
   status_fabrica?: FactoryStatus; // ex: Produzindo Hoje, Falta Injetar, Atrasada, etc.
   observacao?: string;            // ex: Observações
   observacoes?: string;           // alias de observacao

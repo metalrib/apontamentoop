@@ -313,3 +313,38 @@ export function classificarModeloOP(op?: any): ModeloProduto {
 
   return 'Outros';
 }
+
+export type CategoriaSlug =
+  | 'folha'
+  | 'batente'
+  | 'porta_correr'
+  | 'porta_giratoria'
+  | 'porta_vai_vem'
+  | 'porta_office'
+  | 'trilho'
+  | 'pendural'
+  | 'ancora'
+  | 'cortina'
+  | 'quadro_comando'
+  | 'outros';
+
+/**
+ * Converte a classificação do modelo para a categoria em snake_case do banco de dados SQLite.
+ */
+export function classificarCategoriaSlug(op?: any): CategoriaSlug {
+  const modelo = classificarModeloOP(op);
+  switch (modelo) {
+    case 'Portas Giratória': return 'porta_giratoria';
+    case 'Portas Correr': return 'porta_correr';
+    case 'Vai vem': return 'porta_vai_vem';
+    case 'Office Door': return 'porta_office';
+    case 'Batentes': return 'batente';
+    case 'Folha': return 'folha';
+    case 'Ancoras': return 'ancora';
+    case 'Trilhos': return 'trilho';
+    case 'Pendurais': return 'pendural';
+    case 'Cortina': return 'cortina';
+    case 'QC Comando': return 'quadro_comando';
+    default: return 'outros';
+  }
+}

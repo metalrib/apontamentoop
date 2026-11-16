@@ -13,6 +13,7 @@ import {
   CODIGOS_FOLHAS_PADRAO,
   normalizarCodigo,
   OpOcorrencia,
+  OpMessageRow,
   isPortaCorrerPadrao,
   isRotaExclusivaLaser,
   isRotaLaserDobra,
@@ -3876,7 +3877,143 @@ export async function addOpMessage(
   orders[targetKey] = currentOp;
   localStorage.setItem(STORAGE_ORDERS_KEY, JSON.stringify(orders));
   
+  // Sincroniza com backend SQLite Express
+  try {
+    const localUrl = getApiBaseUrl();
+    const cleanId = cleanOpId(targetKey);
+    fetch(`${localUrl}/api/mensagens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        order_numero: cleanId,
+        texto: message.texto,
+        remetente: (message.papel || '').toLowerCase().includes('pcp') ? 'pcp' : 'producao',
+        order_desc: currentOp.descricao || currentOp.produto || ''
+      })
+    }).catch(() => {});
+  } catch {}
+
   broadcastUpdate();
+}
+
+/**
+ * Atualiza o status macro e metadados gerenciais da OP no backend SQLite
+ */
+export async function atualizarStatusMacroOp(
+  opNumero: string,
+  dados: {
+    status_macro?: string;
+    motivo_atraso?: string;
+    favorito?: number | boolean;
+    pausada?: number | boolean;
+    prioridade?: string;
+    categoria?: string;
+  }
+): Promise<any> {
+  const localUrl = getApiBaseUrl();
+  const cleanId = cleanOpId(opNumero);
+  try {
+    const res = await fetch(`${localUrl}/api/ordens/${cleanId}/status-macro`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dados)
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[atualizarStatusMacroOp] Erro de rede:', err);
+  }
+  return null;
+}
+
+/**
+ * Busca mensagens de chat da OP no backend SQLite
+ */
+export async function fetchOpMensagens(opNumero: string): Promise<OpMessageRow[]> {
+  const localUrl = getApiBaseUrl();
+  const cleanId = cleanOpId(opNumero);
+  try {
+    const res = await fetch(`${localUrl}/api/mensagens?order_numero=${encodeURIComponent(cleanId)}`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[fetchOpMensagens] Erro ao buscar mensagens:', err);
+  }
+  return [];
+}
+
+/**
+ * Envia mensagem formal de OP para o backend
+ */
+export async function enviarMensagemOp(payload: {
+  order_numero: string;
+  texto: string;
+  remetente?: 'pcp' | 'producao';
+  order_desc?: string;
+}): Promise<OpMessageRow | null> {
+  const localUrl = getApiBaseUrl();
+  try {
+    const res = await fetch(`${localUrl}/api/mensagens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.mensagem || data;
+    }
+  } catch (err) {
+    console.warn('[enviarMensagemOp] Erro ao enviar mensagem:', err);
+  }
+  return null;
+}
+
+/**
+ * Responde a uma mensagem de OP existente
+ */
+export async function responderMensagemOp(
+  msgId: string,
+  payload: { remetente: 'pcp' | 'producao'; texto: string; autor?: string }
+): Promise<any> {
+  const localUrl = getApiBaseUrl();
+  try {
+    const res = await fetch(`${localUrl}/api/mensagens/${encodeURIComponent(msgId)}/responder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[responderMensagemOp] Erro ao responder mensagem:', err);
+  }
+  return null;
+}
+
+/**
+ * Marca mensagem de OP como lida
+ */
+export async function marcarMensagemLida(
+  msgId: string,
+  payload: { leitor?: 'pcp' | 'producao'; lida_pcp?: number; lida_producao?: number; arquivada?: number }
+): Promise<any> {
+  const localUrl = getApiBaseUrl();
+  try {
+    const res = await fetch(`${localUrl}/api/mensagens/${encodeURIComponent(msgId)}/lida`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[marcarMensagemLida] Erro ao marcar mensagem como lida:', err);
+  }
+  return null;
 }
 
 /**

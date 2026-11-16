@@ -140,6 +140,43 @@ try {
 try {
   db.exec(`ALTER TABLE ordens ADD COLUMN dados TEXT;`);
 } catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN status_macro TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN categoria TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN motivo_atraso TEXT;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN favorito INTEGER DEFAULT 0;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN pausada INTEGER DEFAULT 0;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE ordens ADD COLUMN prioridade TEXT DEFAULT 'media';`);
+} catch (e) {}
+
+// Tabela de Mensagens por OP (Chat PCP <-> Fábrica)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS mensagens_op (
+    id TEXT PRIMARY KEY,
+    order_id TEXT,
+    order_numero TEXT NOT NULL,
+    order_desc TEXT,
+    remetente TEXT NOT NULL,
+    texto TEXT NOT NULL,
+    timestamp INTEGER NOT NULL,
+    lida_pcp INTEGER DEFAULT 0,
+    lida_producao INTEGER DEFAULT 0,
+    arquivada INTEGER DEFAULT 0,
+    respostas_json TEXT DEFAULT '[]'
+  );
+  CREATE INDEX IF NOT EXISTS idx_mensagens_op_numero ON mensagens_op(order_numero);
+  CREATE INDEX IF NOT EXISTS idx_mensagens_op_timestamp ON mensagens_op(timestamp);
+`);
 
 // Tabela de Apontamentos para histórico e rastreabilidade industrial
 db.exec(`
@@ -918,6 +955,222 @@ function sanearDescricoesPoluidas(database) {
 sanearDescricoesPoluidas(db);
 
 // =============================================================
+// CLASSIFICADOR DE CATEGORIAS E REGRAS MACRO PCP
+// =============================================================
+function classificarCategoriaOP(op) {
+  if (!op) return 'outros';
+  const norm = (str) =>
+    String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .trim();
+
+  let dadosObj = {};
+  try {
+    if (op.dados) {
+      dadosObj = typeof op.dados === 'string' ? JSON.parse(op.dados) : op.dados;
+    }
+  } catch {}
+
+  const desc = norm(op.descricao || op.produto || dadosObj.descricao || dadosObj.produto);
+  const cat = norm(op.categoria || dadosObj.categoria);
+  const cod = norm(
+    op.codigo ||
+    op.codigo_produto ||
+    op.codigoProduto ||
+    dadosObj.codigo ||
+    dadosObj.codigo_produto ||
+    dadosObj.codigoProduto
+  );
+
+  // 1. Office Door: se contiver OFFICE DOOR ou OFFICE ou código 009./010.
+  if (
+    desc.includes('OFFICE DOOR') ||
+    desc.includes('OFFICE') ||
+    cat.includes('OFFICE') ||
+    cod.startsWith('009.') ||
+    cod.startsWith('010.')
+  ) {
+    return 'porta_office';
+  }
+
+  // 2. Folha: se começar com FOLHA ou código de folha (020.0009 a 020.0031)
+  if (desc.startsWith('FOLHA') || (cod.startsWith('020.') && parseInt(cod.slice(4) || '0', 10) <= 31 && !['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod))) {
+    return 'folha';
+  }
+
+  // 3. Batentes: se começar com BATENTE ou BAT ou código iniciar com 020. (desde que não seja folha)
+  if (
+    !desc.startsWith('FOLHA') &&
+    (
+      desc.startsWith('BATENTE') ||
+      desc.startsWith('BAT ') ||
+      desc.startsWith('BAT-') ||
+      (cod.startsWith('020.') && parseInt(cod.slice(4) || '0', 10) >= 32) ||
+      ['020.0005', '020.0006', '020.0007', '020.0008'].includes(cod)
+    )
+  ) {
+    return 'batente';
+  }
+
+  // 4. Trilhos: se contiver TRILHO ou código 028.
+  if (desc.includes('TRILHO') || cat.includes('TRILHO') || cod.startsWith('028.')) {
+    return 'trilho';
+  }
+
+  // 5. Pendurais: se contiver PENDURAL ou PENDURAIS ou código 024.
+  if (desc.includes('PENDURAL') || desc.includes('PENDURAIS') || cat.includes('PENDURAL') || cod.startsWith('024.')) {
+    return 'pendural';
+  }
+
+  // 6. Cortina: se contiver CORTINA
+  if (desc.includes('CORTINA') || cat.includes('CORTINA')) {
+    return 'cortina';
+  }
+
+  // 7. QC Comando: se contiver QUADRO, QC , COMANDO ou PAINEL ELETRICO
+  if (
+    desc.includes('QUADRO') ||
+    desc.includes('QC ') ||
+    desc.includes('COMANDO') ||
+    desc.includes('PAINEL ELETRICO') ||
+    cat.includes('QUADRO') ||
+    cat.includes('COMANDO')
+  ) {
+    return 'quadro_comando';
+  }
+
+  // 8. Ancoras: se contiver ANCORA ou código 021. / 090.
+  if (desc.includes('ANCORA') || cat.includes('ANCORA') || cod.startsWith('021.') || cod.startsWith('090.')) {
+    return 'ancora';
+  }
+
+  // 9. Vai vem: se contiver VAI VEM ou VAI-VEM ou código iniciar com 011.
+  if (
+    desc.includes('VAI VEM') ||
+    desc.includes('VAI-VEM') ||
+    desc.includes('VAIVEM') ||
+    cod.startsWith('011.') ||
+    cat.includes('VAI VEM') ||
+    cat.includes('VAI-VEM')
+  ) {
+    return 'porta_vai_vem';
+  }
+
+  // 10. Portas Giratória: se contiver PT GIR ou PORTA GIR ou código iniciar com 001. ou 003. (e não começar com BATENTE ou FOLHA)
+  const isGir =
+    (desc.includes('PT GIR') ||
+      desc.includes('PORTA GIR') ||
+      desc.includes('PORTA DE GIRO') ||
+      (desc.includes('PORTA') && desc.includes('GIRO')) ||
+      cod.startsWith('001.') ||
+      cod.startsWith('003.') ||
+      cat.includes('GIRATORIA') ||
+      cat.includes('GIRO')) &&
+    !desc.startsWith('BATENTE') &&
+    !desc.startsWith('BAT ') &&
+    !desc.startsWith('BAT-') &&
+    !desc.startsWith('FOLHA');
+  if (isGir) {
+    return 'porta_giratoria';
+  }
+
+  // 11. Portas Correr: se contiver PT COR ou PORTA COR ou código iniciar com 005. ou 007. (e não começar com BATENTE, FOLHA ou TRILHO)
+  const isCor =
+    (desc.includes('PT COR') ||
+      desc.includes('PORTA COR') ||
+      desc.includes('PORTA DE CORRER') ||
+      (desc.includes('PORTA') && desc.includes('CORRER')) ||
+      cod.startsWith('005.') ||
+      cod.startsWith('006.') ||
+      cod.startsWith('007.') ||
+      cod.startsWith('008.') ||
+      cod.startsWith('029.') ||
+      cat.includes('CORRER')) &&
+    !desc.startsWith('BATENTE') &&
+    !desc.startsWith('BAT ') &&
+    !desc.startsWith('BAT-') &&
+    !desc.startsWith('FOLHA') &&
+    !desc.startsWith('TRILHO');
+  if (isCor) {
+    return 'porta_correr';
+  }
+
+  if (desc.startsWith('PT ') || desc.startsWith('PORTA ')) {
+    return 'porta_giratoria';
+  }
+
+  return 'outros';
+}
+
+function isDataEntregaAtrasada(dataStr) {
+  if (!dataStr || typeof dataStr !== 'string') return false;
+  const trimmed = dataStr.trim();
+  if (!trimmed || trimmed === '—' || trimmed === '-') return false;
+
+  let year, month, day;
+
+  // DD/MM/YYYY ou DD/MM/YY
+  const dmyMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (dmyMatch) {
+    day = parseInt(dmyMatch[1], 10);
+    month = parseInt(dmyMatch[2], 10) - 1;
+    let y = parseInt(dmyMatch[3], 10);
+    year = y < 100 ? (y < 70 ? 2000 + y : 1900 + y) : y;
+  } else {
+    // YYYY-MM-DD
+    const ymdMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (ymdMatch) {
+      year = parseInt(ymdMatch[1], 10);
+      month = parseInt(ymdMatch[2], 10) - 1;
+      day = parseInt(ymdMatch[3], 10);
+    } else {
+      const parsedDate = new Date(trimmed);
+      if (!isNaN(parsedDate.getTime())) {
+        year = parsedDate.getFullYear();
+        month = parsedDate.getMonth();
+        day = parsedDate.getDate();
+      } else {
+        return false;
+      }
+    }
+  }
+
+  // Considera atrasada após o término do dia da entrega (23:59:59.999 local)
+  const deliveryDateEnd = new Date(year, month, day, 23, 59, 59, 999).getTime();
+  return deliveryDateEnd < Date.now();
+}
+
+function calcularStatusMacroAoIniciarEtapa(opRow) {
+  if (opRow?.status_macro === 'atrasada') {
+    return 'atrasada';
+  }
+  return 'produzindo_hoje';
+}
+
+function calcularStatusMacroAoConcluirEtapa(opRow, isUltimaEtapa, proximaEtapa) {
+  const cat = opRow?.categoria || classificarCategoriaOP(opRow);
+  const desc = String(opRow?.descricao || opRow?.produto || '').toUpperCase();
+  const isPorta = ['porta_giratoria', 'porta_correr', 'porta_vai_vem', 'porta_office'].includes(cat) ||
+    desc.startsWith('PT ') || desc.startsWith('PORTA ');
+
+  if (isUltimaEtapa) {
+    if (isPorta) {
+      return 'falta_embalar';
+    } else {
+      return 'embalada';
+    }
+  }
+
+  if (proximaEtapa && /inje/i.test(proximaEtapa)) {
+    return 'falta_injetar';
+  }
+
+  return 'produzindo_hoje';
+}
+
+// =============================================================
 // ENCERRAMENTO AUTOMÁTICO DE LOTES E SANEAMENTO DE FANTASMAS
 // =============================================================
 function encerrarLoteSeEtapaConcluida(database, opNumero, setorOrEtapa) {
@@ -1007,7 +1260,7 @@ function encerrarLoteSeEtapaConcluida(database, opNumero, setorOrEtapa) {
         }
       }
 
-      // Sincroniza ordens.etapas
+      // Sincroniza ordens.etapas e status_macro
       if (parsedEtapas && typeof parsedEtapas === 'object' && !Array.isArray(parsedEtapas)) {
         const stepKeys = Object.keys(parsedEtapas);
         const idx = stepKeys.findIndex(k => normalizarTextoSql(k) === normAlvo);
@@ -1022,40 +1275,53 @@ function encerrarLoteSeEtapaConcluida(database, opNumero, setorOrEtapa) {
           };
 
           let novoStatus = opRow.status;
+          let isUltimaEtapa = false;
+          let proximaEtapa = null;
+
           if (idx < stepKeys.length - 1) {
-            const prox = stepKeys[idx + 1];
-            novoStatus = `Aguardando Início em: ${prox}`;
-            if (parsedEtapas[prox]) {
-              parsedEtapas[prox].status = parsedEtapas[prox].status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE';
-              parsedEtapas[prox].total = totalQtd;
+            proximaEtapa = stepKeys[idx + 1];
+            novoStatus = `Aguardando Início em: ${proximaEtapa}`;
+            if (parsedEtapas[proximaEtapa]) {
+              parsedEtapas[proximaEtapa].status = parsedEtapas[proximaEtapa].status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE';
+              parsedEtapas[proximaEtapa].total = totalQtd;
             }
           } else {
+            isUltimaEtapa = true;
             novoStatus = 'FINALIZADA';
           }
+
+          const novoMacro = calcularStatusMacroAoConcluirEtapa(opRow, isUltimaEtapa, proximaEtapa);
 
           database.prepare(`
             UPDATE ordens SET
               status = ?,
+              status_macro = COALESCE(?, status_macro),
               etapas = ?,
               atualizadoEm = ?
             WHERE id = ? OR numero = ?
-          `).run(novoStatus, JSON.stringify(parsedEtapas), Date.now(), opRow.id, opRow.numero);
+          `).run(novoStatus, novoMacro, JSON.stringify(parsedEtapas), Date.now(), opRow.id, opRow.numero);
         }
       } else if (Array.isArray(parsedEtapas)) {
         const idx = parsedEtapas.findIndex(k => normalizarTextoSql(k) === normAlvo);
         if (idx !== -1) {
           let novoStatus = opRow.status;
+          let isUltimaEtapa = false;
+          let proximaEtapa = null;
           if (idx < parsedEtapas.length - 1) {
-            novoStatus = `Aguardando Início em: ${parsedEtapas[idx + 1]}`;
+            proximaEtapa = parsedEtapas[idx + 1];
+            novoStatus = `Aguardando Início em: ${proximaEtapa}`;
           } else {
+            isUltimaEtapa = true;
             novoStatus = 'FINALIZADA';
           }
+          const novoMacro = calcularStatusMacroAoConcluirEtapa(opRow, isUltimaEtapa, proximaEtapa);
           database.prepare(`
             UPDATE ordens SET
               status = ?,
+              status_macro = COALESCE(?, status_macro),
               atualizadoEm = ?
             WHERE id = ? OR numero = ?
-          `).run(novoStatus, Date.now(), opRow.id, opRow.numero);
+          `).run(novoStatus, novoMacro, Date.now(), opRow.id, opRow.numero);
         }
       }
       return true;
@@ -1868,14 +2134,66 @@ try {
   console.warn('[SQLite Migration] Erro na varredura retroativa de rotas:', e);
 }
 
+// Sincronização inicial retroativa de categoria e status_macro para ordens existentes
+try {
+  const ordensExistentes = db.prepare("SELECT id, numero, codigo, descricao, dados, categoria, status_macro, status, status_nomus, statusNomus, data_entrega, prazoEntrega, quantidadeFisica FROM ordens").all();
+  if (ordensExistentes && ordensExistentes.length > 0) {
+    const updStmt = db.prepare(`
+      UPDATE ordens SET
+        categoria = ?,
+        status_macro = ?
+      WHERE id = ?
+    `);
+    const migTx = db.transaction((list) => {
+      for (const o of list) {
+        const cat = o.categoria && o.categoria !== '' && o.categoria !== 'outros'
+          ? o.categoria
+          : classificarCategoriaOP(o);
+        
+        let macro = o.status_macro;
+        if (!macro || macro === '') {
+          const statusNomus = o.status_nomus || o.statusNomus || '';
+          const dtEntrega = o.data_entrega || o.prazoEntrega || '';
+          if (o.status === 'FINALIZADA' || o.status === 'CONCLUIDA' || /conclu/i.test(statusNomus)) {
+            macro = 'embalada';
+          } else if (o.status === 'EM_PRODUCAO') {
+            macro = 'produzindo_hoje';
+          } else if (isDataEntregaAtrasada(dtEntrega)) {
+            macro = 'atrasada';
+          } else if (/requisi/i.test(statusNomus)) {
+            macro = /total/i.test(statusNomus) ? 'req_total' : 'req_parcial';
+          } else if (/planej/i.test(statusNomus)) {
+            macro = 'planejada';
+          } else {
+            macro = 'liberada';
+          }
+        }
+        updStmt.run(cat, macro, o.id);
+      }
+    });
+    migTx(ordensExistentes);
+    console.log(`[SQLite Migration] Sincronização de categoria e status_macro concluída em ${ordensExistentes.length} ordens.`);
+  }
+} catch (migErr) {
+  console.warn('[SQLite Migration Categoria/Macro] Erro:', migErr.message);
+}
+
 // Helper para formatar ordens
 function obterTodasOrdens() {
   return db.prepare('SELECT * FROM ordens').all().map(r => {
     let extra = {};
     try { if (r.dados) extra = JSON.parse(r.dados); } catch {}
+    const cat = r.categoria || extra.categoria || classificarCategoriaOP(r);
+    const macro = r.status_macro || extra.status_macro || (r.status === 'FINALIZADA' || r.status === 'CONCLUIDA' ? 'embalada' : 'liberada');
     return {
       ...extra,
       ...r,
+      categoria: cat,
+      status_macro: macro,
+      motivo_atraso: r.motivo_atraso || extra.motivo_atraso || '',
+      favorito: r.favorito !== undefined ? r.favorito : (extra.favorito ? 1 : 0),
+      pausada: r.pausada !== undefined ? r.pausada : (extra.pausada ? 1 : 0),
+      prioridade: r.prioridade || extra.prioridade || 'media',
       requerLaser: Boolean(r.requerLaser || r.requer_laser || extra.requerLaser || extra.requer_laser),
       requer_laser: Boolean(r.requerLaser || r.requer_laser || extra.requerLaser || extra.requer_laser),
       requerRouter: Boolean(r.requerRouter || r.requer_router || r.encaminhar_router || extra.requerRouter || extra.requer_router),
@@ -2465,9 +2783,17 @@ app.post('/api/ordens', (req, res) => {
   // UPSERT inteligente com ON CONFLICT(numero)
   const stmt = db.prepare(`
     INSERT INTO ordens (
-      id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica, requerLaser, requer_laser, requerRouter, requer_router, encaminhar_router, criadoEm, atualizadoEm
+      id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica,
+      requerLaser, requer_laser, requerRouter, requer_router, encaminhar_router,
+      status_macro, categoria, motivo_atraso, favorito, pausada, prioridade,
+      data_entrega, prazoEntrega, status_nomus, statusNomus,
+      criadoEm, atualizadoEm
     ) VALUES (
-      @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica, @requerLaser, @requer_laser, @requerRouter, @requer_router, @encaminhar_router, @criadoEm, @atualizadoEm
+      @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica,
+      @requerLaser, @requer_laser, @requerRouter, @requer_router, @encaminhar_router,
+      @status_macro, @categoria, @motivo_atraso, @favorito, @pausada, @prioridade,
+      @data_entrega, @prazoEntrega, @status_nomus, @statusNomus,
+      @criadoEm, @atualizadoEm
     )
     ON CONFLICT(numero) DO UPDATE SET
       id = excluded.id,
@@ -2517,6 +2843,28 @@ app.post('/api/ordens', (req, res) => {
       requerRouter = CASE WHEN excluded.requerRouter = 1 THEN 1 ELSE ordens.requerRouter END,
       requer_router = CASE WHEN excluded.requer_router = 1 THEN 1 ELSE ordens.requer_router END,
       encaminhar_router = CASE WHEN excluded.encaminhar_router = 1 THEN 1 ELSE ordens.encaminhar_router END,
+      status_macro = CASE
+        WHEN excluded.status_macro = 'embalada' THEN 'embalada'
+        WHEN ordens.status_macro IN ('embalada', 'falta_embalar', 'falta_injetar', 'produzindo_hoje') THEN ordens.status_macro
+        WHEN excluded.status_macro = 'atrasada' THEN 'atrasada'
+        WHEN ordens.status_macro IS NOT NULL AND ordens.status_macro != '' THEN ordens.status_macro
+        ELSE excluded.status_macro
+      END,
+      categoria = CASE
+        WHEN ordens.categoria IS NOT NULL AND ordens.categoria != '' AND ordens.categoria != 'outros' THEN ordens.categoria
+        ELSE excluded.categoria
+      END,
+      motivo_atraso = CASE
+        WHEN ordens.motivo_atraso IS NOT NULL AND ordens.motivo_atraso != '' THEN ordens.motivo_atraso
+        ELSE excluded.motivo_atraso
+      END,
+      favorito = COALESCE(ordens.favorito, excluded.favorito, 0),
+      pausada = COALESCE(ordens.pausada, excluded.pausada, 0),
+      prioridade = COALESCE(ordens.prioridade, excluded.prioridade, 'media'),
+      data_entrega = CASE WHEN excluded.data_entrega != '' THEN excluded.data_entrega ELSE ordens.data_entrega END,
+      prazoEntrega = CASE WHEN excluded.prazoEntrega != '' THEN excluded.prazoEntrega ELSE ordens.prazoEntrega END,
+      status_nomus = CASE WHEN excluded.status_nomus != '' THEN excluded.status_nomus ELSE ordens.status_nomus END,
+      statusNomus = CASE WHEN excluded.statusNomus != '' THEN excluded.statusNomus ELSE ordens.statusNomus END,
       status = CASE 
         WHEN excluded.status = 'FINALIZADA' OR excluded.status = 'CONCLUIDA' THEN excluded.status
         WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
@@ -2620,6 +2968,19 @@ app.post('/api/ordens', (req, res) => {
         if (cleanId && !catalogoPorNumeroOp.has(cleanId)) catalogoPorNumeroOp.set(cleanId, descItemFinal);
       }
 
+      const catItem = classificarCategoriaOP(item);
+      const dataEntregaItem = item.data_entrega || item.prazoEntrega || '';
+      let macroItem = 'liberada';
+      if ((qtdProd >= qtdFis && qtdFis > 0) || statusNomusRaw.includes('conclu')) {
+        macroItem = 'embalada';
+      } else if (isDataEntregaAtrasada(dataEntregaItem)) {
+        macroItem = 'atrasada';
+      } else if (statusNomusRaw.includes('requisi')) {
+        macroItem = statusNomusRaw.includes('total') ? 'req_total' : 'req_parcial';
+      } else if (statusNomusRaw.includes('planej')) {
+        macroItem = 'planejada';
+      }
+
       stmt.run({
         id: formattedNum,
         numero: formattedNum,
@@ -2635,6 +2996,16 @@ app.post('/api/ordens', (req, res) => {
         requerRouter: routerVal,
         requer_router: routerVal,
         encaminhar_router: routerVal,
+        status_macro: macroItem,
+        categoria: catItem,
+        motivo_atraso: item.motivo_atraso || '',
+        favorito: item.favorito ? 1 : 0,
+        pausada: item.pausada ? 1 : 0,
+        prioridade: item.prioridade || 'media',
+        data_entrega: dataEntregaItem,
+        prazoEntrega: dataEntregaItem,
+        status_nomus: item.status_nomus || item.statusNomus || '',
+        statusNomus: item.status_nomus || item.statusNomus || '',
         criadoEm: Number(item.criadoEm || Date.now()),
         atualizadoEm: Date.now()
       });
@@ -2649,7 +3020,7 @@ app.post('/api/ordens', (req, res) => {
     const opsToFinalize = activeOps.filter(r => !importedNums.has(r.numero));
     if (opsToFinalize.length > 0) {
       console.log(`[API Ordens] Finalizando automaticamente ${opsToFinalize.length} OPs ausentes do relatório Nomus completo.`);
-      const finStmt = db.prepare("UPDATE ordens SET status = 'FINALIZADA', status_nomus = 'Concluída', statusNomus = 'Concluída', atualizadoEm = ? WHERE numero = ?");
+      const finStmt = db.prepare("UPDATE ordens SET status = 'FINALIZADA', status_nomus = 'Concluída', statusNomus = 'Concluída', status_macro = 'embalada', atualizadoEm = ? WHERE numero = ?");
       const finTx = db.transaction((list) => {
         const nowTs = Date.now();
         for (const row of list) {
@@ -2751,11 +3122,13 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
         id, numero, codigo, descricao, cliente, tipoOrdem, status, etapas, quantidadeFisica,
         requerLaser, requer_laser, requerRouter, requer_router, encaminhar_router,
         lote, observacao, observacoes, data_entrega, prazoEntrega, status_nomus, statusNomus,
+        status_macro, categoria, motivo_atraso, favorito, pausada, prioridade,
         dados, criadoEm, atualizadoEm
       ) VALUES (
         @id, @numero, @codigo, @descricao, @cliente, @tipoOrdem, @status, @etapas, @quantidadeFisica,
         @requerLaser, @requer_laser, @requerRouter, @requer_router, @encaminhar_router,
         @lote, @observacao, @observacoes, @data_entrega, @prazoEntrega, @status_nomus, @statusNomus,
+        @status_macro, @categoria, @motivo_atraso, @favorito, @pausada, @prioridade,
         @dados, @criadoEm, @atualizadoEm
       )
       ON CONFLICT(numero) DO UPDATE SET
@@ -2807,6 +3180,24 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
         prazoEntrega = CASE WHEN excluded.prazoEntrega != '' THEN excluded.prazoEntrega ELSE ordens.prazoEntrega END,
         status_nomus = CASE WHEN excluded.status_nomus != '' THEN excluded.status_nomus ELSE ordens.status_nomus END,
         statusNomus = CASE WHEN excluded.statusNomus != '' THEN excluded.statusNomus ELSE ordens.statusNomus END,
+        status_macro = CASE
+          WHEN excluded.status_macro = 'embalada' THEN 'embalada'
+          WHEN ordens.status_macro IN ('embalada', 'falta_embalar', 'falta_injetar', 'produzindo_hoje') THEN ordens.status_macro
+          WHEN excluded.status_macro = 'atrasada' THEN 'atrasada'
+          WHEN ordens.status_macro IS NOT NULL AND ordens.status_macro != '' THEN ordens.status_macro
+          ELSE excluded.status_macro
+        END,
+        categoria = CASE
+          WHEN ordens.categoria IS NOT NULL AND ordens.categoria != '' AND ordens.categoria != 'outros' THEN ordens.categoria
+          ELSE excluded.categoria
+        END,
+        motivo_atraso = CASE
+          WHEN ordens.motivo_atraso IS NOT NULL AND ordens.motivo_atraso != '' THEN ordens.motivo_atraso
+          ELSE excluded.motivo_atraso
+        END,
+        favorito = COALESCE(ordens.favorito, excluded.favorito, 0),
+        pausada = COALESCE(ordens.pausada, excluded.pausada, 0),
+        prioridade = COALESCE(ordens.prioridade, excluded.prioridade, 'media'),
         dados = excluded.dados,
         quantidadeFisica = CASE 
           WHEN ordens.status = 'pendente' OR ordens.status LIKE 'Aguardando Início%' OR ordens.status = 'Liberada' OR ordens.status = 'LIBERADA' OR ordens.status IS NULL 
@@ -2896,6 +3287,19 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
           statusNomusFinal = 'Concluída';
         }
 
+        const catItem = classificarCategoriaOP(op);
+        const dataEntregaItem = op.data_entrega || op.prazoEntrega || '';
+        let macroItem = 'liberada';
+        if ((qtdProd >= qtdFis && qtdFis > 0) || statusNomusRaw.includes('conclu')) {
+          macroItem = 'embalada';
+        } else if (isDataEntregaAtrasada(dataEntregaItem)) {
+          macroItem = 'atrasada';
+        } else if (statusNomusRaw.includes('requisi')) {
+          macroItem = statusNomusRaw.includes('total') ? 'req_total' : 'req_parcial';
+        } else if (statusNomusRaw.includes('planej')) {
+          macroItem = 'planejada';
+        }
+
         upsertStmt.run({
           id: canonicalNum,
           numero: canonicalNum,
@@ -2911,11 +3315,17 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
           requerRouter: op.requerRouter ? 1 : 0,
           requer_router: op.requerRouter ? 1 : 0,
           encaminhar_router: op.requerRouter ? 1 : 0,
+          status_macro: macroItem,
+          categoria: catItem,
+          motivo_atraso: op.motivo_atraso || '',
+          favorito: op.favorito ? 1 : 0,
+          pausada: op.pausada ? 1 : 0,
+          prioridade: op.prioridade || 'media',
           lote: op.lote || '—',
           observacao: op.observacao || op.observacoes || '',
           observacoes: op.observacoes || op.observacao || '',
-          data_entrega: op.data_entrega || op.prazoEntrega || '',
-          prazoEntrega: op.prazoEntrega || op.data_entrega || '',
+          data_entrega: dataEntregaItem,
+          prazoEntrega: dataEntregaItem,
           status_nomus: statusNomusFinal,
           statusNomus: statusNomusFinal,
           dados: JSON.stringify(op),
@@ -2936,7 +3346,7 @@ app.post(['/api/importar-nomus-auto', '/api/sync-ops'], (req, res) => {
       const opsToFinalize = activeOps.filter(r => !importedNums.has(r.numero));
       if (opsToFinalize.length > 0) {
         console.log(`[Nomus Auto] Finalizando automaticamente ${opsToFinalize.length} OPs ausentes do relatório Nomus completo.`);
-        const finStmt = db.prepare("UPDATE ordens SET status = 'FINALIZADA', status_nomus = 'Concluída', statusNomus = 'Concluída', atualizadoEm = ? WHERE numero = ?");
+        const finStmt = db.prepare("UPDATE ordens SET status = 'FINALIZADA', status_nomus = 'Concluída', statusNomus = 'Concluída', status_macro = 'embalada', atualizadoEm = ? WHERE numero = ?");
         const finTx = db.transaction((list) => {
           const nowTs = Date.now();
           for (const row of list) {
@@ -3186,9 +3596,12 @@ app.post(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, r
       }
     } catch {}
 
+    const novoStatusMacro = calcularStatusMacroAoIniciarEtapa(opRow);
+
     db.prepare(`
       UPDATE ordens SET
         status = 'EM_PRODUCAO',
+        status_macro = COALESCE(?, status_macro),
         etapas = ?,
         quantidadeFisica = ?,
         requerRouter = COALESCE(?, requerRouter),
@@ -3196,7 +3609,7 @@ app.post(['/api/ordens/:id/iniciar-etapa', '/api/ordens/iniciar-etapa'], (req, r
         encaminhar_router = COALESCE(?, encaminhar_router),
         atualizadoEm = ?
       WHERE id = ? OR id = ? OR numero = ? OR numero = ?
-    `).run(etapasAtualizadas, qtdFisicaInt, routerVal, routerVal, routerVal, nowMs, id, cleanId, formatId, cleanId);
+    `).run(novoStatusMacro, etapasAtualizadas, qtdFisicaInt, routerVal, routerVal, routerVal, nowMs, id, cleanId, formatId, cleanId);
 
     // Se houver apontamento em andamento desta OP, atualiza a quantidade_lote
     try {
@@ -3270,12 +3683,16 @@ app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req,
     let novoStatus = updatedRow.status;
     const nowMs = Date.now();
 
+    let isUltimaEtapa = false;
+    let proximaEtapa = null;
+
     if (Array.isArray(parsed) && etapa) {
       const idx = parsed.findIndex(e => String(e).toLowerCase() === String(etapa).toLowerCase());
       if (idx !== -1 && idx < parsed.length - 1) {
-        const prox = parsed[idx + 1];
-        novoStatus = `Aguardando Início em: ${prox}`;
+        proximaEtapa = parsed[idx + 1];
+        novoStatus = `Aguardando Início em: ${proximaEtapa}`;
       } else if (idx === parsed.length - 1) {
+        isUltimaEtapa = true;
         novoStatus = 'FINALIZADA';
       }
     } else if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -3301,27 +3718,31 @@ app.post(['/api/ordens/:id/concluir-etapa', '/api/ordens/concluir-etapa'], (req,
         };
 
         if (idx < stepKeys.length - 1) {
-          const prox = stepKeys[idx + 1];
-          novoStatus = `Aguardando Início em: ${prox}`;
-          if (parsed[prox]) {
-            parsed[prox].status = parsed[prox].status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE';
-            parsed[prox].total = qtdFisicaInt;
+          proximaEtapa = stepKeys[idx + 1];
+          novoStatus = `Aguardando Início em: ${proximaEtapa}`;
+          if (parsed[proximaEtapa]) {
+            parsed[proximaEtapa].status = parsed[proximaEtapa].status === 'EM_PRODUCAO' ? 'EM_PRODUCAO' : 'PENDENTE';
+            parsed[proximaEtapa].total = qtdFisicaInt;
           }
         } else {
+          isUltimaEtapa = true;
           novoStatus = 'FINALIZADA';
         }
       }
     }
 
+    const novoStatusMacro = calcularStatusMacroAoConcluirEtapa(updatedRow, isUltimaEtapa, proximaEtapa);
+
     const etapasStr = typeof parsed === 'string' ? parsed : JSON.stringify(parsed);
     db.prepare(`
       UPDATE ordens SET
         status = ?,
+        status_macro = COALESCE(?, status_macro),
         etapas = ?,
         quantidadeFisica = ?,
         atualizadoEm = ?
       WHERE id = ? OR numero = ?
-    `).run(novoStatus, etapasStr, qtdFisicaInt, nowMs, opRow.id, opRow.numero);
+    `).run(novoStatus, novoStatusMacro, etapasStr, qtdFisicaInt, nowMs, opRow.id, opRow.numero);
 
     updatedRow.status = novoStatus;
     updatedRow.quantidadeFisica = qtdFisicaInt;
@@ -3902,11 +4323,13 @@ app.post(['/api/apontamentos', '/api/apontamentos/iniciar'], (req, res) => {
   const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?').get(formatOp, cleanOp, formatOp, cleanOp);
   if (opRow) {
     let novoStatus = opRow.status;
+    let novoStatusMacro = opRow.status_macro;
     const hasRouterInApt = apt.requerRouter !== undefined || apt.requer_router !== undefined || apt.encaminharRouter !== undefined || req.body.requerRouter !== undefined || req.body.requer_router !== undefined || req.body.encaminharRouter !== undefined;
     const routerValFromApt = hasRouterInApt ? (Boolean(apt.requerRouter || apt.requer_router || apt.encaminharRouter || req.body.requerRouter || req.body.requer_router || req.body.encaminharRouter) ? 1 : 0) : null;
 
     if (apt.status === 'EM_ANDAMENTO') {
       novoStatus = 'EM_PRODUCAO';
+      novoStatusMacro = calcularStatusMacroAoIniciarEtapa(opRow);
       if (routerValFromApt !== null) {
         db.prepare(`
           UPDATE ordens SET requerRouter = ?, requer_router = ?, encaminhar_router = ?, atualizadoEm = ?
@@ -3930,9 +4353,9 @@ app.post(['/api/apontamentos', '/api/apontamentos/iniciar'], (req, res) => {
       }
     }
     db.prepare(`
-      UPDATE ordens SET status = COALESCE(?, status), atualizadoEm = ?
+      UPDATE ordens SET status = COALESCE(?, status), status_macro = COALESCE(?, status_macro), atualizadoEm = ?
       WHERE id = ? OR id = ? OR numero = ? OR numero = ?
-    `).run(novoStatus, nowMs, formatOp, cleanOp, formatOp, cleanOp);
+    `).run(novoStatus, novoStatusMacro, nowMs, formatOp, cleanOp, formatOp, cleanOp);
   }
 
   // Se o apontamento foi FINALIZADO, verifica se todas as peças da etapa foram concluídas para encerrar lotes órfãos
@@ -4073,6 +4496,285 @@ app.delete('/api/ordens', (req, res) => {
   io.emit('ordens_atualizadas', []);
   io.emit('apontamentos_atualizados', []);
   res.json({ success: true });
+});
+
+// =============================================================
+// ENDPOINTS REST: STATUS MACRO PCP E CHAT DE MENSAGENS OP
+// =============================================================
+
+// Atualização de status macro e flags gerenciais
+app.patch(['/api/ordens/:numero/status-macro', '/api/ordens/:numero/status_macro'], (req, res) => {
+  try {
+    const { numero } = req.params;
+    if (!numero) return res.status(400).json({ error: 'Número da ordem obrigatório' });
+
+    const cleanId = normalizarIdOP(numero);
+    const formatId = formatarNumeroOP(cleanId);
+
+    const opRow = db.prepare('SELECT * FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+      .get(numero, cleanId, formatId, cleanId);
+    if (!opRow) return res.status(404).json({ error: 'Ordem não encontrada' });
+
+    const { status_macro, motivo_atraso, favorito, pausada, prioridade, categoria } = req.body;
+
+    const novoStatusMacro = status_macro !== undefined ? status_macro : opRow.status_macro;
+    const novoMotivo = motivo_atraso !== undefined ? motivo_atraso : (opRow.motivo_atraso || '');
+    const novoFavorito = favorito !== undefined ? (favorito ? 1 : 0) : (opRow.favorito || 0);
+    const novaPausada = pausada !== undefined ? (pausada ? 1 : 0) : (opRow.pausada || 0);
+    const novaPrioridade = prioridade !== undefined ? prioridade : (opRow.prioridade || 'media');
+    const novaCategoria = categoria !== undefined ? categoria : (opRow.categoria || classificarCategoriaOP(opRow));
+
+    let novoStatus = opRow.status;
+    if (novoStatusMacro === 'embalada' && novoStatus !== 'FINALIZADA' && novoStatus !== 'CONCLUIDA') {
+      novoStatus = 'FINALIZADA';
+    }
+
+    const nowMs = Date.now();
+    db.prepare(`
+      UPDATE ordens SET
+        status_macro = ?,
+        motivo_atraso = ?,
+        favorito = ?,
+        pausada = ?,
+        prioridade = ?,
+        categoria = ?,
+        status = ?,
+        atualizadoEm = ?
+      WHERE id = ? OR id = ? OR numero = ? OR numero = ?
+    `).run(novoStatusMacro, novoMotivo, novoFavorito, novaPausada, novaPrioridade, novaCategoria, novoStatus, nowMs, numero, cleanId, formatId, cleanId);
+
+    const todas = obterTodasOrdens();
+    io.emit('ordens_atualizadas', todas);
+
+    const atualizada = todas.find(o => o.numero === formatId || o.id === formatId || o.id === cleanId);
+    return res.json({
+      success: true,
+      ordem: atualizada
+    });
+  } catch (err) {
+    console.error('[/api/ordens/:numero/status-macro] Erro:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// Listagem de mensagens de chat por OP
+app.get('/api/mensagens', (req, res) => {
+  try {
+    const { order_numero, op_numero, op, remetente, arquivada } = req.query;
+    let query = 'SELECT * FROM mensagens_op WHERE 1=1';
+    const params = [];
+
+    const num = order_numero || op_numero || op;
+    if (num) {
+      const clean = normalizarIdOP(num);
+      const fmt = formatarNumeroOP(clean);
+      query += ' AND (order_numero = ? OR order_numero = ? OR order_id = ?)';
+      params.push(fmt, clean, clean);
+    }
+
+    if (remetente) {
+      query += ' AND remetente = ?';
+      params.push(remetente);
+    }
+
+    if (arquivada !== undefined) {
+      query += ' AND arquivada = ?';
+      params.push(Number(arquivada));
+    }
+
+    query += ' ORDER BY timestamp ASC';
+    const rows = db.prepare(query).all(...params).map(r => ({
+      ...r,
+      respostas: typeof r.respostas_json === 'string' ? JSON.parse(r.respostas_json || '[]') : (r.respostas_json || [])
+    }));
+
+    res.json(rows);
+  } catch (err) {
+    console.error('[/api/mensagens GET] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Envio de mensagem de OP
+app.post('/api/mensagens', (req, res) => {
+  try {
+    const { order_numero, op_numero, numero, texto, remetente, order_desc, order_id } = req.body;
+    const num = order_numero || op_numero || numero;
+    if (!num || !texto) {
+      return res.status(400).json({ error: 'order_numero e texto são obrigatórios' });
+    }
+
+    const clean = normalizarIdOP(num);
+    const fmt = formatarNumeroOP(clean);
+    const opRow = db.prepare('SELECT id, numero, descricao, dados FROM ordens WHERE id = ? OR id = ? OR numero = ? OR numero = ?')
+      .get(num, clean, fmt, clean);
+
+    const desc = order_desc || (opRow ? opRow.descricao : '');
+    const idOp = order_id || (opRow ? opRow.id : fmt);
+    const rem = remetente === 'producao' ? 'producao' : 'pcp';
+    const nowMs = Number(req.body.timestamp) || Date.now();
+    const msgId = req.body.id || `msg-${nowMs}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const lidaPcp = rem === 'pcp' ? 1 : 0;
+    const lidaProd = rem === 'producao' ? 1 : 0;
+
+    const stmt = db.prepare(`
+      INSERT INTO mensagens_op (
+        id, order_id, order_numero, order_desc, remetente, texto, timestamp, lida_pcp, lida_producao, arquivada, respostas_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '[]')
+    `);
+    stmt.run(msgId, idOp, fmt, desc, rem, String(texto).trim(), nowMs, lidaPcp, lidaProd);
+
+    // Atualiza ultimo_aviso na ordem se existir para compatibilidade imediata
+    try {
+      if (opRow) {
+        let dadosObj = {};
+        try { if (opRow.dados) dadosObj = JSON.parse(opRow.dados); } catch {}
+        const agoraStr = new Date(nowMs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const autorLabel = rem === 'pcp' ? 'PCP' : 'Fábrica';
+        dadosObj.ultimo_aviso = {
+          autor: autorLabel,
+          texto: String(texto).trim(),
+          data_hora: agoraStr
+        };
+        const existingMsgs = dadosObj.mensagens || [];
+        dadosObj.mensagens = [...existingMsgs, {
+          id: msgId,
+          autor: autorLabel,
+          papel: rem === 'pcp' ? 'PCP' : 'Produção',
+          texto: String(texto).trim(),
+          data_hora: agoraStr
+        }];
+        db.prepare('UPDATE ordens SET dados = ?, atualizadoEm = ? WHERE id = ? OR numero = ?')
+          .run(JSON.stringify(dadosObj), nowMs, opRow.id, opRow.numero);
+      }
+    } catch {}
+
+    const newMsg = {
+      id: msgId,
+      order_id: idOp,
+      order_numero: fmt,
+      order_desc: desc,
+      remetente: rem,
+      texto: String(texto).trim(),
+      timestamp: nowMs,
+      lida_pcp: lidaPcp,
+      lida_producao: lidaProd,
+      arquivada: 0,
+      respostas: []
+    };
+
+    io.emit('nova_mensagem_op', newMsg);
+    io.emit('mensagens_atualizadas', { op_numero: fmt, mensagem: newMsg });
+
+    const todas = obterTodasOrdens();
+    io.emit('ordens_atualizadas', todas);
+
+    res.status(201).json({ success: true, mensagem: newMsg });
+  } catch (err) {
+    console.error('[/api/mensagens POST] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Responder mensagem de OP
+app.post('/api/mensagens/:id/responder', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { remetente, texto, autor } = req.body;
+    if (!texto) return res.status(400).json({ error: 'Texto da resposta obrigatório' });
+
+    const msgRow = db.prepare('SELECT * FROM mensagens_op WHERE id = ?').get(id);
+    if (!msgRow) return res.status(404).json({ error: 'Mensagem não encontrada' });
+
+    let respostas = [];
+    try { respostas = JSON.parse(msgRow.respostas_json || '[]'); } catch {}
+
+    const nowMs = Date.now();
+    const rem = remetente === 'pcp' ? 'pcp' : 'producao';
+    const novaResposta = {
+      id: `resp-${nowMs}-${Math.random().toString(36).slice(2, 6)}`,
+      remetente: rem,
+      autor: autor || (rem === 'pcp' ? 'PCP' : 'Fábrica'),
+      texto: String(texto).trim(),
+      timestamp: nowMs
+    };
+
+    respostas.push(novaResposta);
+
+    const lidaPcp = rem === 'pcp' ? 1 : 0;
+    const lidaProd = rem === 'producao' ? 1 : 0;
+
+    db.prepare(`
+      UPDATE mensagens_op SET
+        respostas_json = ?,
+        lida_pcp = CASE WHEN ? = 1 THEN 1 ELSE lida_pcp END,
+        lida_producao = CASE WHEN ? = 1 THEN 1 ELSE lida_producao END
+      WHERE id = ?
+    `).run(JSON.stringify(respostas), lidaPcp, lidaProd, id);
+
+    const updated = {
+      ...msgRow,
+      lida_pcp: rem === 'pcp' ? 1 : msgRow.lida_pcp,
+      lida_producao: rem === 'producao' ? 1 : msgRow.lida_producao,
+      respostas
+    };
+
+    io.emit('mensagem_op_respondida', { id, resposta: novaResposta, mensagem: updated });
+    io.emit('mensagens_atualizadas', { op_numero: msgRow.order_numero, mensagem: updated });
+
+    res.json({ success: true, resposta: novaResposta, mensagem: updated });
+  } catch (err) {
+    console.error('[/api/mensagens/:id/responder] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Marcar mensagem como lida
+app.patch('/api/mensagens/:id/lida', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { leitor, lida_pcp, lida_producao, arquivada } = req.body;
+
+    const msgRow = db.prepare('SELECT * FROM mensagens_op WHERE id = ?').get(id);
+    if (!msgRow) return res.status(404).json({ error: 'Mensagem não encontrada' });
+
+    let novoLidaPcp = msgRow.lida_pcp;
+    let novoLidaProd = msgRow.lida_producao;
+    let novoArquivada = msgRow.arquivada;
+
+    if (leitor === 'pcp' || lida_pcp !== undefined) {
+      novoLidaPcp = lida_pcp !== undefined ? (lida_pcp ? 1 : 0) : 1;
+    }
+    if (leitor === 'producao' || lida_producao !== undefined) {
+      novoLidaProd = lida_producao !== undefined ? (lida_producao ? 1 : 0) : 1;
+    }
+    if (arquivada !== undefined) {
+      novoArquivada = arquivada ? 1 : 0;
+    }
+
+    db.prepare(`
+      UPDATE mensagens_op SET
+        lida_pcp = ?,
+        lida_producao = ?,
+        arquivada = ?
+      WHERE id = ?
+    `).run(novoLidaPcp, novoLidaProd, novoArquivada, id);
+
+    const updated = {
+      ...msgRow,
+      lida_pcp: novoLidaPcp,
+      lida_producao: novoLidaProd,
+      arquivada: novoArquivada,
+      respostas: typeof msgRow.respostas_json === 'string' ? JSON.parse(msgRow.respostas_json || '[]') : (msgRow.respostas_json || [])
+    };
+
+    io.emit('mensagem_op_lida', updated);
+    res.json({ success: true, mensagem: updated });
+  } catch (err) {
+    console.error('[/api/mensagens/:id/lida] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 io.on('connection', (socket) => {
