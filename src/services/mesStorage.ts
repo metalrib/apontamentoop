@@ -2135,26 +2135,8 @@ export async function startUnit(params: {
     return alreadyActive;
   }
 
-  // 2. Bloqueio de concorrência por operador (encerra apontamento anterior em aberto)
-  if (params.operador) {
-    for (const opKey of Object.keys(tree)) {
-      for (const aptKey of Object.keys(tree[opKey])) {
-        const a = tree[opKey][aptKey];
-        if (a.status === 'EM_ANDAMENTO' && (a.operador === params.operador || a.colaborador === params.operador)) {
-          const endNow = new Date().toISOString();
-          const startMs = new Date(a.horaInicio || a.hora_inicio).getTime();
-          const endMs = new Date(endNow).getTime();
-          const durMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, endMs) : 0;
-          const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
-          a.status = 'FINALIZADO';
-          a.hora_fim = endNow;
-          a.horaFim = endNow;
-          a.duracao_minutos = durMin;
-          a.duracaoMs = durMs;
-        }
-      }
-    }
-  }
+  // 2. Múltiplas unidades/OPs simultâneas liberadas:
+  // Operadores podem executar múltiplas peças/lotes simultaneamente sem encerramento automático das anteriores.
 
   const uniqueId = `apt_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const nowIso = new Date().toISOString();
@@ -2647,26 +2629,8 @@ export async function startBatch(params: StartBatchParams): Promise<Apontamento>
     return existingActiveBatch;
   }
 
-  // 2. Bloqueio de concorrência por operador (encerra apontamento anterior em aberto)
-  if (params.operador) {
-    for (const opKey of Object.keys(tree)) {
-      for (const aptKey of Object.keys(tree[opKey])) {
-        const a = tree[opKey][aptKey];
-        if (a.status === 'EM_ANDAMENTO' && (a.operador === params.operador || a.colaborador === params.operador)) {
-          const endNow = new Date().toISOString();
-          const startMs = new Date(a.horaInicio || a.hora_inicio).getTime();
-          const endMs = new Date(endNow).getTime();
-          const durMs = !isNaN(startMs) ? calcularDuracaoLiquidaMs(startMs, endMs) : 0;
-          const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
-          a.status = 'FINALIZADO';
-          a.hora_fim = endNow;
-          a.horaFim = endNow;
-          a.duracao_minutos = durMin;
-          a.duracaoMs = durMs;
-        }
-      }
-    }
-  }
+  // 2. Múltiplas unidades/OPs simultâneas liberadas:
+  // Operadores podem executar múltiplas peças/lotes simultaneamente sem encerramento automático das anteriores.
 
   const uniqueId = `apt_lote_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
   const nowIso = new Date().toISOString();

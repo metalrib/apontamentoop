@@ -570,6 +570,7 @@ export default function App() {
     if (!currentTerminal) return [];
     const list: ActiveBatchItem[] = [];
     const seenKeys = new Set<string>();
+    const seenStepKeys = new Set<string>();
 
     const activeTermId = Number(currentTerminal.id);
     const activeTermCode = `T${activeTermId}`;
@@ -687,9 +688,11 @@ export default function App() {
               }
             }
 
-            const uniqueKey = `${cleanKey}_${step.toLowerCase()}`;
-            if (!seenKeys.has(uniqueKey)) {
-              seenKeys.add(uniqueKey);
+            // Cada apontamento ativo possui seu próprio card e cronômetro individual
+            const itemKey = apt.id ? String(apt.id) : `${cleanKey}_${step.toLowerCase()}_${apt.operador || ''}_${apt.unidade_numero || 0}`;
+            if (!seenKeys.has(itemKey)) {
+              seenKeys.add(itemKey);
+              seenStepKeys.add(`${cleanKey}_${step.toLowerCase()}`);
               const inicio = apt.hora_inicio || (apt as any).horaInicio || '';
               const inicioMs = inicio ? new Date(inicio).getTime() : (apt.criadoEm || Date.now());
               list.push({
@@ -709,7 +712,7 @@ export default function App() {
       }
     }
 
-    // 2. Vasculhar ordens cujo etapas contenha EM_PRODUCAO no terminal ativo
+    // 2. Vasculhar ordens cujo etapas contenha EM_PRODUCAO no terminal ativo (fallback se não houver apontamento direto)
     for (const opKey of Object.keys(orders)) {
       const ord = orders[opKey];
       if (!ord || !ord.etapas) continue;
@@ -728,9 +731,10 @@ export default function App() {
             const etapaTermId = (etapaData as any).terminal_id || (etapaData as any).terminalId;
             const etapaTermName = (etapaData as any).terminal || (etapaData as any).terminalNome;
             if (belongsToTerminal(etapaNome, etapaTermId, etapaTermName)) {
-              const uniqueKey = `${cleanKey}_${etapaNome.toLowerCase()}`;
-              if (!seenKeys.has(uniqueKey)) {
-                seenKeys.add(uniqueKey);
+              const stepKey = `${cleanKey}_${etapaNome.toLowerCase()}`;
+              if (!seenStepKeys.has(stepKey) && !seenKeys.has(stepKey)) {
+                seenKeys.add(stepKey);
+                seenStepKeys.add(stepKey);
                 const inicio = (etapaData as any).inicio || (etapaData as any).timestampInicio;
                 const inicioMs = inicio ? (typeof inicio === 'string' ? new Date(inicio).getTime() : Number(inicio)) : Date.now();
                 list.push({

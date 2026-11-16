@@ -3752,7 +3752,7 @@ app.get('/api/ordens/:identificador/apontamentos', (req, res) => {
   res.json(rows);
 });
 
-app.post('/api/apontamentos', (req, res) => {
+app.post(['/api/apontamentos', '/api/apontamentos/iniciar'], (req, res) => {
   const apt = req.body;
   if (!apt || !apt.id) return res.status(400).json({ error: 'Dados do apontamento obrigatórios' });
 
@@ -3846,34 +3846,9 @@ app.post('/api/apontamentos', (req, res) => {
       }
     }
 
-    // 3. Bloqueio de concorrência por operador (encerra apontamento anterior em aberto)
-    const opNome = (apt.operador || apt.colaborador || '').trim();
-    if (opNome) {
-      const outroAptOperador = db.prepare(`
-        SELECT * FROM apontamentos 
-        WHERE (operador = ? OR colaborador = ?) 
-          AND status = 'EM_ANDAMENTO' 
-          AND id != ?
-      `).all(opNome, opNome, String(apt.id));
-
-      for (const anterior of outroAptOperador) {
-        const endIso = nowIso;
-        const startMs = new Date(anterior.hora_inicio || anterior.criadoEm || nowMs).getTime();
-        const endMs = new Date(endIso).getTime();
-        const durMs = !isNaN(startMs) && !isNaN(endMs) && endMs >= startMs ? calcularDuracaoLiquidaMs(startMs, endMs) : 60000;
-        const durMin = Math.max(0.1, Number((durMs / 60000).toFixed(1)));
-        db.prepare(`
-          UPDATE apontamentos SET
-            status = 'FINALIZADO',
-            hora_fim = ?,
-            duracao_minutos = ?,
-            duracaoMs = ?
-          WHERE id = ?
-        `).run(endIso, durMin, durMs, anterior.id);
-        console.log(`[Concorrência Operador] Apontamento anterior ${anterior.id} (${anterior.op_numero}) finalizado automaticamente pois ${opNome} iniciou novo lote.`);
-        encerrarLoteSeEtapaConcluida(db, anterior.op_numero, anterior.etapa_rota || anterior.setor);
-      }
-    }
+    // 3. Múltiplas OPs em execução simultânea liberadas:
+    // Operadores em qualquer setor (Router, Corte, Corte Alumínio, Dobra, etc.) podem manter múltiplos lotes ativos.
+    // Lotes anteriores NÃO são finalizados automaticamente ao iniciar uma nova OP.
   }
 
   const stmt = db.prepare(`
