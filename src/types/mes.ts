@@ -248,6 +248,28 @@ export const CODIGOS_ANCORAS_PADRAO = new Set([
   '021.0037', '021.0038', '021.0049'
 ]);
 
+export function isBatente(op: any): boolean {
+  if (!op) return false;
+  const rawDesc = typeof op === 'string' ? op : (op?.descricao || op?.produto || op?.description || '');
+  const desc = rawDesc.toUpperCase().trim();
+  const rawCode = typeof op === 'object' && op ? (op?.codigo || op?.codigoProduto || op?.cod || '') : '';
+  const code = String(rawCode).trim();
+  const cleanCode = code.replace(/\D/g, '');
+
+  if (
+    desc.startsWith('FOLHA') ||
+    (code >= '020.0009' && code <= '020.0031') ||
+    (cleanCode.startsWith('020') && parseInt(cleanCode.slice(3) || '0', 10) >= 9 && parseInt(cleanCode.slice(3) || '0', 10) <= 31)
+  ) {
+    return false;
+  }
+  if (desc.startsWith('BAT ') || desc.startsWith('BAT-') || desc.startsWith('BAT_') || desc.startsWith('BATENTE')) return true;
+  if (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) return true;
+  if (CODIGOS_BATENTES_PADRAO.has(code) || CODIGOS_BATENTES_PADRAO.has(cleanCode) || ['020.0005', '020.0006', '020.0007', '020.0008'].includes(code)) return true;
+  if (cleanCode.startsWith('020') && parseInt(cleanCode.slice(3) || '0', 10) >= 32) return true;
+  return false;
+}
+
 // -------------------------------------------------------------
 // MAPEAMENTO AUTOMÁTICO DE ROTAS POR CÓDIGO E DESCRIÇÃO NOMUS
 // -------------------------------------------------------------
@@ -605,6 +627,7 @@ export interface OpEtapaState {
 }
 
 export interface ProductionOrder {
+  id?: string;
   op_numero: string;              // ex: OP 023010-01 ou 023010-01
   numero?: string;                 // ex: OP 023010-01
   numeroOP?: string;              // alias compatível com Nomus
@@ -631,7 +654,9 @@ export interface ProductionOrder {
   observacoesNomus?: string;      // alias Nomus
   unidade_medida?: string;        // ex: PC ou M²
   data_criacao?: string;
-  criadoEm?: string;
+  criadoEm?: string | number;
+  atualizadoEm?: string | number;
+  numero_normalizado?: string;
   atualizadoPeloPcpEm?: string;
   importadoEm?: string;
   cliente?: string;

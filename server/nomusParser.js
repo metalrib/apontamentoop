@@ -330,6 +330,7 @@ function processarRotaProduto(opOrCode, descArg, tipoOrdemArg) {
   let codRaw = '';
   let desc = '';
   let tipoOrdem = '';
+  const op = typeof opOrCode === 'object' && opOrCode !== null ? opOrCode : {};
 
   if (typeof opOrCode === 'object' && opOrCode !== null) {
     codRaw = String(opOrCode.codigoProduto || opOrCode.codigo || opOrCode.cod || '').trim();

@@ -10,7 +10,8 @@ import {
   isRotaLaserDobra,
   isRotaExclusivaRouter,
   isOfficeDoorCorrer,
-  isOfficeDoorGiro
+  isOfficeDoorGiro,
+  isBatente
 } from '../types/mes';
 import { obterEtapasDaRota } from './routeValidation';
 
@@ -33,12 +34,15 @@ export const formatarNumeroOP = (opNum?: string | null): string => {
   return limpo ? `OP ${limpo}` : '';
 };
 
-export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string; quantidadeFisica?: number; quantidade?: number }): {
+export function processarRotaProduto(op: { codigo?: string; codigoProduto?: string; cod?: string; descricao?: string; produto?: string; quantidadeFisica?: number; quantidade?: number; tipoOrdem?: string }): {
   familia: string;
   tipoMontagem: string;
+  tipoOrdem?: string;
   rota: string[];
   etapas?: any;
   statusAtual: string;
+  requerLaser?: boolean;
+  requerRouter?: boolean;
 } {
   const codigoProduto = String(op?.codigoProduto || op?.codigo || (op as any)?.cod || '').trim();
   const codRaw = codigoProduto;
@@ -59,7 +63,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       familia: 'Laser CNC',
       tipoMontagem: 'Laser CNC Exclusivo',
       rota: ['Laser'],
-      statusAtual: 'AGUARDANDO INÍCIO EM: LASER'
+      statusAtual: 'AGUARDANDO INÍCIO EM: LASER',
+      requerLaser: true
     };
   }
 
@@ -69,7 +74,8 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       familia: 'Laser e Dobra',
       tipoMontagem: 'Laser e Dobra',
       rota: ['Laser', 'Dobra'],
-      statusAtual: 'AGUARDANDO INÍCIO EM: LASER'
+      statusAtual: 'AGUARDANDO INÍCIO EM: LASER',
+      requerLaser: true
     };
   }
 
@@ -79,21 +85,42 @@ export function processarRotaProduto(op: { codigo?: string; codigoProduto?: stri
       familia: 'Router CNC',
       tipoMontagem: 'Router CNC Exclusivo',
       rota: ['Router'],
-      statusAtual: 'AGUARDANDO INÍCIO EM: ROUTER'
+      statusAtual: 'AGUARDANDO INÍCIO EM: ROUTER',
+      requerRouter: true
     };
   }
 
-  // 1. BATENTES (020.xxxx / BAT - Padrão, Inox e c/ Resistência) - PRIORIDADE SOBRE PORTAS E FOLHAS
+  // 1. FOLHAS AVULSAS (020.0009 a 020.0031 / FOLHA) - PRIORIDADE ABSOLUTA SOBRE BATENTES E PORTAS
+  const ehFolha =
+    desc.startsWith('FOLHA') ||
+    desc.startsWith('FOLHA GIRO') ||
+    desc.startsWith('FOLHA CORRER') ||
+    (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) >= 9 && parseInt(codNormalizado.slice(3) || '0', 10) <= 31);
+
+  if (ehFolha) {
+    return {
+      familia: 'Folha Avulsa',
+      tipoMontagem: 'Folha Avulsa',
+      rota: ['Corte', 'Dobra', 'Preparação de Folha', 'Injeção de Folhas'],
+      statusAtual: 'AGUARDANDO INÍCIO EM: Corte'
+    };
+  }
+
+  // 2. BATENTES (020.xxxx / BAT - Padrão, Inox e c/ Resistência) - SOMENTE SE NÃO FOR FOLHA
   const ehBatente =
-    isBatente(op) ||
-    desc.startsWith('BAT ') ||
-    desc.startsWith('BAT-') ||
-    desc.startsWith('BAT_') ||
-    desc.startsWith('BATENTE') ||
-    (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
-    ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
-    ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codigoProduto) ||
-    (codNormalizado.startsWith('020') && !desc.startsWith('FOLHA') && !desc.includes('FOLHA') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32);
+    !ehFolha &&
+    !desc.startsWith('FOLHA') &&
+    (
+      isBatente(op) ||
+      desc.startsWith('BAT ') ||
+      desc.startsWith('BAT-') ||
+      desc.startsWith('BAT_') ||
+      desc.startsWith('BATENTE') ||
+      (desc.includes('BATENTE') && !desc.startsWith('PT ') && !desc.startsWith('PORTA ')) ||
+      ['0200005', '0200006', '0200007', '0200008'].includes(codNormalizado) ||
+      ['020.0005', '020.0006', '020.0007', '020.0008'].includes(codigoProduto) ||
+      (codNormalizado.startsWith('020') && parseInt(codNormalizado.slice(3) || '0', 10) >= 32)
+    );
 
   if (ehBatente) {
     return {
@@ -624,8 +651,12 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlContent, 'text/html');
 
-  // STRATEGY 1: Localização de linhas (tr tradicionais ou divs role="row" / grid-row)
-  let rows = Array.from(doc.querySelectorAll('tr'));
+  // STRATEGY 1: Localização da tabela principal (table.mainTable, table.wrappedColHead ou qualquer table)
+  const mainTable = doc.querySelector('table.mainTable, table.wrappedColHead, table.gTable') || doc.querySelector('table');
+  let rows: HTMLElement[] = mainTable ? Array.from(mainTable.querySelectorAll('tr')) : [];
+  if (rows.length === 0) {
+    rows = Array.from(doc.querySelectorAll('tr'));
+  }
   if (rows.length === 0) {
     rows = Array.from(doc.querySelectorAll('[role="row"], div.row, div.grid-row, div.report-row, div[class*="row"], div[class*="Row"]'));
   }
@@ -634,7 +665,8 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
 
   if (rows.length > 0) {
     // 1. Localização dinâmica da linha de cabeçalho
-    let headerRow: HTMLElement | null = doc.querySelector('tr.chRow, [role="row"].chRow, div.chRow, thead tr') as HTMLElement | null;
+    let headerRow: HTMLElement | null = ((mainTable ? mainTable.querySelector('tr.chRow, thead tr') : null) as HTMLElement | null) ||
+      (doc.querySelector('tr.chRow, [role="row"].chRow, div.chRow, thead tr') as HTMLElement | null);
 
     if (!headerRow) {
       for (const row of rows) {
@@ -686,7 +718,7 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
           } else {
             idxQtde = idx;
           }
-        } else if (norm.includes('ordem') || norm.includes('op') || norm.includes('numero') || norm.includes('num op') || norm.includes('nº op') || norm.includes('n° op')) {
+        } else if (!norm.includes('entrega') && (norm.includes('ordem') || norm.includes('op') || norm.includes('numero') || norm.includes('num op') || norm.includes('nº op') || norm.includes('n° op'))) {
           idxOp = idx;
         } else if (norm.includes('cod') || norm.includes('ref')) {
           idxCodigo = idx;
@@ -773,9 +805,15 @@ export function parseNomusHtml(htmlContent: string): NomusParseResult {
       if (row.querySelector('th') && !row.querySelector('td') && !row.querySelector('[role="gridcell"]')) continue;
       if (rowLower.includes('entrega op') && (rowLower.includes('ordem') || rowLower.includes('descricao'))) continue;
 
-      let cells = Array.from(row.querySelectorAll('td, [role="gridcell"], div[class*="cell"], div[class*="col"]'));
+      let cells = Array.from(row.children).filter((el): el is HTMLElement => el.tagName === 'TD' || el.tagName === 'TH');
       if (cells.length === 0) {
-        cells = Array.from(row.childNodes).filter((n) => n.nodeType === 1) as HTMLElement[];
+        cells = Array.from(row.querySelectorAll(':scope > td, :scope > th, :scope > [role="gridcell"]'));
+      }
+      if (cells.length === 0) {
+        cells = Array.from(row.querySelectorAll('td, [role="gridcell"], div[class*="cell"], div[class*="col"]'));
+      }
+      if (cells.length === 0) {
+        cells = Array.from(row.childNodes).filter((n): n is HTMLElement => n.nodeType === 1);
       }
       if (cells.length === 0) continue;
 

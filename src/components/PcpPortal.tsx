@@ -452,12 +452,18 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   const handleAnalyzeNomusHtml = (rawHtml: string) => {
     setNomusHtmlInput(rawHtml);
     setImportSuccessMsg(null);
-    if (!rawHtml.trim()) {
+    if (!rawHtml || !rawHtml.trim()) {
       setNomusParseResult(null);
       return;
     }
-    const result = parseNomusHtml(rawHtml);
-    setNomusParseResult(result);
+    try {
+      const result = parseNomusHtml(rawHtml);
+      setNomusParseResult(result);
+    } catch (err: any) {
+      console.error('Erro ao processar HTML do Nomus:', err);
+      showToast(`Erro ao analisar HTML do Nomus ERP: ${err?.message || err}`, 'error');
+      setNomusParseResult(null);
+    }
   };
 
   // Carregamento de arquivo .html / .htm
@@ -466,14 +472,18 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      const content = ev.target?.result as string;
+      const content = (ev.target?.result as string) || '';
       if (content) {
         setNomusHtmlInput(content);
         handleAnalyzeNomusHtml(content);
         setShowNomusImportModal(true);
       }
     };
-    reader.readAsText(file);
+    reader.onerror = (err) => {
+      console.error('Erro ao ler arquivo .html:', err);
+      showToast('Falha ao ler o arquivo .html selecionado.', 'error');
+    };
+    reader.readAsText(file, 'UTF-8');
     e.target.value = '';
   };
 
@@ -489,7 +499,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
         showToast('Nenhuma OP duplicada encontrada.', 'info');
       }
     } catch {
-      showToast('Erro ao executar limpeza de duplicadas.', 'warning');
+      showToast('Erro ao executar limpeza de duplicadas.', 'error');
     }
   };
 
@@ -1712,8 +1722,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                     value={nomusHtmlInput}
                     onChange={(e) => handleAnalyzeNomusHtml(e.target.value)}
                     placeholder="Cole aqui o HTML completo da página do Nomus (com <table>, <tr>, <td> contendo número de OP, descrição, quantidade, etc)..."
-                    rows={4}
-                    className="w-full p-3.5 bg-slate-950 border border-blue-900/80 rounded-2xl font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-400 placeholder:text-slate-600"
+                    rows={6}
+                    className="w-full p-3.5 bg-slate-950 border border-blue-900/80 rounded-2xl font-mono text-xs text-emerald-300 focus:outline-none focus:border-emerald-400 placeholder:text-slate-600 resize-y"
                   />
                   {nomusHtmlInput && (
                     <button
