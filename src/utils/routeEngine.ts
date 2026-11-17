@@ -429,9 +429,9 @@ function resolveBaseRoute(
     );
     const steps: string[] = ['Corte'];
     if (temLaser) steps.push('Laser');
-    steps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    steps.push('Dobra', 'Preparação de Folha', 'Injeção');
     if (temRouter) steps.push('Router');
-    steps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
+    steps.push('Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro');
     const rule: RouteRule = {
       keyword: 'OFFICE DOOR GIR',
       label: 'Porta Office Door de Giro',
@@ -882,6 +882,9 @@ export function doesSectorMatchStep(sector: string, step: string): boolean {
   const isStepOffice = normStep.includes('OFFICE');
   const isSectorOffice = normSector.includes('OFFICE');
   if (isStepOffice !== isSectorOffice) {
+    if (normStep.includes('GAXETA') && normSector.includes('GAXETA')) {
+      return true; // Compatibilidade legada para postos de Gaxeta Office Door
+    }
     return false;
   }
 
@@ -1217,6 +1220,9 @@ export function matchStepName(stepA?: string, stepB?: string): boolean {
   const aOffice = normA.includes('OFFICE');
   const bOffice = normB.includes('OFFICE');
   if (aOffice !== bOffice) {
+    if (normA.includes('GAXETA') && normB.includes('GAXETA')) {
+      return true; // Compatibilidade legada entre 'Instalação de Gaxeta' e 'Instalação de Gaxeta Office Door'
+    }
     return false; // Um é Office e o outro não: NUNCA podem coincidir!
   }
   if (aOffice && bOffice) {
@@ -1443,6 +1449,7 @@ export function initOrSyncOrderEtapas(
  */
 export const POSTOS_UNITARIOS = [
   'Instalação de Gaxeta',
+  'Instalação de Gaxeta Office Door',
   'Montagem de Portas Giratórias',
   'Montagem de Portas Giratória Padrão e Especial',
   'Preparação Vai Vem',
@@ -1471,6 +1478,7 @@ export function isPostoUnitario(posto?: string | null): boolean {
   const pNorm = normalizeText(posto);
   if ((pNorm.includes('OFFICE') || pNorm.includes('OFFICE DOOR')) && pNorm.includes('MONTAGEM')) return true;
   if (pNorm.includes('OFFICE DOOR GIRO')) return true;
+  if (pNorm.includes('GAXETA') && pNorm.includes('OFFICE')) return true;
   return POSTOS_UNITARIOS.some(pu => {
     const puNorm = normalizeText(pu);
     if (pNorm === puNorm) return true;

@@ -1105,9 +1105,9 @@ export function obterEtapasDaRota(op: any): string[] {
     );
     steps = ['Corte'];
     if (temLaser) steps.push('Laser');
-    steps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    steps.push('Dobra', 'Preparação de Folha', 'Injeção');
     if (temRouter) steps.push('Router');
-    steps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
+    steps.push('Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro');
   }
 
   // 7. PORTAS GIRATÓRIAS (REGRA RESTRITIVA: WHITELIST ESTRITA POR CÓDIGO - EXCLUI OFFICE DOOR E BATENTES)

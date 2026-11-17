@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ProductionOrder, Apontamento, TerminalConfig } from '../types/mes';
-import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, findStepForSector, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
@@ -201,6 +201,32 @@ export const OpDetailsCard: React.FC<OpDetailsCardProps> = React.memo(({
           <span>🔥</span>
           <span>{(order.requer_laser || (order as any).requerLaser) ? 'Laser Ativo' : '+ Laser'}</span>
         </button>
+
+        {/* Toggle / Checkbox Requer Router */}
+        {isEligibleForRouter(order) && (
+          <button
+            type="button"
+            onClick={async () => {
+              playClick();
+              const currentVal = Boolean(order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router);
+              const nextVal = !currentVal;
+              await updateProductionOrder(order.op_numero, {
+                requer_router: nextVal,
+                requerRouter: nextVal,
+                encaminhar_router: nextVal
+              } as any);
+            }}
+            className={`h-7 px-2 rounded-md text-[10px] font-mono font-bold border flex items-center gap-1 shadow-sm transition cursor-pointer active:scale-95 shrink-0 leading-none ${
+              (order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router)
+                ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-black'
+                : 'bg-slate-950 text-cyan-300 border-cyan-500/50 hover:bg-cyan-950/40'
+            }`}
+            title="Ativar/Desativar etapa de Router no Terminal 2"
+          >
+            <span>🌀</span>
+            <span>{(order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router) ? 'Router Ativo' : '+ Router'}</span>
+          </button>
+        )}
 
         {/* Controle compacto de Solda sob demanda para Âncora */}
         {isAncora && (

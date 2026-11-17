@@ -211,9 +211,9 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         .replace(/folhas$/, 'folha');
       const postoAtivoSimplificado = postoAlvoSimplificado;
 
-      const isOfficeDoorGiro =
+      const isOfficeDoorEtapa =
         targetNorm.includes('office') &&
-        (targetNorm.includes('giro') || (targetNorm.includes('montagem') && !targetNorm.includes('correr')));
+        (targetNorm.includes('gaxeta') || targetNorm.includes('giro') || (targetNorm.includes('montagem') && !targetNorm.includes('correr')));
 
       return operators.filter((colab: Operator) => {
         // 1. Status ativo
@@ -223,8 +223,8 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
         const isEsp = checkIsEspecialista(colab);
 
-        // REGRA DE ESCALA RIGOROSA: "MONTAGEM DE OFFICE DOOR GIRO"
-        if (isOfficeDoorGiro) {
+        // REGRA DE ESCALA RIGOROSA: "MONTAGEM DE OFFICE DOOR GIRO" E "INSTALAÇÃO DE GAXETA OFFICE DOOR"
+        if (isOfficeDoorEtapa) {
           const colabId = (colab.id || '').toLowerCase().trim();
           const colabNome = (colab.nome || colab.name || '').toLowerCase().trim();
           const isAfonso = colabId === 'afonso' || badge === 'ESP-MULTI' || colabNome.includes('afonso');

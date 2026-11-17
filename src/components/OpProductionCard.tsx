@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
-import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
+import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { classificarModeloOP } from '../utils/productClassifier';
 import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, resetarOpCompleta, cleanOpId, normalizarNumeroOp, formatOpNumber } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
@@ -764,6 +764,42 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
               }`}
             >
               {(order.requer_laser || (order as any).requerLaser) ? '✓ Requer Laser' : '+ Ativar Laser'}
+            </button>
+          </div>
+          )}
+
+          {/* Controle de Envio ao Router sob Demanda (Terminal 2) */}
+          {!readOnlyRoute && isEligibleForRouter(order) && (
+          <div className="bg-cyan-950/20 border border-cyan-500/30 p-2.5 rounded-xl flex items-center justify-between gap-3 text-xs font-mono">
+            <div>
+              <span className="text-cyan-300 font-bold flex items-center gap-1.5">
+                <span>🌀</span>
+                Router CNC (Terminal 2)
+              </span>
+              <span className="text-[10px] text-slate-400 block">
+                {(order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router) ? 'Etapa Router inclusa na rota da OP' : 'Fluxo padrão sem Router'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={async (e) => {
+                e.stopPropagation();
+                playClick();
+                const currentVal = Boolean(order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router);
+                const nextVal = !currentVal;
+                await updateProductionOrder(order.op_numero, {
+                  requer_router: nextVal,
+                  requerRouter: nextVal,
+                  encaminhar_router: nextVal
+                } as any);
+              }}
+              className={`px-3 py-1.5 rounded-lg font-bold text-xs border transition cursor-pointer active:scale-95 whitespace-nowrap ${
+                (order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router)
+                  ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-md'
+                  : 'bg-slate-900 hover:bg-slate-800 text-cyan-300 border-cyan-500/50'
+              }`}
+            >
+              {(order.requer_router || (order as any).requerRouter || (order as any).encaminhar_router) ? '✓ Requer Router' : '+ Ativar Router'}
             </button>
           </div>
           )}

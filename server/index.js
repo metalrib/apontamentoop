@@ -1092,6 +1092,18 @@ function classificarCategoriaOP(op) {
     return 'porta_vai_vem';
   }
 
+  // 9.1 Office Door: se contiver OFFICE DOOR ou código iniciar com 009. ou 010.
+  if (
+    desc.includes('OFFICE DOOR') ||
+    desc.includes('OFFICE-DOOR') ||
+    desc.includes('OFFICE') ||
+    cod.startsWith('009.') ||
+    cod.startsWith('010.') ||
+    cat.includes('OFFICE')
+  ) {
+    return 'porta_office';
+  }
+
   // 10. Portas Giratória: se contiver PT GIR ou PORTA GIR ou código iniciar com 001. ou 003. (e não começar com BATENTE ou FOLHA)
   const isGir =
     (desc.includes('PT GIR') ||
@@ -1187,7 +1199,7 @@ function calcularStatusMacroAoConcluirEtapa(opRow, isUltimaEtapa, proximaEtapa) 
   const cat = opRow?.categoria || classificarCategoriaOP(opRow);
   const desc = String(opRow?.descricao || opRow?.produto || '').toUpperCase();
   const isPorta = ['porta_giratoria', 'porta_correr', 'porta_vai_vem', 'porta_office'].includes(cat) ||
-    desc.startsWith('PT ') || desc.startsWith('PORTA ');
+    desc.startsWith('PT ') || desc.startsWith('PORTA ') || desc.includes('OFFICE');
 
   if (isUltimaEtapa) {
     if (isPorta) {
@@ -1945,9 +1957,9 @@ try {
 
       const targetSteps = ['Corte'];
       if (querLaser) targetSteps.push('Laser');
-      targetSteps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+      targetSteps.push('Dobra', 'Preparação de Folha', 'Injeção');
       if (querRouter) targetSteps.push('Router');
-      targetSteps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
+      targetSteps.push('Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro');
 
       let precisaAtualizar = false;
       let novasEtapas = targetSteps;
@@ -1961,14 +1973,14 @@ try {
         for (const step of targetSteps) {
           const aptAndamento = aptsOp.find(a =>
             a.status === 'EM_ANDAMENTO' && (
-              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')))) ||
-              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje'))))
+              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')) || (step.includes('Gaxeta') && a.etapa_rota.toLowerCase().includes('gaxeta')))) ||
+              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje')) || (step.includes('Gaxeta') && a.setor.toLowerCase().includes('gaxeta'))))
             )
           );
           const aptFinalizado = aptsOp.find(a =>
             a.status === 'FINALIZADO' && (
-              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')))) ||
-              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje'))))
+              (a.etapa_rota && (a.etapa_rota.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.etapa_rota.toLowerCase().includes('inje')) || (step.includes('Gaxeta') && a.etapa_rota.toLowerCase().includes('gaxeta')))) ||
+              (a.setor && (a.setor.toLowerCase() === step.toLowerCase() || (step.includes('Injeção') && a.setor.toLowerCase().includes('inje')) || (step.includes('Gaxeta') && a.setor.toLowerCase().includes('gaxeta'))))
             )
           );
 
@@ -1990,8 +2002,10 @@ try {
             };
           } else if (parsed[step]) {
             obj[step] = parsed[step];
-          } else if (step === 'Injeção de Folhas' && parsed['Injeção']) {
-            obj[step] = parsed['Injeção'];
+          } else if (step === 'Injeção' && (parsed['Injeção de Folhas'] || parsed['Injeção'])) {
+            obj[step] = parsed['Injeção'] || parsed['Injeção de Folhas'];
+          } else if (step === 'Instalação de Gaxeta Office Door' && (parsed['Instalação de Gaxeta'] || parsed['Instalação de Gaxeta Office Door'])) {
+            obj[step] = parsed['Instalação de Gaxeta Office Door'] || parsed['Instalação de Gaxeta'];
           } else if (step === 'Montagem de Office Door Giro' && (parsed['Montagem de Portas Giratória Padrão e Especial'] || parsed['Montagem de Portas Giratórias'] || parsed['Montagem Office Door Giratória'] || parsed['Montagem Office Door'])) {
             obj[step] = parsed['Montagem de Portas Giratória Padrão e Especial'] || parsed['Montagem de Portas Giratórias'] || parsed['Montagem Office Door Giratória'] || parsed['Montagem Office Door'];
           } else {
@@ -2970,9 +2984,9 @@ app.post('/api/ordens', (req, res) => {
         const querRouter = routerVal === 1;
         const targetSteps = ['Corte'];
         if (querLaser) targetSteps.push('Laser');
-        targetSteps.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+        targetSteps.push('Dobra', 'Preparação de Folha', 'Injeção');
         if (querRouter) targetSteps.push('Router');
-        targetSteps.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
+        targetSteps.push('Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro');
         etapasVal = targetSteps;
         if (!statusVal || statusVal.includes('Aguardando Início') || statusVal === 'pendente') {
           statusVal = 'AGUARDANDO INÍCIO EM: CORTE';

@@ -790,10 +790,10 @@ export { colaboradores };
 
 const TERMINAL_SECTORS_DEFAULT_MAP: Record<string, string[]> = {
   T1: ['Corte', 'Laser', 'Dobra'],
-  T2: ['Preparação de Folha', 'Injeção'],
-  T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Montagem de Office Door Giro', 'Montagem de Portas Emendadas'],
+  T2: ['Preparação de Folha', 'Injeção', 'Router'],
+  T3: ['Preparação de Batentes', 'Injeção e Finalização Batentes', 'Montagem Office Door', 'Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro', 'Montagem de Portas Emendadas'],
   T4: ['Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial', 'Montagem Portas de Correr Padrão e Especial', 'Montagem Porta Vai-Vem'],
-  T5: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Solda e Montagem', 'Montagem Estante', 'Elétrica', 'Cortina', 'Montagem de Office Door Giro', 'Montagem Office de Correr']
+  T5: ['Corte Alumínio', 'Preparação Vai Vem', 'Router', 'Solda e Montagem', 'Montagem Estante', 'Elétrica', 'Cortina', 'Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro', 'Montagem Office de Correr']
 };
 
 function extractInitials(nome: string): string {

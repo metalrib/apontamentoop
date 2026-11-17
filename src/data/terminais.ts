@@ -7,12 +7,15 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
   ],
   T2: [
     'Preparação de Folha',
-    'Injeção de Folhas'
+    'Injeção',
+    'Injeção de Folhas',
+    'Router'
   ],
   T3: [
     'Preparação de Batentes',
     'Injeção e Finalização de Batentes',
     'Montagem Portas Emendadas',
+    'Instalação de Gaxeta Office Door',
     'Montagem de Office Door Giro',
     'Montagem Office de Correr',
     'Montagem Portas Office Door',
@@ -48,6 +51,7 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Corte',
     'Solda',
     'Solda e Montagem',
+    'Instalação de Gaxeta Office Door',
     'Montagem de Office Door Giro',
     'Montagem Office de Correr',
     'Montagem Estante',

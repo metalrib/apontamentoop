@@ -153,23 +153,23 @@ export function getOpLiveTotemStatus(op: ProductionOrder, apontamentos: Apontame
     return (st && (st.status === 'CONCLUIDO' || st.status === 'FINALIZADO')) || (ev && ev.finalizadas >= totalUnits);
   });
 
-  if (op.status_macro === 'embalada' || op.status === 'FINALIZADA') {
-    return {
-      type: 'finalizada' as const,
-      label: 'Finalizada / Embalada',
-      badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
-      icon: '✅',
-      isCompleted: true
-    };
-  }
-
-  if (op.status_macro === 'falta_embalar' || isAllFinished) {
+  if (op.status_macro === 'falta_embalar' || (isAllFinished && op.status_macro !== 'embalada')) {
     return {
       type: 'falta_embalar' as const,
       label: 'Processos Finalizados • Falta Embalar',
       badgeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/50',
       icon: '📦',
       canConfirmEmbalagem: true
+    };
+  }
+
+  if (op.status_macro === 'embalada' || (op.status === 'FINALIZADA' && op.status_macro !== 'falta_embalar')) {
+    return {
+      type: 'finalizada' as const,
+      label: 'Finalizada / Embalada',
+      badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
+      icon: '✅',
+      isCompleted: true
     };
   }
 
@@ -411,11 +411,12 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     let finalizadas = 0;
 
     orderList.forEach((op) => {
-      const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-      if (isFin) {
-        finalizadas++;
-      } else if (op.status_macro === 'falta_embalar') {
+      const isFaltaEmbalar = op.status_macro === 'falta_embalar';
+      const isFin = !isFaltaEmbalar && (op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos));
+      if (isFaltaEmbalar) {
         faltaEmbalar++;
+      } else if (isFin) {
+        finalizadas++;
       } else if (isEntregaHoje(op.data_entrega, op.status_macro)) {
         hoje++;
       } else if (isAtrasada(op.data_entrega, op.status_macro)) {
@@ -448,7 +449,8 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     const searchLower = (deferredSearch || '').trim().toLowerCase();
 
     return orderList.filter((op) => {
-      const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
+      const isFaltaEmbalar = op.status_macro === 'falta_embalar';
+      const isFin = !isFaltaEmbalar && (op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos));
       const opNum = normalizarNumeroOp(op.numero || op.op_numero || (op as any).id);
 
       // SE a pílula "COM_CHAT" estiver ativa:
@@ -458,15 +460,15 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
       } else {
         // 1. Filtro dos 4 Contadores Clicáveis (apenas fora de COM_CHAT)
         if (macroFilter === 'ATRASADAS') {
-          if (isFin || op.status_macro === 'falta_embalar' || !isAtrasada(op.data_entrega, op.status_macro)) {
+          if (isFin || isFaltaEmbalar || !isAtrasada(op.data_entrega, op.status_macro)) {
             return false;
           }
         } else if (macroFilter === 'HOJE') {
-          if (isFin || op.status_macro === 'falta_embalar' || !isEntregaHoje(op.data_entrega, op.status_macro)) {
+          if (isFin || isFaltaEmbalar || !isEntregaHoje(op.data_entrega, op.status_macro)) {
             return false;
           }
         } else if (macroFilter === 'FALTA_EMBALAR') {
-          if (op.status_macro !== 'falta_embalar') {
+          if (!isFaltaEmbalar) {
             return false;
           }
         } else if (macroFilter === 'FINALIZADAS') {
@@ -773,8 +775,9 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
         badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
         borderClass: 'border-rose-900/60',
         orders: filteredOrders.filter((op) => {
-          const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-          return !isFin && op.status_macro !== 'falta_embalar' && isAtrasada(op.data_entrega, op.status_macro);
+          const isFaltaEmbalar = op.status_macro === 'falta_embalar';
+          const isFin = !isFaltaEmbalar && (op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos));
+          return !isFin && !isFaltaEmbalar && isAtrasada(op.data_entrega, op.status_macro);
         })
       },
       {
@@ -784,8 +787,9 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
         badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
         borderClass: 'border-amber-900/60',
         orders: filteredOrders.filter((op) => {
-          const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-          return !isFin && op.status_macro !== 'falta_embalar' && isEntregaHoje(op.data_entrega, op.status_macro);
+          const isFaltaEmbalar = op.status_macro === 'falta_embalar';
+          const isFin = !isFaltaEmbalar && (op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos));
+          return !isFin && !isFaltaEmbalar && isEntregaHoje(op.data_entrega, op.status_macro);
         })
       },
       {
@@ -795,10 +799,11 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
         badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
         borderClass: 'border-blue-900/60',
         orders: filteredOrders.filter((op) => {
-          const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
+          const isFaltaEmbalar = op.status_macro === 'falta_embalar';
+          const isFin = !isFaltaEmbalar && (op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos));
           return (
             !isFin &&
-            op.status_macro !== 'falta_embalar' &&
+            !isFaltaEmbalar &&
             !isAtrasada(op.data_entrega, op.status_macro) &&
             !isEntregaHoje(op.data_entrega, op.status_macro)
           );

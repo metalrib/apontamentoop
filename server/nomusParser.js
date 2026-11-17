@@ -467,9 +467,9 @@ function processarRotaProduto(opOrCode, descArg, tipoOrdemArg) {
     const querRouter = Boolean(op.requerRouter || op.requer_router || op.encaminhar_router);
     const rota = ['Corte'];
     if (querLaser) rota.push('Laser');
-    rota.push('Dobra', 'Preparação de Folha', 'Injeção de Folhas');
+    rota.push('Dobra', 'Preparação de Folha', 'Injeção');
     if (querRouter) rota.push('Router');
-    rota.push('Instalação de Gaxeta', 'Montagem de Office Door Giro');
+    rota.push('Instalação de Gaxeta Office Door', 'Montagem de Office Door Giro');
     return {
       familia: 'Porta Office Door de Giro',
       tipoMontagem: 'Porta Office Door de Giro',

@@ -17,7 +17,8 @@ import {
   isPortaCorrerPadrao,
   isRotaExclusivaLaser,
   isRotaLaserDobra,
-  isRotaExclusivaRouter
+  isRotaExclusivaRouter,
+  isOfficeDoorGiro
 } from '../types/mes';
 import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, normalizarNumeroOp } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
@@ -426,6 +427,100 @@ export function verificarECorrigirRotaOp<T extends ProductionOrder>(op: T, permi
           etapas: op.etapas,
           familia: 'Batente',
           tipoMontagem: 'Batente'
+        });
+      }
+    }
+    return op;
+  }
+
+  // 1.5. PORTA OFFICE DOOR DE GIRO - AUTO-CORREÇÃO COMPULSÓRIA DA ROTA OFICIAL
+  if (isOfficeDoorGiro(op)) {
+    const temLaser = Boolean(
+      (op as any).requerLaser || (op as any).requer_laser ||
+      (Array.isArray((op as any).etapas) && (op as any).etapas.includes('Laser')) ||
+      ((op as any).etapas && typeof (op as any).etapas === 'object' && 'Laser' in (op as any).etapas) ||
+      (op as any).etapaAtual === 'Laser'
+    );
+    const temRouter = Boolean(
+      (op as any).requerRouter || (op as any).requer_router || (op as any).encaminhar_router ||
+      (Array.isArray((op as any).etapas) && (op as any).etapas.includes('Router')) ||
+      ((op as any).etapas && typeof (op as any).etapas === 'object' && 'Router' in (op as any).etapas) ||
+      (op as any).etapaAtual === 'Router'
+    );
+    const rotaOficialOdGiro = [
+      'Corte',
+      ...(temLaser ? ['Laser'] : []),
+      'Dobra',
+      'Preparação de Folha',
+      'Injeção',
+      ...(temRouter ? ['Router'] : []),
+      'Instalação de Gaxeta Office Door',
+      'Montagem de Office Door Giro'
+    ];
+
+    const rotaAtual = Array.isArray(op.rota) && op.rota.length > 0 ? op.rota : (Array.isArray(op.etapas) ? op.etapas : []);
+    const precisaAtualizar =
+      !rotaAtual ||
+      rotaAtual.includes('Instalação de Gaxeta') ||
+      rotaAtual.includes('Injeção de Folhas') ||
+      !rotaAtual.includes('Instalação de Gaxeta Office Door') ||
+      !rotaAtual.includes('Montagem de Office Door Giro') ||
+      rotaAtual.length !== rotaOficialOdGiro.length ||
+      rotaAtual.some((step: string, idx: number) => step !== rotaOficialOdGiro[idx]);
+
+    if (precisaAtualizar) {
+      op.rota = rotaOficialOdGiro;
+      op.familia = 'Porta Office Door de Giro';
+      op.tipoMontagem = 'Porta Office Door de Giro';
+
+      if (op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas)) {
+        const novoEtapasObj: Record<string, any> = {};
+        for (const step of rotaOficialOdGiro) {
+          if ((op.etapas as any)[step]) {
+            novoEtapasObj[step] = (op.etapas as any)[step];
+          } else if (step === 'Instalação de Gaxeta Office Door' && (op.etapas as any)['Instalação de Gaxeta']) {
+            novoEtapasObj[step] = (op.etapas as any)['Instalação de Gaxeta'];
+          } else if (step === 'Injeção' && (op.etapas as any)['Injeção de Folhas']) {
+            novoEtapasObj[step] = (op.etapas as any)['Injeção de Folhas'];
+          } else {
+            novoEtapasObj[step] = {
+              status: 'PENDENTE',
+              concluidas: 0,
+              total: op.quantidadeFisica || op.quantidade_total || op.quantidade || 1
+            };
+          }
+        }
+        op.etapas = novoEtapasObj as any;
+      } else {
+        op.etapas = rotaOficialOdGiro;
+      }
+
+      if (op.etapaAtual === 'Instalação de Gaxeta') {
+        op.etapaAtual = 'Instalação de Gaxeta Office Door';
+      }
+      if (op.etapaAtual === 'Injeção de Folhas') {
+        op.etapaAtual = 'Injeção';
+      }
+      if (op.statusEtapa && op.statusEtapa.includes('Instalação de Gaxeta') && !op.statusEtapa.includes('Office Door')) {
+        op.statusEtapa = op.statusEtapa.replace('Instalação de Gaxeta', 'Instalação de Gaxeta Office Door');
+      }
+      if (op.status && op.status.includes('Instalação de Gaxeta') && !op.status.includes('Office Door')) {
+        op.status = op.status.replace('Instalação de Gaxeta', 'Instalação de Gaxeta Office Door');
+      }
+      if (op.statusAtual && op.statusAtual.includes('INSTALAÇÃO DE GAXETA') && !op.statusAtual.includes('OFFICE DOOR')) {
+        op.statusAtual = op.statusAtual.replace('INSTALAÇÃO DE GAXETA', 'INSTALAÇÃO DE GAXETA OFFICE DOOR');
+      }
+
+      if (docId && permitirPersistencia) {
+        persistirCorrecaoOp(docId, {
+          rota: rotaOficialOdGiro,
+          etapas: op.etapas,
+          etapaAtual: op.etapaAtual,
+          statusEtapa: op.statusEtapa,
+          status: op.status,
+          statusAtual: op.statusAtual,
+          familia: 'Porta Office Door de Giro',
+          tipoMontagem: 'Porta Office Door de Giro'
         });
       }
     }
@@ -1149,6 +1244,7 @@ export function fetchOperators(): Operator[] {
           });
           if (!terminais.includes('T3')) terminais.push('T3');
           if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+          if (!uniqueSectors.includes('Instalação de Gaxeta Office Door')) uniqueSectors.push('Instalação de Gaxeta Office Door');
         }
 
         const isJoseLucas = op.id === 'jose_lucas' || nome.toLowerCase().includes('jose lucas') || badge === 'OFF-01';
@@ -1159,6 +1255,7 @@ export function fetchOperators(): Operator[] {
           });
           if (!terminais.includes('T3')) terminais.push('T3');
           if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+          if (!uniqueSectors.includes('Instalação de Gaxeta Office Door')) uniqueSectors.push('Instalação de Gaxeta Office Door');
         }
 
         const isFabio = op.id === 'fabio' || nome.toLowerCase().includes('fabio') || badge === 'ESP-T5';
@@ -1169,6 +1266,7 @@ export function fetchOperators(): Operator[] {
           });
           if (!terminais.includes('T5')) terminais.push('T5');
           if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+          if (!uniqueSectors.includes('Instalação de Gaxeta Office Door')) uniqueSectors.push('Instalação de Gaxeta Office Door');
         }
 
         const isNathan = op.id === 'nathan' || nome.toLowerCase().includes('nathan') || badge === 'SOL-01';
@@ -1179,6 +1277,7 @@ export function fetchOperators(): Operator[] {
           });
           if (!terminais.includes('T5')) terminais.push('T5');
           if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+          if (!uniqueSectors.includes('Instalação de Gaxeta Office Door')) uniqueSectors.push('Instalação de Gaxeta Office Door');
         }
 
         // Operadores de Emendadas e Batentes (T3) não devem ter acesso a Office Door nem vazar para T5
@@ -2567,8 +2666,16 @@ export async function finishUnit(
             const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
             if (isLastStep) {
               targetOrder.status = 'FINALIZADA';
-              targetOrder.status_fabrica = 'Embalada';
               targetOrder.qtde_produzida = totalUnits;
+              const desc = String(targetOrder.descricao || (targetOrder as any).produto || '').toUpperCase();
+              const isPorta = isOfficeDoorGiro(targetOrder) || desc.startsWith('PT ') || desc.startsWith('PORTA ') || desc.includes('OFFICE') || desc.includes('GIRO') || desc.includes('CORRER');
+              if (isPorta && targetOrder.status_macro !== 'embalada') {
+                targetOrder.status_macro = 'falta_embalar';
+                targetOrder.status_fabrica = 'Falta Embalar';
+              } else {
+                targetOrder.status_macro = 'embalada';
+                targetOrder.status_fabrica = 'Embalada';
+              }
             } else {
               const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
               if (nextStep) {
@@ -3107,8 +3214,16 @@ export async function finishBatch(
           const isLastStep = currentStepIndex >= 0 && currentStepIndex === steps.length - 1;
           if (isLastStep) {
             targetOrder.status = 'FINALIZADA';
-            targetOrder.status_fabrica = 'Embalada';
             targetOrder.qtde_produzida = totalUnits - refugo;
+            const desc = String(targetOrder.descricao || (targetOrder as any).produto || '').toUpperCase();
+            const isPorta = isOfficeDoorGiro(targetOrder) || desc.startsWith('PT ') || desc.startsWith('PORTA ') || desc.includes('OFFICE') || desc.includes('GIRO') || desc.includes('CORRER');
+            if (isPorta && targetOrder.status_macro !== 'embalada') {
+              targetOrder.status_macro = 'falta_embalar';
+              targetOrder.status_fabrica = 'Falta Embalar';
+            } else {
+              targetOrder.status_macro = 'embalada';
+              targetOrder.status_fabrica = 'Embalada';
+            }
           } else {
             const nextStep = currentStepIndex >= 0 && currentStepIndex < steps.length - 1 ? steps[currentStepIndex + 1] : undefined;
             if (nextStep) {

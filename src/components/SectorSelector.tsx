@@ -172,6 +172,7 @@ export const SectorSelector: React.FC<SectorSelectorProps> = ({
           setorNorm.includes('montagem office de correr') ||
           setorNorm.includes('montagem office door correr') ||
           setorNorm.includes('montagem de portas giratoria padrao e especial') ||
+          (setorNorm.includes('gaxeta') && !setorNorm.includes('office')) ||
           (!setorNorm.includes('office') && (setorNorm.includes('porta') || setorNorm.includes('giro')))
         ) {
           return false;
