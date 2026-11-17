@@ -16,7 +16,9 @@ import {
   CheckCircle2,
   Trash2,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Star,
+  MessageSquare
 } from 'lucide-react';
 import { OpOccurrenceModal } from './OpOccurrenceModal';
 
@@ -28,15 +30,26 @@ interface OpProductionCardProps {
   onSelectForTotem?: (opNumero: string) => void;
   onDelete?: (opNumero: string) => void;
   onResetOpCompleta?: (opNumero: string) => void;
+  onConfirmarEmbalagem?: (order: ProductionOrder) => void;
+  onTogglePrioridade?: (order: ProductionOrder) => void;
+  onTogglePausada?: (order: ProductionOrder) => void;
+  onSinalizarAtraso?: (order: ProductionOrder) => void;
+  unreadCount?: number;
 }
 
 export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
   order: propOrder,
   op: propOp,
   apontamentos = [],
+  onOpenChat,
   onSelectForTotem,
   onDelete,
-  onResetOpCompleta
+  onResetOpCompleta,
+  onConfirmarEmbalagem,
+  onTogglePrioridade,
+  onTogglePausada,
+  onSinalizarAtraso,
+  unreadCount = 0
 }) => {
   const op = verificarECorrigirRotaOp((propOrder || propOp)!);
   const order = op;
@@ -246,6 +259,43 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
               {formatOpNumber(order.numero || order.op_numero)}
             </div>
 
+            {/* Estrela de Prioridade PCP */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                playClick();
+                if (onTogglePrioridade) onTogglePrioridade(order);
+              }}
+              className={`p-1 rounded-lg transition cursor-pointer active:scale-95 ${
+                order.favorito || order.prioridade === 'alta'
+                  ? 'text-amber-400 hover:text-amber-300 bg-amber-500/10'
+                  : 'text-slate-600 hover:text-amber-400 hover:bg-slate-800'
+              }`}
+              title={order.favorito || order.prioridade === 'alta' ? "Prioridade Alta (favoritada)" : "Marcar como Prioritária"}
+            >
+              <Star className={`w-4 h-4 ${order.favorito || order.prioridade === 'alta' ? 'fill-amber-400 text-amber-400' : ''}`} />
+            </button>
+
+            {/* Badges de Status Macro PCP */}
+            {order.pausada && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold font-mono bg-amber-500/20 border border-amber-500/60 text-amber-300 shadow-sm">
+                ⏸️ PAUSADA
+              </span>
+            )}
+
+            {order.status_macro === 'falta_embalar' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono bg-purple-500/20 border border-purple-500/60 text-purple-300 shadow-sm animate-pulse">
+                📦 FALTA EMBALAR
+              </span>
+            )}
+
+            {order.status_macro === 'atrasada' && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold font-mono bg-rose-500/20 border border-rose-500/60 text-rose-300 shadow-sm">
+                ⚠️ ATRASADA
+              </span>
+            )}
+
             {isConcluidaGeral && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold font-mono bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 shadow-sm">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
@@ -427,6 +477,32 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             </div>
           </div>
         )}
+        {/* Motivo de Atraso Sinalizado */}
+        {order.motivo_atraso && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs font-mono text-amber-300 bg-amber-950/40 border border-amber-500/40 px-2.5 py-1 rounded-xl">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate">Motivo atraso: <strong className="text-white">{order.motivo_atraso}</strong></span>
+          </div>
+        )}
+
+        {/* Botão Prominente de Conclusão de Embalagem (Falta Embalar) */}
+        {order.status_macro === 'falta_embalar' && onConfirmarEmbalagem && (
+          <div className="mt-2.5">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                playClick();
+                onConfirmarEmbalagem(order);
+              }}
+              className="w-full py-2.5 px-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-600 hover:from-emerald-500 hover:to-teal-500 text-white font-mono font-bold text-xs rounded-xl flex items-center justify-center gap-2 border border-emerald-400/70 shadow-lg shadow-emerald-950/60 cursor-pointer active:scale-98 transition ring-2 ring-emerald-500/30"
+              title="Porta montada aguardando embalagem/expedição. Clique para confirmar a embalagem e finalizar a OP."
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-200" />
+              <span>CONFIRMAR EMBALAGEM</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 3. FAIXA DE STATUS OPERACIONAL E EXPANSÃO */}
@@ -470,6 +546,75 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
           {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </button>
       </div>
+
+      {/* 3.1 BOTÕES DE AÇÕES EXCLUSIVAS DO PCP */}
+      {(onTogglePausada || onSinalizarAtraso || onOpenChat) && (
+        <div className="mt-2.5 pt-2 border-t border-blue-950/80 flex items-center justify-between gap-1.5 flex-wrap">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {onTogglePausada && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playClick();
+                  onTogglePausada(order);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition cursor-pointer flex items-center gap-1 ${
+                  order.pausada
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-white'
+                }`}
+                title={order.pausada ? "Retomar OP" : "Pausar OP"}
+              >
+                {order.pausada ? '▶️ Retomar' : '⏸️ Pausar'}
+              </button>
+            )}
+
+            {onSinalizarAtraso && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playClick();
+                  onSinalizarAtraso(order);
+                }}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border transition cursor-pointer flex items-center gap-1 ${
+                  order.motivo_atraso
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30'
+                    : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-amber-300'
+                }`}
+                title="Sinalizar motivo de atraso"
+              >
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                <span>{order.motivo_atraso ? 'Motivo Atraso' : 'Sinalizar Atraso'}</span>
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {onOpenChat && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  playClick();
+                  onOpenChat(order);
+                }}
+                className="px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold bg-blue-950/80 hover:bg-blue-900/80 text-blue-300 border border-blue-800/80 transition cursor-pointer flex items-center gap-1.5"
+                title="Abrir conversa do PCP & Coordenação para esta OP"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+                <span>Chat</span>
+                {unreadCount > 0 && (
+                  <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold animate-pulse">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 4. GAVETA DE DETALHES TÉCNICOS E APONTAMENTO (EXPANDIDA) */}
       {isExpanded && (

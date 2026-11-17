@@ -3945,6 +3945,22 @@ export async function fetchOpMensagens(opNumero: string): Promise<OpMessageRow[]
 }
 
 /**
+ * Busca todas as mensagens de chat no backend SQLite
+ */
+export async function fetchAllMensagens(): Promise<OpMessageRow[]> {
+  const localUrl = getApiBaseUrl();
+  try {
+    const res = await fetch(`${localUrl}/api/mensagens`);
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[fetchAllMensagens] Erro ao buscar todas mensagens:', err);
+  }
+  return [];
+}
+
+/**
  * Envia mensagem formal de OP para o backend
  */
 export async function enviarMensagemOp(payload: {
