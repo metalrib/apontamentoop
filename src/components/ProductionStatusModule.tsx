@@ -3,6 +3,7 @@ import { ProductionOrder, Apontamento, OpMessageRow } from '../types/mes';
 import {
   verificarECorrigirRotaOp,
   cleanOpId,
+  normalizarNumeroOp,
   formatOpNumber,
   atualizarStatusMacroOp,
   updateProductionOrder,
@@ -78,15 +79,15 @@ interface ProductionStatusModuleProps {
 const extractOpNumeroFromMsg = (m: any): string => {
   if (!m) return '';
   const raw =
-    m.order_numero ||
-    m.op_numero ||
     m.numero ||
     m.ordem_numero ||
     m.op ||
     m.numero_op ||
+    m.order_numero ||
+    m.op_numero ||
     m.order_id ||
     '';
-  return cleanOpId(raw);
+  return normalizarNumeroOp(raw);
 };
 
 const extractTimestampFromMsg = (m: any): number => {
@@ -355,19 +356,52 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     return allChatMessages.filter((m: any) => !(m.lida || m.lida_pcp)).length;
   }, [allChatMessages]);
 
-  // Conjunto de OPs que possuem alguma mensagem registrada
-  const chatOpSet = useMemo(() => {
+  // Conjunto de OPs únicas que possuem alguma mensagem registrada no Inbox PCP ↔ Coordenação
+  const opsComChatSet = useMemo(() => {
     const set = new Set<string>();
-    allChatMessages.forEach((m) => {
-      set.add(cleanOpId(m.op_numero));
+    allChatMessages.forEach((msg: any) => {
+      const raw =
+        msg.numero ||
+        msg.ordem_numero ||
+        msg.op ||
+        msg.numero_op ||
+        msg.order_numero ||
+        msg.op_numero ||
+        msg.order_id ||
+        '';
+      const clean = normalizarNumeroOp(raw);
+      if (clean) {
+        set.add(clean);
+      }
     });
     return set;
   }, [allChatMessages]);
 
   // 3. Processamento de Ordens
   const orderList = useMemo(() => {
-    return Object.values(orders).map(verificarECorrigirRotaOp);
-  }, [orders]);
+    const list = Object.values(orders).map(verificarECorrigirRotaOp);
+    // Garante que qualquer OP que tenha mensagem mas porventura não esteja no dicionário de ordens também seja incluída
+    const existingIds = new Set(list.map((o) => normalizarNumeroOp(o.numero || o.op_numero || (o as any).id)));
+    allChatMessages.forEach((msg: any) => {
+      const cleanId = extractOpNumeroFromMsg(msg);
+      if (cleanId && !existingIds.has(cleanId)) {
+        list.push({
+          id: cleanId,
+          numero: cleanId,
+          op_numero: cleanId,
+          descricao: msg.order_desc || `OP ${cleanId}`,
+          codigo: '',
+          lote: '',
+          quantidade_total: 1,
+          status: 'FINALIZADA',
+          status_macro: 'embalada',
+          etapas: {}
+        } as ProductionOrder);
+        existingIds.add(cleanId);
+      }
+    });
+    return list;
+  }, [orders, allChatMessages]);
 
   // 4 Contadores Clicáveis do PCP
   const pcpMacroCounts = useMemo(() => {
@@ -415,41 +449,45 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
 
     return orderList.filter((op) => {
       const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
+      const opNum = normalizarNumeroOp(op.numero || op.op_numero || (op as any).id);
 
-      // 1. Filtro dos 4 Contadores Clicáveis
-      if (macroFilter === 'ATRASADAS') {
-        if (isFin || op.status_macro === 'falta_embalar' || !isAtrasada(op.data_entrega, op.status_macro)) {
-          return false;
-        }
-      } else if (macroFilter === 'HOJE') {
-        if (isFin || op.status_macro === 'falta_embalar' || !isEntregaHoje(op.data_entrega, op.status_macro)) {
-          return false;
-        }
-      } else if (macroFilter === 'FALTA_EMBALAR') {
-        if (op.status_macro !== 'falta_embalar') {
-          return false;
-        }
-      } else if (macroFilter === 'FINALIZADAS') {
-        if (!isFin) {
-          return false;
-        }
-      }
-
-      // 2. Filtros Rápidos (Pílulas)
+      // SE a pílula "COM_CHAT" estiver ativa:
+      // Ignora restrições anteriores e de macroFilter (mesmo que a OP já esteja Finalizada / Embalada)
       if (quickFilter === 'COM_CHAT') {
-        const cleanId = cleanOpId(op.numero || op.op_numero);
-        if (!chatOpSet.has(cleanId)) return false;
-      } else if (quickFilter === 'PRIORITARIAS') {
-        if (!(op.favorito || op.prioridade === 'alta')) return false;
-      } else if (quickFilter === 'COM_ATRASO') {
-        if (!isAtrasada(op.data_entrega, op.status_macro) && !op.motivo_atraso) return false;
-      } else if (quickFilter === 'PAUSADAS') {
-        if (!op.pausada) return false;
-      }
+        if (!opsComChatSet.has(opNum)) return false;
+      } else {
+        // 1. Filtro dos 4 Contadores Clicáveis (apenas fora de COM_CHAT)
+        if (macroFilter === 'ATRASADAS') {
+          if (isFin || op.status_macro === 'falta_embalar' || !isAtrasada(op.data_entrega, op.status_macro)) {
+            return false;
+          }
+        } else if (macroFilter === 'HOJE') {
+          if (isFin || op.status_macro === 'falta_embalar' || !isEntregaHoje(op.data_entrega, op.status_macro)) {
+            return false;
+          }
+        } else if (macroFilter === 'FALTA_EMBALAR') {
+          if (op.status_macro !== 'falta_embalar') {
+            return false;
+          }
+        } else if (macroFilter === 'FINALIZADAS') {
+          if (!isFin) {
+            return false;
+          }
+        }
 
-      // 3. Filtro por Família/Modelo
-      if (selectedModel !== 'ALL' && classificarModeloOP(op) !== selectedModel) {
-        return false;
+        // 2. Demais Filtros Rápidos (Pílulas)
+        if (quickFilter === 'PRIORITARIAS') {
+          if (!(op.favorito || op.prioridade === 'alta')) return false;
+        } else if (quickFilter === 'COM_ATRASO') {
+          if (!isAtrasada(op.data_entrega, op.status_macro) && !op.motivo_atraso) return false;
+        } else if (quickFilter === 'PAUSADAS') {
+          if (!op.pausada) return false;
+        }
+
+        // 3. Filtro por Família/Modelo (quando não for COM_CHAT)
+        if (selectedModel !== 'ALL' && classificarModeloOP(op) !== selectedModel) {
+          return false;
+        }
       }
 
       // 4. Busca por texto
@@ -468,7 +506,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
 
       return true;
     });
-  }, [orderList, macroFilter, quickFilter, selectedModel, deferredSearch, apontamentos, chatOpSet]);
+  }, [orderList, macroFilter, quickFilter, selectedModel, deferredSearch, apontamentos, opsComChatSet]);
 
   // Reseta a paginação ao trocar de filtro
   useEffect(() => {
@@ -548,8 +586,8 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
 
   const handleSelectThread = useCallback((threadOp: ProductionOrder) => {
     playClick();
-    const cleanId = cleanOpId(threadOp.numero || threadOp.op_numero);
-    const fullOp = orderList.find((o) => cleanOpId(o.numero || o.op_numero) === cleanId) || orders[cleanId] || threadOp;
+    const cleanId = normalizarNumeroOp(threadOp.numero || threadOp.op_numero || (threadOp as any).id);
+    const fullOp = orderList.find((o) => normalizarNumeroOp(o.numero || o.op_numero || (o as any).id) === cleanId) || orders[cleanId] || orders['OP ' + cleanId] || threadOp;
 
     // 1. Abre a conversa no painel de chat
     setActiveThreadOp(fullOp);
@@ -576,7 +614,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     }
 
     // 4. Se o índice da OP na lista estiver além da paginação atual, expande o pageSize
-    const opIndex = orderList.findIndex((o) => cleanOpId(o.numero || o.op_numero) === cleanId);
+    const opIndex = orderList.findIndex((o) => normalizarNumeroOp(o.numero || o.op_numero || (o as any).id) === cleanId);
     if (opIndex >= 0 && opIndex >= pageSize) {
       setPageSize(Math.max(pageSize, opIndex + 20));
     }
@@ -606,8 +644,8 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
 
   const currentActiveOp = useMemo(() => {
     if (!activeThreadOp) return null;
-    const cleanId = cleanOpId(activeThreadOp.numero || activeThreadOp.op_numero);
-    return orderList.find((o) => cleanOpId(o.numero || o.op_numero) === cleanId) || orders[cleanId] || activeThreadOp;
+    const cleanId = normalizarNumeroOp(activeThreadOp.numero || activeThreadOp.op_numero || (activeThreadOp as any).id);
+    return orderList.find((o) => normalizarNumeroOp(o.numero || o.op_numero || (o as any).id) === cleanId) || orders[cleanId] || orders['OP ' + cleanId] || activeThreadOp;
   }, [activeThreadOp, orderList, orders]);
 
   const totemStatus = useMemo(() => {
@@ -658,14 +696,15 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     const threadMap: Record<string, { op: ProductionOrder; lastMsg: any; count: number; unread: number }> = {};
 
     allChatMessages.forEach((m: any) => {
-      const cleanId = extractOpNumeroFromMsg(m);
+      const cleanId = normalizarNumeroOp(extractOpNumeroFromMsg(m));
       if (!cleanId) return;
 
       const op =
         orders[cleanId] ||
         orders['OP ' + cleanId] ||
         orders[cleanId.padStart(6, '0')] ||
-        Object.values(orders).find((o) => cleanOpId(o.numero || o.op_numero) === cleanId) || {
+        orderList.find((o) => normalizarNumeroOp(o.numero || o.op_numero) === cleanId) ||
+        Object.values(orders).find((o) => normalizarNumeroOp(o.numero || o.op_numero) === cleanId) || {
           id: cleanId,
           numero: cleanId,
           op_numero: cleanId,
@@ -673,7 +712,8 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
           codigo: '',
           lote: '',
           quantidade_total: 1,
-          status: 'EM_ANDAMENTO',
+          status: 'FINALIZADA',
+          status_macro: 'embalada',
           etapas: {}
         };
 
@@ -1210,16 +1250,18 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
           <button
             onClick={() => {
               playClick();
+              setMacroFilter('NONE');
+              setSelectedModel('ALL');
               setQuickFilter('COM_CHAT');
             }}
             className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition cursor-pointer flex items-center gap-1.5 ${
               quickFilter === 'COM_CHAT'
-                ? 'bg-indigo-600 text-white border border-indigo-400 shadow-sm'
+                ? 'bg-indigo-600 text-white border border-indigo-400 shadow-sm ring-1 ring-indigo-400/50'
                 : 'bg-slate-900 text-indigo-300 hover:text-white border border-indigo-500/30'
             }`}
           >
             <MessageSquare className="w-3.5 h-3.5" />
-            <span>💬 Com Chat/Aviso PCP ({chatOpSet.size})</span>
+            <span>💬 Com Chat/Aviso PCP ({opsComChatSet.size})</span>
           </button>
 
           <button
@@ -1355,11 +1397,11 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       onTogglePrioridade={handleTogglePrioridade}
                       onTogglePausada={handleTogglePausada}
                       onSinalizarAtraso={handleSinalizarAtraso}
-                      unreadCount={unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0}
+                      unreadCount={unreadCountsByOp[normalizarNumeroOp(op.numero || op.op_numero)] || 0}
                       hideQuantitySelector={true}
                       compact={true}
                       readOnlyRoute={true}
-                      isHighlighted={highlightedOpId === cleanOpId(op.numero || op.op_numero)}
+                      isHighlighted={highlightedOpId === normalizarNumeroOp(op.numero || op.op_numero)}
                     />
                   ))}
                 </div>
@@ -1408,7 +1450,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                   </thead>
                   <tbody className="divide-y divide-blue-950">
                     {paginatedOrders.map((op, index) => {
-                      const cleanId = cleanOpId(op.numero || op.op_numero);
+                      const cleanId = normalizarNumeroOp(op.numero || op.op_numero);
                       const isHigh = highlightedOpId === cleanId;
                       const unreadCount = unreadCountsByOp[cleanId] || 0;
                       return (
@@ -1530,7 +1572,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       <div className="py-10 text-center text-slate-600 font-mono text-xs">Nenhuma OP nesta etapa</div>
                     ) : (
                       col.orders.map((op) => {
-                        const cleanId = cleanOpId(op.numero || op.op_numero);
+                        const cleanId = normalizarNumeroOp(op.numero || op.op_numero);
                         const isHigh = highlightedOpId === cleanId;
                         const unreadCount = unreadCountsByOp[cleanId] || 0;
                         const dias = getDiasRestantes(op.data_entrega);
@@ -1675,7 +1717,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {bucket.orders.map((op) => {
-                        const cleanId = cleanOpId(op.numero || op.op_numero);
+                        const cleanId = normalizarNumeroOp(op.numero || op.op_numero);
                         const isHigh = highlightedOpId === cleanId;
                         const dias = getDiasRestantes(op.data_entrega);
                         const unreadCount = unreadCountsByOp[cleanId] || 0;
@@ -2260,7 +2302,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                     </div>
                   ) : (
                     inboxThreads.map((thread) => {
-                      const cleanId = cleanOpId(thread.op.numero || thread.op.op_numero);
+                      const cleanId = normalizarNumeroOp(thread.op.numero || thread.op.op_numero);
                       const isUnread = thread.unread > 0;
 
                       const displayOpNum = formatOpNumber(thread.op.numero || thread.op.op_numero || cleanId) || `OP ${cleanId}`;
@@ -2270,7 +2312,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                           key={cleanId}
                           onClick={() => handleSelectThread(thread.op)}
                           className={`p-3 transition cursor-pointer hover:bg-slate-900/60 flex items-start justify-between gap-2.5 ${
-                            activeThreadOp && cleanOpId(activeThreadOp.numero || activeThreadOp.op_numero) === cleanId
+                            activeThreadOp && normalizarNumeroOp(activeThreadOp.numero || activeThreadOp.op_numero) === cleanId
                               ? 'bg-blue-950/40 border-l-4 border-blue-400'
                               : isUnread
                               ? 'bg-rose-950/20 border-l-2 border-rose-500'

@@ -19,7 +19,7 @@ import {
   isRotaLaserDobra,
   isRotaExclusivaRouter
 } from '../types/mes';
-import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP } from '../utils/nomusParser';
+import { deducePhysicalUnitsFromM2, processarRotaProduto, cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, normalizarNumeroOp } from '../utils/nomusParser';
 import { getRouteForOp, doesSectorMatchStep, matchStepName, initOrSyncOrderEtapas, obterQuantidadeTotal, obterEtapasDaRota, isEligibleForRouter } from '../utils/routeEngine';
 import { calcularDuracaoLiquidaMs, getPausaAtual } from '../utils/workShiftUtils';
 import { io, Socket } from 'socket.io-client';
@@ -44,7 +44,7 @@ export const CODIGOS_BATENTES_FALLBACK = new Set([
   '0200068', '0200069', '0200070'
 ]);
 
-export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, CODIGOS_BATENTES_PADRAO, CODIGOS_FOLHAS_PADRAO };
+export { cleanOpId, cleanOpid, formatOpNumber, normalizarIdOP, normalizarNumeroOp, CODIGOS_BATENTES_PADRAO, CODIGOS_FOLHAS_PADRAO };
 
 /**
  * Sanitiza recursivamente qualquer objeto ou payload antes de enviar para o Firebase Realtime Database.

@@ -4,7 +4,7 @@ import { ProductionOrder, Apontamento } from '../types/mes';
 import { calculateDeadlineInfo } from '../utils/nomusParser';
 import { getRouteForOp, getRouteEvaluation, isAncoraOrder, obterQuantidadeTotal, obterEtapasDaRota } from '../utils/routeEngine';
 import { classificarModeloOP } from '../utils/productClassifier';
-import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, resetarOpCompleta, cleanOpId, formatOpNumber } from '../services/mesStorage';
+import { updateProductionOrder, verificarECorrigirRotaOp, obterOcorrenciasDaOp, cancelarInicioEtapa, resetarOpCompleta, cleanOpId, normalizarNumeroOp, formatOpNumber } from '../services/mesStorage';
 import { playClick } from '../utils/audio';
 import {
   ChevronDown,
@@ -254,7 +254,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
 
   return (
     <div
-      id={`op-card-${cleanOpId(order.numero || order.op_numero)}`}
+      id={`op-card-${normalizarNumeroOp(order.numero || order.op_numero)}`}
       className={`bg-[#0c142b] rounded-2xl shadow-xl transition-all duration-300 flex flex-col justify-between relative ${compact ? 'p-4 gap-3' : 'p-5'} ${
         isHighlighted
           ? 'ring-4 ring-amber-400 shadow-2xl shadow-amber-500/50 scale-[1.02] z-30 border-2 border-amber-400'

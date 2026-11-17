@@ -25,6 +25,7 @@ export const normalizarIdOP = (opNum?: string | number | null): string => {
 
 export const cleanOpId = normalizarIdOP;
 export const cleanOpid = normalizarIdOP;
+export const normalizarNumeroOp = normalizarIdOP;
 
 /**
  * Formata o número da OP garantindo prefixo único "OP XXXXXX-XX" sem duplicações (ex: "OP OP ...")
