@@ -74,35 +74,52 @@ interface ProductionStatusModuleProps {
 
 
 // Funções auxiliares para tratamento e formatação segura de data/hora no Chat/Inbox
-const parseMessageTime = (rawDate?: string | number | null): number => {
-  if (!rawDate) return 0;
-  try {
-    let dateStr = String(rawDate).trim();
-    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(dateStr)) {
-      dateStr = dateStr.replace(' ', 'T');
-    }
-    const t = new Date(dateStr).getTime();
-    if (!isNaN(t)) return t;
-    const num = Number(rawDate);
-    if (!isNaN(num) && num > 0) return num;
-  } catch {}
-  return 0;
+const extractOpNumeroFromMsg = (m: any): string => {
+  if (!m) return '';
+  const raw =
+    m.order_numero ||
+    m.op_numero ||
+    m.numero ||
+    m.ordem_numero ||
+    m.op ||
+    m.numero_op ||
+    m.order_id ||
+    '';
+  return cleanOpId(raw);
 };
 
-const formatarDataMensagem = (rawDate?: string | number | null): string => {
-  if (!rawDate) return '—';
+const extractTimestampFromMsg = (m: any): number => {
+  if (!m) return Date.now();
+  const raw =
+    m.timestamp ||
+    m.criado_em ||
+    m.criadoEm ||
+    m.createdAt ||
+    m.dataHora ||
+    m.data_hora;
+  if (typeof raw === 'number' && !isNaN(raw) && raw > 0) return raw;
+  if (typeof raw === 'string') {
+    const num = Number(raw);
+    if (!isNaN(num) && num > 0) return num;
+    let s = raw.trim();
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(s)) s = s.replace(' ', 'T');
+    const t = new Date(s).getTime();
+    if (!isNaN(t)) return t;
+  }
+  return Date.now();
+};
+
+const formatarDataMensagem = (raw?: any): string => {
+  if (!raw) return '—';
   try {
-    let dateStr = String(rawDate).trim();
-    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(dateStr)) {
-      dateStr = dateStr.replace(' ', 'T');
+    let t: number | null = null;
+    if (typeof raw === 'object' && raw !== null) {
+      t = extractTimestampFromMsg(raw);
+    } else {
+      t = extractTimestampFromMsg({ timestamp: raw });
     }
-    let d = new Date(dateStr);
-    if (isNaN(d.getTime())) {
-      const num = Number(rawDate);
-      if (!isNaN(num) && num > 0) {
-        d = new Date(num);
-      }
-    }
+    if (!t || isNaN(t)) return '—';
+    const d = new Date(t);
     if (isNaN(d.getTime())) return '—';
 
     const hoje = new Date();
@@ -232,17 +249,20 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
   // Mapa de mensagens não lidas por OP
   const unreadCountsByOp = useMemo(() => {
     const map: Record<string, number> = {};
-    allChatMessages.forEach((m) => {
-      if (!m.lida) {
-        const clean = cleanOpId(m.op_numero);
-        map[clean] = (map[clean] || 0) + 1;
+    allChatMessages.forEach((m: any) => {
+      const isUnread = !(m.lida || m.lida_pcp);
+      if (isUnread) {
+        const clean = extractOpNumeroFromMsg(m);
+        if (clean) {
+          map[clean] = (map[clean] || 0) + 1;
+        }
       }
     });
     return map;
   }, [allChatMessages]);
 
   const totalUnreadChat = useMemo(() => {
-    return allChatMessages.filter((m) => !m.lida).length;
+    return allChatMessages.filter((m: any) => !(m.lida || m.lida_pcp)).length;
   }, [allChatMessages]);
 
   // Conjunto de OPs que possuem alguma mensagem registrada
@@ -469,34 +489,43 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
 
   // Conversas ativas agrupadas para o Inbox Lateral
   const inboxThreads = useMemo(() => {
-    const threadMap: Record<string, { op: ProductionOrder; lastMsg: OpMessageRow; count: number; unread: number }> = {};
+    const threadMap: Record<string, { op: ProductionOrder; lastMsg: any; count: number; unread: number }> = {};
 
-    allChatMessages.forEach((m) => {
-      const cleanId = cleanOpId(m.op_numero);
-      const op = orders[cleanId] || orders[m.op_numero] || {
-        id: cleanId,
-        numero: cleanId,
-        op_numero: cleanId,
-        descricao: m.order_desc || `OP ${cleanId}`,
-        codigo: '',
-        lote: '',
-        quantidade_total: 1,
-        status: 'EM_ANDAMENTO',
-        etapas: {}
-      };
+    allChatMessages.forEach((m: any) => {
+      const cleanId = extractOpNumeroFromMsg(m);
+      if (!cleanId) return;
+
+      const op =
+        orders[cleanId] ||
+        orders['OP ' + cleanId] ||
+        orders[cleanId.padStart(6, '0')] ||
+        Object.values(orders).find((o) => cleanOpId(o.numero || o.op_numero) === cleanId) || {
+          id: cleanId,
+          numero: cleanId,
+          op_numero: cleanId,
+          descricao: m.order_desc || `OP ${cleanId}`,
+          codigo: '',
+          lote: '',
+          quantidade_total: 1,
+          status: 'EM_ANDAMENTO',
+          etapas: {}
+        };
+
+      const isUnread = !(m.lida || m.lida_pcp);
+      const msgTime = extractTimestampFromMsg(m);
 
       if (!threadMap[cleanId]) {
         threadMap[cleanId] = {
           op,
           lastMsg: m,
           count: 1,
-          unread: m.lida ? 0 : 1
+          unread: isUnread ? 1 : 0
         };
       } else {
         threadMap[cleanId].count++;
-        if (!m.lida) threadMap[cleanId].unread++;
+        if (isUnread) threadMap[cleanId].unread++;
         // Mantém a mensagem mais recente
-        if (parseMessageTime(m.criado_em) > parseMessageTime(threadMap[cleanId].lastMsg.criado_em)) {
+        if (msgTime > extractTimestampFromMsg(threadMap[cleanId].lastMsg)) {
           threadMap[cleanId].lastMsg = m;
         }
       }
@@ -524,7 +553,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     return threads.sort((a, b) => {
       if (a.unread > 0 && b.unread === 0) return -1;
       if (b.unread > 0 && a.unread === 0) return 1;
-      return parseMessageTime(b.lastMsg.criado_em) - parseMessageTime(a.lastMsg.criado_em);
+      return extractTimestampFromMsg(b.lastMsg) - extractTimestampFromMsg(a.lastMsg);
     });
   }, [allChatMessages, orders, inboxFilter, inboxSearch]);
 
@@ -1163,6 +1192,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       unreadCount={unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0}
                       hideQuantitySelector={true}
                       compact={true}
+                      readOnlyRoute={true}
                     />
                   ))}
                 </div>
@@ -1776,7 +1806,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                                 {isPcp ? 'PCP' : 'Coordenação (Eduardo)'}
                               </span>
                               <span>
-                                {formatarDataMensagem(msg.criado_em)}
+                                {formatarDataMensagem(msg)}
                               </span>
                             </div>
 
@@ -1922,6 +1952,8 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       const cleanId = cleanOpId(thread.op.numero || thread.op.op_numero);
                       const isUnread = thread.unread > 0;
 
+                      const displayOpNum = formatOpNumber(thread.op.numero || thread.op.op_numero || cleanId) || `OP ${cleanId}`;
+
                       return (
                         <div
                           key={cleanId}
@@ -1935,11 +1967,11 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                         >
                           <div className="min-w-0 flex-1 space-y-1">
                             <div className="flex items-center justify-between gap-1">
-                              <span className="font-mono font-black text-xs text-blue-300 bg-blue-950/80 border border-blue-500/40 px-2 py-0.5 rounded shadow-sm inline-block">
-                                {formatOpNumber(thread.op.numero || thread.op.op_numero) || `OP ${cleanId}`}
+                              <span className="font-mono font-black text-xs text-blue-300 bg-blue-950/90 border border-blue-500/50 px-2.5 py-0.5 rounded shadow-sm inline-block">
+                                {displayOpNum}
                               </span>
                               <span className="text-[10px] text-slate-400 font-mono">
-                                {formatarDataMensagem(thread.lastMsg.criado_em)}
+                                {formatarDataMensagem(thread.lastMsg)}
                               </span>
                             </div>
 

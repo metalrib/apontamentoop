@@ -38,6 +38,7 @@ interface OpProductionCardProps {
   hideQuantitySelector?: boolean;
   hideManagementActions?: boolean;
   compact?: boolean;
+  readOnlyRoute?: boolean;
 }
 
 export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
@@ -55,7 +56,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
   unreadCount = 0,
   hideQuantitySelector = false,
   hideManagementActions = false,
-  compact = false
+  compact = false,
+  readOnlyRoute = false
 }) => {
   const op = verificarECorrigirRotaOp((propOrder || propOp)!);
   const order = op;
@@ -366,20 +368,23 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              playClick();
-              setShowResetAllModal(true);
-            }}
-            title="Resetar Ordem Completa (Voltar para Etapa 1)"
+          {!readOnlyRoute && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                playClick();
+                setShowResetAllModal(true);
+              }}
+              title="Resetar Ordem Completa (Voltar para Etapa 1)"
             className="p-1.5 rounded-lg text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 border border-transparent hover:border-amber-500/30 transition-colors flex items-center justify-center w-8 h-8 cursor-pointer active:scale-95 shrink-0"
           >
             <RotateCcw className="w-4 h-4" />
           </button>
 
-          {onDelete && (
+          )}
+
+          {!readOnlyRoute && onDelete && (
             <button
               type="button"
               onClick={(e) => {
@@ -422,16 +427,17 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                     )}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  disabled={isResetting}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    playClick();
-                    setStepToReset(
-                      activeApt?.etapa_rota || activeApt?.setorFisico || activeApt?.setor || activeStationName
-                    );
-                  }}
+                {!readOnlyRoute && (
+                  <button
+                    type="button"
+                    disabled={isResetting}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      playClick();
+                      setStepToReset(
+                        activeApt?.etapa_rota || activeApt?.setorFisico || activeApt?.setor || activeStationName
+                      );
+                    }}
                   className={`px-2 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 hover:text-rose-100 border border-rose-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 transition shrink-0 ${
                     isResetting ? 'opacity-50 cursor-not-allowed pointer-events-none' : 'cursor-pointer active:scale-95'
                   }`}
@@ -439,7 +445,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
                 >
                   <RotateCcw className={`w-3.5 h-3.5 text-rose-400 ${isResetting ? 'animate-spin' : ''}`} />
                   <span>{isResetting ? 'Resetando...' : 'Resetar Etapa'}</span>
-                </button>
+                  </button>
+                )}
               </div>
             ) : nextWaitingStep ? (
               <div className="flex items-center gap-2 px-3 py-2 bg-amber-950/40 border border-amber-500/40 rounded-xl text-xs font-mono text-amber-200 shadow-sm">
@@ -723,6 +730,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
           )}
 
           {/* Controle Universal de Envio ao Laser antes da Dobra (Terminal 1) */}
+          {!readOnlyRoute && (
           <div className="bg-orange-950/20 border border-orange-500/30 p-2.5 rounded-xl flex items-center justify-between gap-3 text-xs font-mono">
             <div>
               <span className="text-orange-300 font-bold flex items-center gap-1.5">
@@ -753,6 +761,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
               {(order.requer_laser || (order as any).requerLaser) ? '✓ Requer Laser' : '+ Ativar Laser'}
             </button>
           </div>
+          )}
 
           {/* Resumo das Etapas da Rota */}
           <div className="space-y-1.5 bg-slate-950/60 p-3 rounded-xl border border-blue-950/60">
@@ -881,7 +890,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span>Produção finalizada em todos os postos</span>
             </div>
-          ) : onSelectForTotem ? (
+          ) : !readOnlyRoute && onSelectForTotem ? (
             <button
               type="button"
               onClick={() => {
