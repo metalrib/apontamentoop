@@ -29,6 +29,9 @@ import {
   Award
 } from 'lucide-react';
 
+const normalizarNumeroOp = (val: unknown): string =>
+  String(val ?? '').replace(/^OP\s*/i, '').trim().toUpperCase();
+
 interface PcpChatDrawerProps {
   order: ProductionOrder | null;
   allOrders?: Record<string, ProductionOrder>;

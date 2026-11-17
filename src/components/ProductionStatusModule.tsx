@@ -77,6 +77,10 @@ interface ProductionStatusModuleProps {
 }
 
 
+// Função global de normalização de número de OP no escopo do módulo
+const normalizarNumeroOp = (val: unknown): string =>
+  String(val ?? '').replace(/^OP\s*/i, '').trim().toUpperCase();
+
 // Funções auxiliares para tratamento e formatação segura de data/hora no Chat/Inbox
 const extractOpNumeroFromMsg = (m: any): string => {
   if (!m) return '';

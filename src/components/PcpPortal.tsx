@@ -76,6 +76,9 @@ export const cleanOpIdLocal = (rawId: string | number | null | undefined): strin
 export const cleanOpid = cleanOpIdLocal;
 export { normalizarIdOP };
 
+const normalizarNumeroOp = (val: unknown): string =>
+  String(val ?? '').replace(/^OP\s*/i, '').trim().toUpperCase();
+
 interface PcpPortalProps {
   orders: Record<string, ProductionOrder>;
   apontamentos: Apontamento[];

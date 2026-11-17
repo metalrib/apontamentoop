@@ -22,6 +22,9 @@ import {
 } from 'lucide-react';
 import { OpOccurrenceModal } from './OpOccurrenceModal';
 
+const normalizarNumeroOp = (val: unknown): string =>
+  String(val ?? '').replace(/^OP\s*/i, '').trim().toUpperCase();
+
 interface OpProductionCardProps {
   order?: ProductionOrder;
   op?: ProductionOrder;
