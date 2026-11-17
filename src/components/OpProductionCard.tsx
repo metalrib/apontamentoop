@@ -35,6 +35,9 @@ interface OpProductionCardProps {
   onTogglePausada?: (order: ProductionOrder) => void;
   onSinalizarAtraso?: (order: ProductionOrder) => void;
   unreadCount?: number;
+  hideQuantitySelector?: boolean;
+  hideManagementActions?: boolean;
+  compact?: boolean;
 }
 
 export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
@@ -49,7 +52,10 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
   onTogglePrioridade,
   onTogglePausada,
   onSinalizarAtraso,
-  unreadCount = 0
+  unreadCount = 0,
+  hideQuantitySelector = false,
+  hideManagementActions = false,
+  compact = false
 }) => {
   const op = verificarECorrigirRotaOp((propOrder || propOp)!);
   const order = op;
@@ -244,7 +250,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
 
   return (
     <div
-      className={`bg-[#0c142b] rounded-2xl p-5 shadow-xl transition-all duration-200 flex flex-col justify-between relative ${
+      className={`bg-[#0c142b] rounded-2xl shadow-xl transition-all duration-200 flex flex-col justify-between relative ${compact ? 'p-4 gap-3' : 'p-5'} ${
         isConcluidaGeral
           ? 'border-2 border-emerald-500/50 shadow-emerald-950/20'
           : 'border border-blue-900/60'
@@ -328,7 +334,13 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
 
         {/* Canto direito: Badge com a quantidade e botão de excluir */}
         <div className="flex items-center gap-2 shrink-0">
-          {showPhysicalQuantitySelector ? (
+          {hideQuantitySelector ? (
+            <div className="bg-slate-950/90 border border-blue-800/60 px-2.5 py-1 rounded-xl flex items-center justify-center shadow-inner shrink-0">
+              <span className="text-[11px] font-mono font-bold text-blue-300">
+                FÍSICA: <strong className="text-white font-black">{totalPhysicalUnits} {order.unidade_medida === 'UN' ? 'UN' : 'PC'}</strong>
+              </span>
+            </div>
+          ) : showPhysicalQuantitySelector ? (
             <div className="bg-slate-950/90 border border-amber-500/50 px-3 py-1.5 rounded-xl flex flex-col items-center justify-center min-w-[72px] shadow-inner shrink-0">
               {order.quantidade_m2 ? (
                 <span className="text-[11px] font-mono font-bold text-amber-400 leading-none">
@@ -442,7 +454,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
         )}
 
         {/* Seletor rápido de quantidade física a produzir */}
-        {showPhysicalQuantitySelector && (
+        {showPhysicalQuantitySelector && !hideQuantitySelector && (
           <div 
             className="mt-2.5 p-2 bg-slate-950/80 border border-amber-500/30 rounded-xl flex items-center justify-between gap-2 flex-wrap"
             onClick={(e) => e.stopPropagation()}
@@ -548,7 +560,7 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
       </div>
 
       {/* 3.1 BOTÕES DE AÇÕES EXCLUSIVAS DO PCP */}
-      {(onTogglePausada || onSinalizarAtraso || onOpenChat) && (
+      {!hideManagementActions && (onTogglePausada || onSinalizarAtraso || onOpenChat) && (
         <div className="mt-2.5 pt-2 border-t border-blue-950/80 flex items-center justify-between gap-1.5 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
             {onTogglePausada && (

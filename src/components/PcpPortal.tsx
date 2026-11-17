@@ -1061,7 +1061,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       </div>
 
       {/* Conteúdo Principal do PCP */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+      <main className="flex-1 max-w-[1600px] w-full mx-auto p-4 sm:p-6 space-y-6">
         {/* ABA 1: VISÃO GERAL DA FÁBRICA */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -1328,21 +1328,18 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                 )}
               </div>
             ) : orderViewMode === 'cards' ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredOrders.map((op, index) => (
                   <OpProductionCard
                     key={`${op.id || op.numero || op.op_numero}-${index}`}
                     order={op}
                     apontamentos={apontamentos}
-                    onOpenChat={handleOpenOpChat}
                     onSelectForTotem={handleSelectForTotem}
                     onResetOpCompleta={handleResetOp}
                     onDelete={handleDeleteOp}
                     onConfirmarEmbalagem={handleConfirmarEmbalagem}
                     onTogglePrioridade={handleTogglePrioridade}
-                    onTogglePausada={handleTogglePausada}
-                    onSinalizarAtraso={handleSinalizarAtraso}
-                    unreadCount={unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0}
+                    hideManagementActions={true}
                   />
                 ))}
               </div>
@@ -1471,22 +1468,8 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
                               )}
                               <button
                                 type="button"
-                                onClick={() => handleOpenOpChat(op)}
-                                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-blue-300 rounded-lg text-[10px] font-bold border border-blue-900 transition cursor-pointer relative"
-                                title="Chat da OP"
-                              >
-                                <MessageSquare className="w-3 h-3 inline mr-1" />
-                                Chat
-                                {unreadCount > 0 && (
-                                  <span className="ml-1 px-1 bg-rose-500 text-white rounded-full text-[9px]">
-                                    {unreadCount}
-                                  </span>
-                                )}
-                              </button>
-                              <button
-                                type="button"
                                 onClick={() => handleSelectForTotem(op.numero || op.op_numero)}
-                                className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer shadow-sm"
                                 title="Ver no Totem"
                               >
                                 Totem

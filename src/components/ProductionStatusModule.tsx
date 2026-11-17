@@ -72,6 +72,57 @@ interface ProductionStatusModuleProps {
   onOrdersUpdated?: (orders: Record<string, ProductionOrder>) => void;
 }
 
+
+// Funções auxiliares para tratamento e formatação segura de data/hora no Chat/Inbox
+const parseMessageTime = (rawDate?: string | number | null): number => {
+  if (!rawDate) return 0;
+  try {
+    let dateStr = String(rawDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(dateStr)) {
+      dateStr = dateStr.replace(' ', 'T');
+    }
+    const t = new Date(dateStr).getTime();
+    if (!isNaN(t)) return t;
+    const num = Number(rawDate);
+    if (!isNaN(num) && num > 0) return num;
+  } catch {}
+  return 0;
+};
+
+const formatarDataMensagem = (rawDate?: string | number | null): string => {
+  if (!rawDate) return '—';
+  try {
+    let dateStr = String(rawDate).trim();
+    if (/^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}/.test(dateStr)) {
+      dateStr = dateStr.replace(' ', 'T');
+    }
+    let d = new Date(dateStr);
+    if (isNaN(d.getTime())) {
+      const num = Number(rawDate);
+      if (!isNaN(num) && num > 0) {
+        d = new Date(num);
+      }
+    }
+    if (isNaN(d.getTime())) return '—';
+
+    const hoje = new Date();
+    const isHoje =
+      d.getDate() === hoje.getDate() &&
+      d.getMonth() === hoje.getMonth() &&
+      d.getFullYear() === hoje.getFullYear();
+
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    if (isHoje) {
+      return hora;
+    }
+    const dia = String(d.getDate()).padStart(2, '0');
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dia}/${mes} ${hora}`;
+  } catch {
+    return '—';
+  }
+};
+
 export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = React.memo(({
   orders,
   apontamentos,
@@ -445,7 +496,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
         threadMap[cleanId].count++;
         if (!m.lida) threadMap[cleanId].unread++;
         // Mantém a mensagem mais recente
-        if (new Date(m.criado_em).getTime() > new Date(threadMap[cleanId].lastMsg.criado_em).getTime()) {
+        if (parseMessageTime(m.criado_em) > parseMessageTime(threadMap[cleanId].lastMsg.criado_em)) {
           threadMap[cleanId].lastMsg = m;
         }
       }
@@ -473,7 +524,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     return threads.sort((a, b) => {
       if (a.unread > 0 && b.unread === 0) return -1;
       if (b.unread > 0 && a.unread === 0) return 1;
-      return new Date(b.lastMsg.criado_em).getTime() - new Date(a.lastMsg.criado_em).getTime();
+      return parseMessageTime(b.lastMsg.criado_em) - parseMessageTime(a.lastMsg.criado_em);
     });
   }, [allChatMessages, orders, inboxFilter, inboxSearch]);
 
@@ -1110,6 +1161,8 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       onTogglePausada={handleTogglePausada}
                       onSinalizarAtraso={handleSinalizarAtraso}
                       unreadCount={unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0}
+                      hideQuantitySelector={true}
+                      compact={true}
                     />
                   ))}
                 </div>
@@ -1684,10 +1737,10 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       <ArrowLeft className="w-3.5 h-3.5 text-blue-400" />
                     </button>
                     <div className="truncate">
-                      <span className="font-mono font-black text-xs text-blue-300 block">
+                      <span className="font-mono font-black text-xs text-blue-300 bg-blue-950/80 border border-blue-500/40 px-2 py-0.5 rounded shadow-sm inline-block mb-1">
                         {formatOpNumber(activeThreadOp.numero || activeThreadOp.op_numero)}
                       </span>
-                      <span className="text-[10px] text-slate-400 truncate block">
+                      <span className="text-[11px] text-slate-200 truncate block font-sans font-medium">
                         {activeThreadOp.descricao}
                       </span>
                     </div>
@@ -1723,7 +1776,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                                 {isPcp ? 'PCP' : 'Coordenação (Eduardo)'}
                               </span>
                               <span>
-                                {new Date(msg.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                                {formatarDataMensagem(msg.criado_em)}
                               </span>
                             </div>
 
@@ -1882,15 +1935,15 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                         >
                           <div className="min-w-0 flex-1 space-y-1">
                             <div className="flex items-center justify-between gap-1">
-                              <span className="font-mono font-black text-xs text-blue-300">
-                                {formatOpNumber(thread.op.numero || thread.op.op_numero)}
+                              <span className="font-mono font-black text-xs text-blue-300 bg-blue-950/80 border border-blue-500/40 px-2 py-0.5 rounded shadow-sm inline-block">
+                                {formatOpNumber(thread.op.numero || thread.op.op_numero) || `OP ${cleanId}`}
                               </span>
-                              <span className="text-[10px] text-slate-500 font-mono">
-                                {new Date(thread.lastMsg.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                {formatarDataMensagem(thread.lastMsg.criado_em)}
                               </span>
                             </div>
 
-                            <p className="text-[11px] font-sans font-semibold text-slate-200 truncate">
+                            <p className="text-[11px] font-sans font-semibold text-slate-100 truncate mt-1">
                               {thread.op.descricao}
                             </p>
 
