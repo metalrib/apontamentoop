@@ -211,18 +211,50 @@ export const OperatorSelector: React.FC<OperatorSelectorProps> = ({
         .replace(/folhas$/, 'folha');
       const postoAtivoSimplificado = postoAlvoSimplificado;
 
+      const isOfficeDoorGiro =
+        targetNorm.includes('office') &&
+        (targetNorm.includes('giro') || (targetNorm.includes('montagem') && !targetNorm.includes('correr')));
+
       return operators.filter((colab: Operator) => {
         // 1. Status ativo
         if (colab.ativo === false) return false;
+
+        const colabTerminais = Array.isArray(colab.terminais) ? colab.terminais : [];
+        const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
+        const isEsp = checkIsEspecialista(colab);
+
+        // REGRA DE ESCALA RIGOROSA: "MONTAGEM DE OFFICE DOOR GIRO"
+        if (isOfficeDoorGiro) {
+          const colabId = (colab.id || '').toLowerCase().trim();
+          const colabNome = (colab.nome || colab.name || '').toLowerCase().trim();
+          const isAfonso = colabId === 'afonso' || badge === 'ESP-MULTI' || colabNome.includes('afonso');
+          const isSergio = colabId === 'sergio' || badge === 'ESP-T3' || colabNome.includes('sergio');
+          const isFabio = colabId === 'fabio' || badge === 'ESP-T5' || colabNome.includes('fabio');
+          const isJoseLucas = colabId === 'jose_lucas' || badge === 'OFF-01' || (colabNome.includes('jose') && colabNome.includes('lucas'));
+          const isNathan = colabId === 'nathan' || badge === 'SOL-01' || colabNome.includes('nathan');
+
+          if (termKey === 'T3' || termId === 3) {
+            if (isEsp) {
+              return isSergio || isAfonso;
+            }
+            return isJoseLucas;
+          }
+
+          if (termKey === 'T5' || termId === 5) {
+            if (isEsp) {
+              return isFabio || isAfonso;
+            }
+            return isNathan;
+          }
+
+          if (isEsp) return isAfonso;
+          return false;
+        }
 
         // 2. FILTRO RIGOROSO DE TERMINAL ATIVO:
         // O colaborador SÓ PODE APARECER se o terminal atual (ex: Terminal 1) estiver dentro do seu array de terminais autorizados,
         // OU se ele for ESP-MULTI / tiver autorização explícita em todos os terminais.
         // Sergio (T3) e Fabio (T5) NÃO devem aparecer no Terminal 1.
-        const colabTerminais = Array.isArray(colab.terminais) ? colab.terminais : [];
-        const badge = (colab.badge || colab.codigo || '').trim().toUpperCase();
-        const isEsp = checkIsEspecialista(colab);
-
         const isMultiTerminal =
           badge === 'ESP-MULTI' ||
           badge.includes('MULTI') ||

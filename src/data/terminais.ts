@@ -48,6 +48,8 @@ export const POSTOS_POR_TERMINAL: Record<string, string[]> = {
     'Corte',
     'Solda',
     'Solda e Montagem',
+    'Montagem de Office Door Giro',
+    'Montagem Office de Correr',
     'Montagem Estante',
     'Montagem Abrigo Doca',
     'Cortina',

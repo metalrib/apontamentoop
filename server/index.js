@@ -470,8 +470,8 @@ const COLABORADORES_PADRAO = [
   { id: 'antonio_m', nome: 'Antonio Massena', badge: 'BAT-02', codigo: 'BAT-02', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
   { id: 'salatiel', nome: 'Salatiel', badge: 'BAT-03', codigo: 'BAT-03', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
   { id: 'yuri', nome: 'Yuri', badge: 'BAT-04', codigo: 'BAT-04', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
-  { id: 'sergio', nome: 'Sergio', badge: 'ESP-T3', codigo: 'ESP-T3', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas'], especialista: 1, ativo: 1 },
-  { id: 'jose_lucas', nome: 'Jose Lucas', badge: 'OFF-01', codigo: 'OFF-01', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: 0, ativo: 1 },
+  { id: 'sergio', nome: 'Sergio', badge: 'ESP-T3', codigo: 'ESP-T3', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem de Office Door Giro'], especialista: 1, ativo: 1 },
+  { id: 'jose_lucas', nome: 'Jose Lucas', badge: 'OFF-01', codigo: 'OFF-01', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem de Office Door Giro'], especialista: 0, ativo: 1 },
   { id: 'ademir', nome: 'Ademir', badge: 'EME-01', codigo: 'EME-01', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
   { id: 'francisco_h', nome: 'Francisco Henrique', badge: 'EME-02', codigo: 'EME-02', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
   { id: 'denis', nome: 'Denis', badge: 'EME-03', codigo: 'EME-03', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: 0, ativo: 1 },
@@ -494,8 +494,8 @@ const COLABORADORES_PADRAO = [
   { id: 'gabriele', nome: 'Gabriele', badge: 'COR-01', codigo: 'COR-01', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina'], especialista: 0, ativo: 1 },
   { id: 'yasmin', nome: 'Yasmin', badge: 'PVV-01', codigo: 'PVV-01', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: 0, ativo: 1 },
   { id: 'carol', nome: 'Carol', badge: 'T5-01', codigo: 'T5-01', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: 0, ativo: 1 },
-  { id: 'nathan', nome: 'Nathan', badge: 'SOL-01', codigo: 'SOL-01', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem'], especialista: 0, ativo: 1 },
-  { id: 'fabio', nome: 'Fabio', badge: 'ESP-T5', codigo: 'ESP-T5', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica'], especialista: 1, ativo: 1 },
+  { id: 'nathan', nome: 'Nathan', badge: 'SOL-01', codigo: 'SOL-01', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Montagem de Office Door Giro'], especialista: 0, ativo: 1 },
+  { id: 'fabio', nome: 'Fabio', badge: 'ESP-T5', codigo: 'ESP-T5', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica', 'Montagem de Office Door Giro'], especialista: 1, ativo: 1 },
 
   // ESPECIALISTA MULTI-TERMINAL
   { id: 'afonso', nome: 'Afonso', badge: 'ESP-MULTI', codigo: 'ESP-MULTI', terminais: ['T1', 'T3', 'T4', 'T5'], setores: ['TODOS'], especialista: 1, ativo: 1 }
@@ -541,12 +541,46 @@ try {
     // Saneamento compulsório de colaboradores no banco
     const sanitizarStmt = db.prepare(`
       UPDATE colaboradores 
-      SET setores = @setores, atualizadoEm = @atualizadoEm
+      SET terminais = @terminais, setores = @setores, atualizadoEm = @atualizadoEm
       WHERE id = @id
     `);
-    sanitizarStmt.run({ id: 'eliel', setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
-    sanitizarStmt.run({ id: 'elionai', setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
-    sanitizarStmt.run({ id: 'leonardo_h', setores: JSON.stringify(['Preparação de Folha']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'eliel', terminais: JSON.stringify(['T1']), setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'elionai', terminais: JSON.stringify(['T1']), setores: JSON.stringify(['Corte']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'leonardo_h', terminais: JSON.stringify(['T1', 'T2']), setores: JSON.stringify(['Preparação de Folha']), atualizadoEm: Date.now() });
+
+    // Saneamento de terminais e setores oficiais para Office Door (T3 e T5)
+    sanitizarStmt.run({
+      id: 'sergio',
+      terminais: JSON.stringify(['T3']),
+      setores: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem de Office Door Giro']),
+      atualizadoEm: Date.now()
+    });
+    sanitizarStmt.run({
+      id: 'jose_lucas',
+      terminais: JSON.stringify(['T3']),
+      setores: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem de Office Door Giro']),
+      atualizadoEm: Date.now()
+    });
+    sanitizarStmt.run({
+      id: 'nathan',
+      terminais: JSON.stringify(['T5']),
+      setores: JSON.stringify(['Solda', 'Solda e Montagem', 'Montagem de Office Door Giro']),
+      atualizadoEm: Date.now()
+    });
+    sanitizarStmt.run({
+      id: 'fabio',
+      terminais: JSON.stringify(['T5']),
+      setores: JSON.stringify(['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica', 'Montagem de Office Door Giro']),
+      atualizadoEm: Date.now()
+    });
+
+    // Blindagem de colaboradores T3 para não terem Office Door nem vazarem para T5
+    sanitizarStmt.run({ id: 'ademir', terminais: JSON.stringify(['T3']), setores: JSON.stringify(['Montagem Portas Emendadas']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'francisco_h', terminais: JSON.stringify(['T3']), setores: JSON.stringify(['Montagem Portas Emendadas']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'denis', terminais: JSON.stringify(['T3']), setores: JSON.stringify(['Montagem Portas Emendadas']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'jonathan', terminais: JSON.stringify(['T3']), setores: JSON.stringify(['Montagem Portas Emendadas']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'jose_aparecido', terminais: JSON.stringify(['T3', 'T4']), setores: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial']), atualizadoEm: Date.now() });
+    sanitizarStmt.run({ id: 'deilson', terminais: JSON.stringify(['T3', 'T4']), setores: JSON.stringify(['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Instalação de Gaxeta', 'Montagem de Portas Giratória Padrão e Especial']), atualizadoEm: Date.now() });
 
     // Migração de Victor para Vitor com permissão de Router no Terminal 5
     const victorRow = db.prepare("SELECT * FROM colaboradores WHERE id = 'victor' OR LOWER(nome) = 'victor'").get();

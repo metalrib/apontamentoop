@@ -1447,7 +1447,12 @@ export const POSTOS_UNITARIOS = [
   'Montagem de Portas Giratória Padrão e Especial',
   'Preparação Vai Vem',
   'Montagem Porta Vai-Vem',
-  'Montagem Portas de Correr Padrão e Especial'
+  'Montagem Portas de Correr Padrão e Especial',
+  'Montagem de Office Door Giro',
+  'Montagem Office Door',
+  'Montagem Office de Correr',
+  'Montagem Portas Office Door',
+  'Montagem Office Door Correr'
 ];
 
 /**
@@ -1464,6 +1469,8 @@ export function isPostoUnitario(posto?: string | null): boolean {
   const pTrim = posto.trim().toLowerCase();
   if (POSTOS_UNITARIOS.some(p => p.toLowerCase().trim() === pTrim)) return true;
   const pNorm = normalizeText(posto);
+  if ((pNorm.includes('OFFICE') || pNorm.includes('OFFICE DOOR')) && pNorm.includes('MONTAGEM')) return true;
+  if (pNorm.includes('OFFICE DOOR GIRO')) return true;
   return POSTOS_UNITARIOS.some(pu => {
     const puNorm = normalizeText(pu);
     if (pNorm === puNorm) return true;
@@ -1472,6 +1479,7 @@ export function isPostoUnitario(posto?: string | null): boolean {
     if (pNorm.includes('VAI VEM') && puNorm.includes('VAI VEM') && pNorm.includes('PREPARACAO') && puNorm.includes('PREPARACAO')) return true;
     if (pNorm.includes('GIRATORIA') && puNorm.includes('GIRATORIA') && pNorm.includes('MONTAGEM')) return true;
     if (pNorm.includes('CORRER') && puNorm.includes('CORRER') && pNorm.includes('MONTAGEM')) return true;
+    if (pNorm.includes('OFFICE') && puNorm.includes('MONTAGEM')) return true;
     return false;
   });
 }
@@ -1528,6 +1536,12 @@ export function isBatchTracking(
   // - Portas Vai-Vem (nos setores de Montagem / Finalização Vai-Vem)
   const isVaiVem = norm.includes('PT VAI VEM') || norm.includes('VAI VEM') || norm.includes('VV');
   if (isVaiVem && (secNorm.includes('FINALIZACAO') || secNorm.includes('MONTAGEM') || secNorm.includes('VAI VEM'))) {
+    return false;
+  }
+
+  // - Office Door (nos setores de Instalação de Gaxeta e Montagem Office Door Giro)
+  const isOfficeDoor = norm.includes('OFFICE DOOR') || norm.includes('OFFICE');
+  if (isOfficeDoor && (secNorm.includes('GAXETA') || secNorm.includes('OFFICE') || secNorm.includes('MONTAGEM'))) {
     return false;
   }
 

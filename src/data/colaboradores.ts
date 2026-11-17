@@ -24,8 +24,8 @@ export const colaboradores: ColaboradorRaw[] = [
   { id: 'antonio_m', nome: 'Antonio Massena', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
   { id: 'salatiel', nome: 'Salatiel', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
   { id: 'yuri', nome: 'Yuri', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
-  { id: 'sergio', nome: 'Sergio', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas'], especialista: true },
-  { id: 'jose_lucas', nome: 'Jose Lucas', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes'], especialista: false },
+  { id: 'sergio', nome: 'Sergio', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem Portas Emendadas', 'Montagem de Office Door Giro'], especialista: true },
+  { id: 'jose_lucas', nome: 'Jose Lucas', terminais: ['T3'], setores: ['Preparação de Batentes', 'Injeção e Finalização de Batentes', 'Montagem de Office Door Giro'], especialista: false },
   { id: 'ademir', nome: 'Ademir', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
   { id: 'francisco_h', nome: 'Francisco Henrique', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
   { id: 'denis', nome: 'Denis', terminais: ['T3'], setores: ['Montagem Portas Emendadas'], especialista: false },
@@ -48,8 +48,8 @@ export const colaboradores: ColaboradorRaw[] = [
   { id: 'gabriele', nome: 'Gabriele', terminais: ['T5'], setores: ['Montagem Estante', 'Cortina'], especialista: false },
   { id: 'yasmin', nome: 'Yasmin', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: false },
   { id: 'carol', nome: 'Carol', terminais: ['T5'], setores: ['Preparação Vai Vem', 'Corte Alumínio'], especialista: false },
-  { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem'], especialista: false },
-  { id: 'fabio', nome: 'Fabio', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica'], especialista: true },
+  { id: 'nathan', nome: 'Nathan', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Montagem de Office Door Giro'], especialista: false },
+  { id: 'fabio', nome: 'Fabio', terminais: ['T5'], setores: ['Solda', 'Solda e Montagem', 'Router', 'Corte Alumínio', 'Elétrica', 'Montagem de Office Door Giro'], especialista: true },
 
   // ESPECIALISTA MULTI-TERMINAL
   { id: 'afonso', nome: 'Afonso', terminais: ['T1', 'T3', 'T4', 'T5'], setores: ['TODOS'], especialista: true }

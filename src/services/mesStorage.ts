@@ -1140,19 +1140,58 @@ export function fetchOperators(): Operator[] {
           primarySetor = 'Preparação de Folha';
         }
 
-        // Garante terminais e badges corretos dos especialistas para que não vazem entre terminais
+        // Garante terminais e badges corretos dos especialistas e montadores para que não vazem entre terminais
         const isSergio = op.id === 'sergio' || nome.toLowerCase().includes('sergio') || badge === 'ESP-T3';
         if (isSergio) {
-          const idxT1 = terminais.indexOf('T1');
-          if (idxT1 >= 0) terminais.splice(idxT1, 1);
+          ['T1', 'T2', 'T4', 'T5'].forEach(t => {
+            const idx = terminais.indexOf(t);
+            if (idx >= 0) terminais.splice(idx, 1);
+          });
           if (!terminais.includes('T3')) terminais.push('T3');
+          if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+        }
+
+        const isJoseLucas = op.id === 'jose_lucas' || nome.toLowerCase().includes('jose lucas') || badge === 'OFF-01';
+        if (isJoseLucas) {
+          ['T1', 'T2', 'T4', 'T5'].forEach(t => {
+            const idx = terminais.indexOf(t);
+            if (idx >= 0) terminais.splice(idx, 1);
+          });
+          if (!terminais.includes('T3')) terminais.push('T3');
+          if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
         }
 
         const isFabio = op.id === 'fabio' || nome.toLowerCase().includes('fabio') || badge === 'ESP-T5';
         if (isFabio) {
-          const idxT1 = terminais.indexOf('T1');
-          if (idxT1 >= 0) terminais.splice(idxT1, 1);
+          ['T1', 'T2', 'T3', 'T4'].forEach(t => {
+            const idx = terminais.indexOf(t);
+            if (idx >= 0) terminais.splice(idx, 1);
+          });
           if (!terminais.includes('T5')) terminais.push('T5');
+          if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+        }
+
+        const isNathan = op.id === 'nathan' || nome.toLowerCase().includes('nathan') || badge === 'SOL-01';
+        if (isNathan) {
+          ['T1', 'T2', 'T3', 'T4'].forEach(t => {
+            const idx = terminais.indexOf(t);
+            if (idx >= 0) terminais.splice(idx, 1);
+          });
+          if (!terminais.includes('T5')) terminais.push('T5');
+          if (!uniqueSectors.includes('Montagem de Office Door Giro')) uniqueSectors.push('Montagem de Office Door Giro');
+        }
+
+        // Operadores de Emendadas e Batentes (T3) não devem ter acesso a Office Door nem vazar para T5
+        const isEmendadasOuBatentes = ['ademir', 'francisco_h', 'denis', 'jonathan', 'jose_aparecido', 'deilson'].includes(op.id) ||
+          ['EME-01', 'EME-02', 'EME-03', 'EME-04'].includes(badge);
+        if (isEmendadasOuBatentes) {
+          const idxT5 = terminais.indexOf('T5');
+          if (idxT5 >= 0) terminais.splice(idxT5, 1);
+          for (let i = uniqueSectors.length - 1; i >= 0; i--) {
+            if (uniqueSectors[i].toLowerCase().includes('office')) {
+              uniqueSectors.splice(i, 1);
+            }
+          }
         }
 
         const isBrunoC = op.id === 'bruno_c' || nome.toLowerCase().includes('bruno constancio') || badge === 'ESP-T1';
