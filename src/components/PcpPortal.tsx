@@ -24,6 +24,7 @@ import { TerminalsOverview } from './TerminalsOverview';
 import { AppointmentsHistory } from './AppointmentsHistory';
 import { PcpChatDrawer } from './PcpChatDrawer';
 import { PcpDelayReasonModal } from './PcpDelayReasonModal';
+import { ProductionStatusModule } from './ProductionStatusModule';
 import {
   Factory,
   Layers,
@@ -90,22 +91,13 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   onOrdersUpdated,
   onClearOrders
 }) => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'apontamentos' | 'productivity' | 'tv_status' | 'equipe'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'status_pcp' | 'apontamentos' | 'productivity' | 'tv_status' | 'equipe'>('dashboard');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'EM_ABERTO' | 'EM_PRODUCAO' | 'FINALIZADA' | 'ALL'>('EM_ABERTO');
   const [selectedModel, setSelectedModel] = useState<string>('ALL');
   const [orderViewMode, setOrderViewMode] = useState<'cards' | 'table'>('cards');
   const [chatOrder, setChatOrder] = useState<ProductionOrder | null>(null);
   const [occurrenceOrder, setOccurrenceOrder] = useState<ProductionOrder | null>(null);
-
-  // 4 Visões Exclusivas do PCP: Lista | Quadro Kanban | Linha do Tempo | Análises
-  const [pcpViewMode, setPcpViewMode] = useState<'lista' | 'kanban' | 'timeline' | 'analises'>('lista');
-
-  // Filtro dos 4 Contadores Clicáveis do PCP
-  const [macroFilter, setMacroFilter] = useState<'NONE' | 'ATRASADAS' | 'HOJE' | 'FALTA_EMBALAR' | 'FINALIZADAS'>('NONE');
-
-  // Sub-abas do PCP: Todas | Prioritárias | Pausadas
-  const [subTabFilter, setSubTabFilter] = useState<'TODAS' | 'PRIORITARIAS' | 'PAUSADAS'>('TODAS');
 
   // Gaveta Lateral de Chat Exclusivo PCP ↔ Coordenação
   const [chatDrawerOpen, setChatDrawerOpen] = useState<boolean>(false);
@@ -323,38 +315,6 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     return Object.values(orders).map(verificarECorrigirRotaOp);
   }, [orders]);
 
-  // 4 Contadores Clicáveis do PCP (Atrasadas, Entrega Hoje, Falta Embalar, Finalizadas)
-  const pcpMacroCounts = useMemo(() => {
-    let atrasadas = 0;
-    let hoje = 0;
-    let faltaEmbalar = 0;
-    let finalizadas = 0;
-
-    orderList.forEach((op) => {
-      const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-      if (isFin) {
-        finalizadas++;
-      } else if (op.status_macro === 'falta_embalar') {
-        faltaEmbalar++;
-      } else if (isEntregaHoje(op.data_entrega, op.status_macro)) {
-        hoje++;
-      } else if (isAtrasada(op.data_entrega, op.status_macro)) {
-        atrasadas++;
-      }
-    });
-
-    return { atrasadas, hoje, faltaEmbalar, finalizadas };
-  }, [orderList, apontamentos]);
-
-  // Contagem de Prioritárias e Pausadas
-  const totalPrioritarias = useMemo(() => {
-    return orderList.filter((op) => op.favorito || op.prioridade === 'alta').length;
-  }, [orderList]);
-
-  const totalPausadas = useMemo(() => {
-    return orderList.filter((op) => op.pausada).length;
-  }, [orderList]);
-
   // 3. Ordens filtradas por status (base de cálculo para os contadores dinâmicos da barra de modelos)
   const statusFilteredOrders = useMemo(() => {
     return orderList.filter((op) => {
@@ -381,45 +341,21 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     return counts;
   }, [statusFilteredOrders]);
 
-  // 4. Memorização do filtro de OPs do Portal PCP (busca + status + modelo + contadores macro + sub-abas)
+  // 4. Memorização do filtro operacional de OPs do Portal PCP (busca + status + modelo)
   const filteredOrders = useMemo(() => {
     const searchLower = (deferredSearch || '').trim().toLowerCase();
     return orderList.filter((op) => {
-      // 1. Filtro dos 4 Contadores Clicáveis (se ativo)
-      if (macroFilter === 'ATRASADAS') {
-        const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-        if (isFin) return false;
-        if (!isAtrasada(op.data_entrega, op.status_macro)) return false;
-      } else if (macroFilter === 'HOJE') {
-        const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-        if (isFin) return false;
-        if (!isEntregaHoje(op.data_entrega, op.status_macro)) return false;
-      } else if (macroFilter === 'FALTA_EMBALAR') {
-        if (op.status_macro !== 'falta_embalar') return false;
-      } else if (macroFilter === 'FINALIZADAS') {
-        const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-        if (!isFin) return false;
-      } else {
-        // Se macroFilter === 'NONE', aplica o filtro de status padrão (Em Aberto / Em Produção / Finalizada / All)
-        if (statusFilter === 'EM_ABERTO' && !isOpEmAberto(op, apontamentos)) return false;
-        if (statusFilter === 'EM_PRODUCAO' && !isOpEmProducao(op, apontamentos)) return false;
-        if (statusFilter === 'FINALIZADA' && !isOpConcluida(op, apontamentos)) return false;
-      }
+      // Filtro de status padrão (Em Aberto / Em Produção / Finalizada / All)
+      if (statusFilter === 'EM_ABERTO' && !isOpEmAberto(op, apontamentos)) return false;
+      if (statusFilter === 'EM_PRODUCAO' && !isOpEmProducao(op, apontamentos)) return false;
+      if (statusFilter === 'FINALIZADA' && !isOpConcluida(op, apontamentos)) return false;
 
-      // 2. Sub-abas (Prioritárias / Pausadas)
-      if (subTabFilter === 'PRIORITARIAS' && !(op.favorito || op.prioridade === 'alta')) {
-        return false;
-      }
-      if (subTabFilter === 'PAUSADAS' && !op.pausada) {
-        return false;
-      }
-
-      // 3. Filtro por Modelo / Família
+      // Filtro por Modelo / Família
       if (selectedModel !== 'ALL' && classificarModeloOP(op) !== selectedModel) {
         return false;
       }
 
-      // 4. Busca por texto
+      // Busca por texto
       if (searchLower) {
         const matchesSearch = (
           (op.op_numero || '').toLowerCase().includes(searchLower) ||
@@ -435,7 +371,7 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
 
       return true;
     });
-  }, [orderList, macroFilter, subTabFilter, statusFilter, selectedModel, deferredSearch, apontamentos]);
+  }, [orderList, statusFilter, selectedModel, deferredSearch, apontamentos]);
 
   // Ações Exclusivas do PCP (Confirmar Embalagem, Prioridade, Pausar, Atraso, Chat)
   const handleConfirmarEmbalagem = useCallback(async (op: ProductionOrder) => {
@@ -919,6 +855,32 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
             </span>
           </button>
 
+          {/* Botão Prominente Módulo de Status Produção (PCP & Coordenação) */}
+          <button
+            onClick={() => {
+              playClick();
+              setActiveTab('status_pcp');
+            }}
+            className={`px-4 py-2 font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-lg cursor-pointer active:scale-95 border ${
+              activeTab === 'status_pcp'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-300 shadow-purple-950/50 ring-2 ring-purple-400/40'
+                : 'bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800/90 hover:to-indigo-800/90 text-purple-200 border-purple-500/50'
+            }`}
+            title="Acessar o Módulo Dedicado de Status de Produção (PCP & Coordenação)"
+          >
+            <Layers className="w-4 h-4 text-purple-300" />
+            <span>Status Produção (PCP & Coord.)</span>
+            {totalUnreadChat > 0 ? (
+              <span className="bg-rose-500 text-white px-1.5 py-0.2 text-[9px] rounded-full font-mono font-bold animate-pulse">
+                {totalUnreadChat}
+              </span>
+            ) : (
+              <span className="bg-purple-950 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
+                PCP
+              </span>
+            )}
+          </button>
+
           {/* Botão de Chat PCP ↔ Coordenação */}
           <button
             onClick={() => {
@@ -999,6 +961,23 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           >
             <Layers className="w-4 h-4 text-blue-400" />
             <span>Ordens de Produção ({totalEmAberto})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('status_pcp')}
+            className={`py-3.5 px-4 border-b-2 transition flex items-center gap-2 whitespace-nowrap cursor-pointer ${
+              activeTab === 'status_pcp'
+                ? 'border-purple-400 text-purple-200 bg-purple-500/15'
+                : 'border-transparent text-purple-400/80 hover:text-purple-200'
+            }`}
+          >
+            <CheckCircle2 className="w-4 h-4 text-purple-400" />
+            <span>Status de Produção (PCP & Coord.)</span>
+            {totalUnreadChat > 0 && (
+              <span className="bg-rose-500 text-white px-1.5 py-0.2 text-[9px] rounded-full font-mono font-bold animate-pulse">
+                {totalUnreadChat}
+              </span>
+            )}
           </button>
 
           <button
@@ -1100,1275 +1079,413 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           </div>
         )}
 
-        {/* ABA 2: GESTÃO DE ORDENS DE PRODUÇÃO (PCP) */}
-        {activeTab === 'orders' && (() => {
-          // 1. Agrupamento para Visão Kanban
-          const kanbanColumns = [
-            {
-              id: 'atrasadas',
-              title: 'Atrasadas',
-              icon: '⚠️',
-              badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
-              borderClass: 'border-rose-900/60',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return !isFin && op.status_macro !== 'falta_embalar' && isAtrasada(op.data_entrega, op.status_macro);
-              })
-            },
-            {
-              id: 'hoje',
-              title: 'Entrega Hoje',
-              icon: '📅',
-              badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-              borderClass: 'border-amber-900/60',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return !isFin && op.status_macro !== 'falta_embalar' && isEntregaHoje(op.data_entrega, op.status_macro);
-              })
-            },
-            {
-              id: 'producao',
-              title: 'Em Produção nos Totens',
-              icon: '🔵',
-              badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
-              borderClass: 'border-blue-900/60',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return (
-                  !isFin &&
-                  op.status_macro !== 'falta_embalar' &&
-                  !isAtrasada(op.data_entrega, op.status_macro) &&
-                  !isEntregaHoje(op.data_entrega, op.status_macro)
-                );
-              })
-            },
-            {
-              id: 'falta_embalar',
-              title: 'Falta Embalar (Portas)',
-              icon: '📦',
-              badgeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
-              borderClass: 'border-purple-900/60',
-              orders: filteredOrders.filter((op) => op.status_macro === 'falta_embalar')
-            },
-            {
-              id: 'finalizadas',
-              title: 'Finalizadas',
-              icon: '✅',
-              badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
-              borderClass: 'border-emerald-900/60',
-              orders: filteredOrders.filter((op) => {
-                return op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-              })
-            }
-          ];
-
-          // 2. Agrupamento para Visão Linha do Tempo
-          const timelineBuckets = [
-            {
-              id: 'atrasadas',
-              label: '⚠️ Atrasadas (Prazo Vencido)',
-              color: 'border-rose-500/60 bg-rose-950/20 text-rose-300',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return !isFin && classificarBucketTimeline(op.data_entrega, op.status_macro) === 'atrasadas';
-              })
-            },
-            {
-              id: 'hoje',
-              label: '📅 Entrega Hoje',
-              color: 'border-amber-500/60 bg-amber-950/20 text-amber-300',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return !isFin && classificarBucketTimeline(op.data_entrega, op.status_macro) === 'hoje';
-              })
-            },
-            {
-              id: 'proximos_3_dias',
-              label: '🕒 Próximos 3 Dias',
-              color: 'border-blue-500/60 bg-blue-950/20 text-blue-300',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return !isFin && classificarBucketTimeline(op.data_entrega, op.status_macro) === 'proximos_3_dias';
-              })
-            },
-            {
-              id: 'esta_semana',
-              label: '📆 Esta Semana (4 a 7 Dias)',
-              color: 'border-indigo-500/60 bg-indigo-950/20 text-indigo-300',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return !isFin && classificarBucketTimeline(op.data_entrega, op.status_macro) === 'esta_semana';
-              })
-            },
-            {
-              id: 'futuro',
-              label: '🗓️ Futuro / Programadas / Concluídas',
-              color: 'border-slate-800 bg-slate-950/60 text-slate-300',
-              orders: filteredOrders.filter((op) => {
-                const isFin = op.status_macro === 'embalada' || op.status === 'FINALIZADA' || checkOp100Percent(op, apontamentos);
-                return isFin || classificarBucketTimeline(op.data_entrega, op.status_macro) === 'futuro';
-              })
-            }
-          ];
-
-          // 3. Métricas para Visão Análises
-          const totalComDataValida = orderList.filter((o) => {
-            const isFin = o.status_macro === 'embalada' || o.status === 'FINALIZADA' || checkOp100Percent(o, apontamentos);
-            return !isFin && o.data_entrega && o.data_entrega !== '—';
-          }).length;
-          const totalAtrasadasAbertas = orderList.filter((o) => {
-            const isFin = o.status_macro === 'embalada' || o.status === 'FINALIZADA' || checkOp100Percent(o, apontamentos);
-            return !isFin && isAtrasada(o.data_entrega, o.status_macro);
-          }).length;
-          const onTimePercentage = totalComDataValida > 0
-            ? Math.max(0, Math.round(((totalComDataValida - totalAtrasadasAbertas) / totalComDataValida) * 100))
-            : 100;
-
-          // Ranking de motivos de atraso
-          const motivosRanking: Record<string, number> = {};
-          orderList.forEach((o) => {
-            if (o.motivo_atraso) {
-              motivosRanking[o.motivo_atraso] = (motivosRanking[o.motivo_atraso] || 0) + 1;
-            }
-          });
-          const motivosArray = Object.entries(motivosRanking).sort((a, b) => b[1] - a[1]);
-
-          return (
-            <div className="space-y-4">
-              {/* 1. BARRA ENXUTA DE 4 CONTADORES CLICÁVEIS */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                {/* Atrasadas */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    playClick();
-                    setMacroFilter((prev) => (prev === 'ATRASADAS' ? 'NONE' : 'ATRASADAS'));
-                  }}
-                  className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer active:scale-98 shadow-lg flex flex-col justify-between ${
-                    macroFilter === 'ATRASADAS'
-                      ? 'bg-rose-950/80 border-rose-500 ring-2 ring-rose-500/50 shadow-rose-950/40'
-                      : 'bg-[#0c142b] border-blue-900/60 hover:border-rose-500/60 hover:bg-rose-950/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-rose-400" />
-                      Atrasadas
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold border border-rose-500/40">
-                      PRAZO
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-3xl font-black text-rose-400 font-mono-num">{pcpMacroCounts.atrasadas}</span>
-                    <span className="text-[11px] text-slate-400">{macroFilter === 'ATRASADAS' ? 'Filtro Ativo ✓' : 'Clique p/ filtrar'}</span>
-                  </div>
-                </button>
-
-                {/* Entrega Hoje */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    playClick();
-                    setMacroFilter((prev) => (prev === 'HOJE' ? 'NONE' : 'HOJE'));
-                  }}
-                  className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer active:scale-98 shadow-lg flex flex-col justify-between ${
-                    macroFilter === 'HOJE'
-                      ? 'bg-amber-950/80 border-amber-500 ring-2 ring-amber-500/50 shadow-amber-950/40'
-                      : 'bg-[#0c142b] border-blue-900/60 hover:border-amber-500/60 hover:bg-amber-950/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-amber-400" />
-                      Entrega Hoje
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
-                      HOJE
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-3xl font-black text-amber-400 font-mono-num">{pcpMacroCounts.hoje}</span>
-                    <span className="text-[11px] text-slate-400">{macroFilter === 'HOJE' ? 'Filtro Ativo ✓' : 'Clique p/ filtrar'}</span>
-                  </div>
-                </button>
-
-                {/* Falta Embalar */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    playClick();
-                    setMacroFilter((prev) => (prev === 'FALTA_EMBALAR' ? 'NONE' : 'FALTA_EMBALAR'));
-                  }}
-                  className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer active:scale-98 shadow-lg flex flex-col justify-between ${
-                    macroFilter === 'FALTA_EMBALAR'
-                      ? 'bg-purple-950/80 border-purple-500 ring-2 ring-purple-500/50 shadow-purple-950/40'
-                      : 'bg-[#0c142b] border-blue-900/60 hover:border-purple-500/60 hover:bg-purple-950/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-purple-300 flex items-center gap-1.5">
-                      <Package className="w-4 h-4 text-purple-400" />
-                      Falta Embalar
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 font-bold border border-purple-500/40">
-                      EXPEDIÇÃO
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-3xl font-black text-purple-400 font-mono-num">{pcpMacroCounts.faltaEmbalar}</span>
-                    <span className="text-[11px] text-slate-400">{macroFilter === 'FALTA_EMBALAR' ? 'Filtro Ativo ✓' : 'Portas prontas'}</span>
-                  </div>
-                </button>
-
-                {/* Finalizadas */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    playClick();
-                    setMacroFilter((prev) => (prev === 'FINALIZADAS' ? 'NONE' : 'FINALIZADAS'));
-                  }}
-                  className={`p-4 rounded-2xl border text-left transition-all duration-200 cursor-pointer active:scale-98 shadow-lg flex flex-col justify-between ${
-                    macroFilter === 'FINALIZADAS'
-                      ? 'bg-emerald-950/80 border-emerald-500 ring-2 ring-emerald-500/50 shadow-emerald-950/40'
-                      : 'bg-[#0c142b] border-blue-900/60 hover:border-emerald-500/60 hover:bg-emerald-950/20'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                      Finalizadas
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
-                      100%
-                    </span>
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-3xl font-black text-emerald-400 font-mono-num">{pcpMacroCounts.finalizadas}</span>
-                    <span className="text-[11px] text-slate-400">{macroFilter === 'FINALIZADAS' ? 'Filtro Ativo ✓' : 'Prontas/Embaladas'}</span>
-                  </div>
-                </button>
+        {/* ABA 2: GESTÃO DE ORDENS DE PRODUÇÃO (OPERACIONAL MES) */}
+        {activeTab === 'orders' && (
+          <div className="space-y-4">
+            {/* 1. BARRA DE FERRAMENTAS E BUSCA */}
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-[#0c142b] p-3.5 rounded-2xl border border-blue-900/60 shadow-lg">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por Nº da OP, descrição, cód ou lote..."
+                  className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-blue-400 placeholder-slate-500"
+                />
               </div>
 
-              {/* Banner de Filtro Ativo dos Contadores */}
-              {macroFilter !== 'NONE' && (
-                <div className="flex items-center justify-between bg-blue-950/80 border border-blue-500/50 px-4 py-2.5 rounded-2xl text-xs font-mono text-blue-200 shadow-md animate-in fade-in">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-blue-400 animate-ping shrink-0" />
-                    <span>
-                      Filtro ativo por contador rápido:{' '}
-                      <strong className="text-white uppercase font-bold">
-                        {macroFilter === 'ATRASADAS'
-                          ? '⚠️ Atrasadas'
-                          : macroFilter === 'HOJE'
-                          ? '📅 Entrega Hoje'
-                          : macroFilter === 'FALTA_EMBALAR'
-                          ? '📦 Falta Embalar (Portas)'
-                          : '✅ Finalizadas'}
-                      </strong>{' '}
-                      ({filteredOrders.length} OPs exibidas)
-                    </span>
-                  </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Filtro de Status Operacional */}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-blue-950">
                   <button
-                    onClick={() => {
-                      playClick();
-                      setMacroFilter('NONE');
-                    }}
-                    className="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold transition cursor-pointer active:scale-95"
-                  >
-                    Remover Filtro dos Contadores (✕)
-                  </button>
-                </div>
-              )}
-
-              {/* 2. BARRA DE FERRAMENTAS E BUSCA */}
-              <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 bg-[#0c142b] p-3.5 rounded-2xl border border-blue-900/60 shadow-lg">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por Nº da OP, descrição, cód ou lote..."
-                    className="w-full pl-10 pr-4 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono text-white focus:outline-none focus:border-blue-400 placeholder-slate-500"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 flex-wrap">
-                  {/* Filtro de Status Padrão (só se macroFilter for NONE) */}
-                  {macroFilter === 'NONE' && (
-                    <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-blue-950">
-                      <button
-                        onClick={() => setStatusFilter('EM_ABERTO')}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
-                          statusFilter === 'EM_ABERTO'
-                            ? 'bg-[#1C2F8A] text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                        title="Exibir todas as ordens ativas da carteira em aberto"
-                      >
-                        Em Aberto ({totalEmAberto})
-                      </button>
-                      <button
-                        onClick={() => setStatusFilter('EM_PRODUCAO')}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
-                          statusFilter === 'EM_PRODUCAO'
-                            ? 'bg-blue-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                        title="Exibir ordens atualmente em produção ativa nos terminais"
-                      >
-                        Em Produção ({totalEmProducao})
-                      </button>
-                      <button
-                        onClick={() => setStatusFilter('FINALIZADA')}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
-                          statusFilter === 'FINALIZADA'
-                            ? 'bg-emerald-600 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                        title="Consultar histórico de ordens 100% finalizadas"
-                      >
-                        Concluídas ({totalConcluidas})
-                      </button>
-                      <button
-                        onClick={() => setStatusFilter('ALL')}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
-                          statusFilter === 'ALL'
-                            ? 'bg-slate-700 text-white shadow-sm'
-                            : 'text-slate-400 hover:text-white'
-                        }`}
-                        title="Exibir todas as ordens sem filtro de status"
-                      >
-                        Todas ({orderList.length})
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="h-6 w-px bg-blue-950 mx-0.5 hidden sm:block" />
-
-                  {/* SELETOR DE 4 VISÕES DO PORTAL DO PCP: Lista | Quadro Kanban | Linha do Tempo | Análises */}
-                  <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-blue-950 shadow-inner">
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setPcpViewMode('lista');
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                        pcpViewMode === 'lista'
-                          ? 'bg-[#1C2F8A] text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Visão Lista de Cards ou Tabela"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span>Lista</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setPcpViewMode('kanban');
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                        pcpViewMode === 'kanban'
-                          ? 'bg-[#1C2F8A] text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Visão Quadro Kanban (5 Colunas de Fluxo)"
-                    >
-                      <Columns className="w-3.5 h-3.5" />
-                      <span>Quadro Kanban</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setPcpViewMode('timeline');
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                        pcpViewMode === 'timeline'
-                          ? 'bg-[#1C2F8A] text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Visão Linha do Tempo por Prazos Cronológicos"
-                    >
-                      <CalendarDays className="w-3.5 h-3.5" />
-                      <span>Linha do Tempo</span>
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setPcpViewMode('analises');
-                      }}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 transition cursor-pointer ${
-                        pcpViewMode === 'analises'
-                          ? 'bg-[#1C2F8A] text-white shadow-sm'
-                          : 'text-slate-400 hover:text-white'
-                      }`}
-                      title="Visão Análises e Indicadores de Fábrica"
-                    >
-                      <BarChart3 className="w-3.5 h-3.5" />
-                      <span>Análises</span>
-                    </button>
-                  </div>
-
-                  {/* Alternador de Cards vs Tabela (apenas na visão lista) */}
-                  {pcpViewMode === 'lista' && (
-                    <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-blue-950">
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setOrderViewMode('cards');
-                        }}
-                        className={`p-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
-                          orderViewMode === 'cards'
-                            ? 'bg-blue-600/40 text-blue-200 border border-blue-500/40'
-                            : 'text-slate-500 hover:text-slate-300'
-                        }`}
-                        title="Modo Cards"
-                      >
-                        <LayoutGrid className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => {
-                          playClick();
-                          setOrderViewMode('table');
-                        }}
-                        className={`p-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
-                          orderViewMode === 'table'
-                            ? 'bg-blue-600/40 text-blue-200 border border-blue-500/40'
-                            : 'text-slate-500 hover:text-slate-300'
-                        }`}
-                        title="Modo Tabela"
-                      >
-                        <List className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="h-6 w-px bg-blue-950 mx-0.5 hidden sm:block" />
-
-                  <button
-                    onClick={() => {
-                      playClick();
-                      setShowNomusImportModal(true);
-                    }}
-                    className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
-                    title="Importar HTML do Nomus para carregar todas as OPs"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Importar Nomus</span>
-                  </button>
-
-                  {orderList.length > 0 && (
-                    <button
-                      onClick={handleClearOrdersList}
-                      className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95"
-                      title="Limpar lista de OPs"
-                    >
-                      <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                      <span className="hidden sm:inline">Limpar Lista</span>
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* 3. SUB-ABAS (Todas / Prioritárias / Pausadas) & SELETOR DE FAMÍLIAS */}
-              <div className="bg-[#0c142b] p-3 rounded-2xl border border-blue-900/60 shadow-lg space-y-2.5">
-                {/* Sub-abas */}
-                <div className="flex items-center gap-2 flex-wrap border-b border-blue-950/80 pb-2.5">
-                  <span className="text-[11px] font-mono font-bold text-slate-400 mr-1 uppercase">Sub-filtro:</span>
-                  <button
-                    onClick={() => {
-                      playClick();
-                      setSubTabFilter('TODAS');
-                    }}
-                    className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition cursor-pointer ${
-                      subTabFilter === 'TODAS'
-                        ? 'bg-[#1C2F8A] text-white border border-blue-400/60 shadow-sm'
-                        : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+                    onClick={() => setStatusFilter('EM_ABERTO')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                      statusFilter === 'EM_ABERTO'
+                        ? 'bg-[#1C2F8A] text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
                     }`}
+                    title="Exibir todas as ordens ativas da carteira em aberto"
+                  >
+                    Em Aberto ({totalEmAberto})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('EM_PRODUCAO')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                      statusFilter === 'EM_PRODUCAO'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibir ordens atualmente em produção ativa nos terminais"
+                  >
+                    Em Produção ({totalEmProducao})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('FINALIZADA')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                      statusFilter === 'FINALIZADA'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Consultar histórico de ordens 100% finalizadas"
+                  >
+                    Concluídas ({totalConcluidas})
+                  </button>
+                  <button
+                    onClick={() => setStatusFilter('ALL')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                      statusFilter === 'ALL'
+                        ? 'bg-slate-700 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                    title="Exibir todas as ordens sem filtro de status"
                   >
                     Todas ({orderList.length})
                   </button>
+                </div>
+
+                <div className="h-6 w-px bg-blue-950 mx-0.5 hidden sm:block" />
+
+                {/* Alternador Cards / Tabela */}
+                <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-blue-950">
                   <button
                     onClick={() => {
                       playClick();
-                      setSubTabFilter('PRIORITARIAS');
+                      setOrderViewMode('cards');
                     }}
-                    className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                      subTabFilter === 'PRIORITARIAS'
-                        ? 'bg-amber-500 text-slate-950 font-black border border-amber-300 shadow-md ring-1 ring-amber-400/50'
-                        : 'bg-slate-900/80 text-amber-400 hover:text-amber-200 border border-amber-500/30'
+                    className={`p-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                      orderViewMode === 'cards'
+                        ? 'bg-blue-600/40 text-blue-200 border border-blue-500/40'
+                        : 'text-slate-500 hover:text-slate-300'
                     }`}
+                    title="Modo Cards"
                   >
-                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                    <span>Prioritárias ({totalPrioritarias})</span>
+                    <LayoutGrid className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => {
                       playClick();
-                      setSubTabFilter('PAUSADAS');
+                      setOrderViewMode('table');
                     }}
-                    className={`px-3 py-1 rounded-xl text-xs font-mono font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                      subTabFilter === 'PAUSADAS'
-                        ? 'bg-rose-600 text-white border border-rose-400 shadow-md ring-1 ring-rose-500/40'
-                        : 'bg-slate-900/80 text-slate-400 hover:text-white border border-slate-800'
+                    className={`p-1.5 rounded-lg text-xs font-mono font-bold transition cursor-pointer ${
+                      orderViewMode === 'table'
+                        ? 'bg-blue-600/40 text-blue-200 border border-blue-500/40'
+                        : 'text-slate-500 hover:text-slate-300'
                     }`}
+                    title="Modo Tabela"
                   >
-                    <span>⏸️ Pausadas ({totalPausadas})</span>
+                    <List className="w-3.5 h-3.5" />
                   </button>
                 </div>
 
-                {/* Seletor Horizontal de Famílias / Categorias */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap sm:flex-wrap">
+                <div className="h-6 w-px bg-blue-950 mx-0.5 hidden sm:block" />
+
+                <button
+                  onClick={() => {
+                    playClick();
+                    setShowNomusImportModal(true);
+                  }}
+                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer active:scale-95 shadow-sm"
+                  title="Importar HTML do Nomus para carregar todas as OPs"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Importar Nomus</span>
+                </button>
+
+                {orderList.length > 0 && (
+                  <button
+                    onClick={handleClearOrdersList}
+                    className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer active:scale-95"
+                    title="Limpar lista de OPs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span className="hidden sm:inline">Limpar Lista</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* 2. SELETOR HORIZONTAL DE FAMÍLIAS */}
+            <div className="bg-[#0c142b] p-3 rounded-2xl border border-blue-900/60 shadow-lg">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-0.5 no-scrollbar flex-nowrap sm:flex-wrap">
+                <button
+                  onClick={() => {
+                    playClick();
+                    setSelectedModel('ALL');
+                  }}
+                  className={`px-3 py-1 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                    selectedModel === 'ALL'
+                      ? 'bg-[#1C2F8A] text-white border border-blue-400/80 shadow-md ring-1 ring-blue-400/30'
+                      : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800/80'
+                  }`}
+                >
+                  <Layers className={`w-3.5 h-3.5 ${selectedModel === 'ALL' ? 'text-blue-300' : 'text-slate-500'}`} />
+                  <span>Todas Famílias</span>
+                  <span
+                    className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
+                      selectedModel === 'ALL'
+                        ? 'bg-blue-900/90 text-blue-100 border border-blue-400/50'
+                        : 'bg-slate-950 text-slate-400 border border-slate-800'
+                    }`}
+                  >
+                    {modelCounts['ALL'] || 0}
+                  </span>
+                </button>
+
+                <div className="h-4 w-px bg-blue-900/60 mx-0.5 shrink-0" />
+
+                {MODELOS_PRODUTO.map((modelo) => {
+                  const count = modelCounts[modelo] || 0;
+                  const isSelected = selectedModel === modelo;
+
+                  return (
+                    <button
+                      key={modelo}
+                      onClick={() => {
+                        playClick();
+                        setSelectedModel(modelo);
+                      }}
+                      className={`px-3 py-1 rounded-xl text-xs font-medium whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                        isSelected
+                          ? 'bg-[#1C2F8A] text-white border border-blue-400/80 shadow-md font-bold ring-1 ring-blue-400/30'
+                          : count > 0
+                          ? 'bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800/80'
+                          : 'bg-slate-950/60 text-slate-500 hover:text-slate-400 border border-slate-900'
+                      }`}
+                    >
+                      <span>{modelo}</span>
+                      <span
+                        className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
+                          isSelected
+                            ? 'bg-blue-900/90 text-blue-100 border border-blue-400/50'
+                            : count > 0
+                            ? 'bg-slate-950 text-slate-300 border border-slate-800'
+                            : 'bg-slate-950 text-slate-600 border border-slate-900'
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. LISTAGEM DE ORDENS OPERACIONAIS */}
+            {filteredOrders.length === 0 ? (
+              <div className="border border-blue-900/60 rounded-2xl p-12 text-center bg-[#0c142b] shadow-2xl flex flex-col items-center justify-center gap-4">
+                <Factory className="w-12 h-12 text-slate-600" />
+                <span className="text-base font-semibold text-slate-200 max-w-lg">
+                  {orderList.length === 0
+                    ? 'Nenhuma ordem de produção em andamento. Importe o arquivo HTML do Nomus ou cadastre uma nova OP.'
+                    : `Nenhuma ordem de produção encontrada para os filtros selecionados${
+                        selectedModel !== 'ALL' ? ` (Modelo: ${selectedModel})` : ''
+                      }${searchTerm ? ` (Busca: "${searchTerm}")` : ''}.`}
+                </span>
+                {orderList.length > 0 && (
                   <button
                     onClick={() => {
                       playClick();
                       setSelectedModel('ALL');
+                      setSearchTerm('');
+                      setStatusFilter('EM_ABERTO');
                     }}
-                    className={`px-3 py-1 rounded-xl text-xs font-mono font-bold whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                      selectedModel === 'ALL'
-                        ? 'bg-[#1C2F8A] text-white border border-blue-400/80 shadow-md ring-1 ring-blue-400/30'
-                        : 'bg-slate-900/80 text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-800/80'
-                    }`}
+                    className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition cursor-pointer"
                   >
-                    <Layers className={`w-3.5 h-3.5 ${selectedModel === 'ALL' ? 'text-blue-300' : 'text-slate-500'}`} />
-                    <span>Todas Famílias</span>
-                    <span
-                      className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-bold ${
-                        selectedModel === 'ALL'
-                          ? 'bg-blue-900/90 text-blue-100 border border-blue-400/50'
-                          : 'bg-slate-950 text-slate-400 border border-slate-800'
-                      }`}
-                    >
-                      {modelCounts['ALL'] || 0}
-                    </span>
+                    Limpar Filtros e Mostrar Carteira em Aberto ({totalEmAberto})
                   </button>
-
-                  <div className="h-4 w-px bg-blue-900/60 mx-0.5 shrink-0" />
-
-                  {MODELOS_PRODUTO.map((modelo) => {
-                    const count = modelCounts[modelo] || 0;
-                    const isSelected = selectedModel === modelo;
-
-                    return (
-                      <button
-                        key={modelo}
-                        onClick={() => {
-                          playClick();
-                          setSelectedModel(modelo);
-                        }}
-                        className={`px-3 py-1 rounded-xl text-xs font-medium whitespace-nowrap transition-all duration-150 cursor-pointer flex items-center gap-1.5 shrink-0 ${
-                          isSelected
-                            ? 'bg-[#1C2F8A] text-white border border-blue-400/80 shadow-md font-bold ring-1 ring-blue-400/30'
-                            : count > 0
-                            ? 'bg-slate-900/80 text-slate-300 hover:text-white hover:bg-slate-800 border border-slate-800/80'
-                            : 'bg-slate-950/60 text-slate-500 hover:text-slate-400 border border-slate-900'
-                        }`}
-                      >
-                        <span>{modelo}</span>
-                        <span
-                          className={`ml-1 px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
-                            isSelected
-                              ? 'bg-blue-900/90 text-blue-100 border border-blue-400/50'
-                              : count > 0
-                              ? 'bg-slate-950 text-slate-300 border border-slate-800'
-                              : 'bg-slate-950 text-slate-600 border border-slate-900'
-                          }`}
-                        >
-                          {count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                )}
               </div>
+            ) : orderViewMode === 'cards' ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredOrders.map((op, index) => (
+                  <OpProductionCard
+                    key={`${op.id || op.numero || op.op_numero}-${index}`}
+                    order={op}
+                    apontamentos={apontamentos}
+                    onOpenChat={handleOpenOpChat}
+                    onSelectForTotem={handleSelectForTotem}
+                    onResetOpCompleta={handleResetOp}
+                    onDelete={handleDeleteOp}
+                    onConfirmarEmbalagem={handleConfirmarEmbalagem}
+                    onTogglePrioridade={handleTogglePrioridade}
+                    onTogglePausada={handleTogglePausada}
+                    onSinalizarAtraso={handleSinalizarAtraso}
+                    unreadCount={unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0}
+                  />
+                ))}
+              </div>
+            ) : (
+              /* MODO TABELA */
+              <div className="border border-blue-900/60 rounded-2xl overflow-hidden bg-[#0c142b] shadow-2xl">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-[#090F21] text-slate-400 border-b border-blue-950">
+                    <tr>
+                      <th className="p-3.5">Nº OP</th>
+                      <th className="p-3.5">DESCRIÇÃO DO PRODUTO</th>
+                      <th className="p-3.5">STATUS MACRO / PRAZO</th>
+                      <th className="p-3.5 text-center">LOTE / QTD</th>
+                      <th className="p-3.5">PROGRESSO</th>
+                      <th className="p-3.5 text-right">AÇÕES PCP</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-blue-950">
+                    {filteredOrders.map((op, index) => {
+                      const steps = obterEtapasDaRota(op);
+                      const evalResult = getRouteEvaluation(op, apontamentos, steps);
+                      const lastStep = steps[steps.length - 1];
+                      const finishedCount = evalResult[lastStep]?.finalizadas || 0;
+                      const totalQtd = Math.max(1, op.quantidade_total || (op as any).quantidade || 1);
+                      const percent = Math.min(100, Math.round((finishedCount / totalQtd) * 100));
+                      const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
 
-              {/* 4. CONTEÚDO PRINCIPAL: VISÕES */}
-
-              {/* Estado Vazio */}
-              {filteredOrders.length === 0 ? (
-                <div className="border border-blue-900/60 rounded-2xl p-12 text-center bg-[#0c142b] shadow-2xl flex flex-col items-center justify-center gap-4">
-                  <Factory className="w-12 h-12 text-slate-600" />
-                  <span className="text-base font-semibold text-slate-200 max-w-lg">
-                    {orderList.length === 0
-                      ? 'Nenhuma ordem de produção em andamento. Importe o arquivo HTML do Nomus ou cadastre uma nova OP.'
-                      : `Nenhuma ordem de produção encontrada para os filtros selecionados${
-                          macroFilter !== 'NONE' ? ` (Contador: ${macroFilter})` : ''
-                        }${subTabFilter !== 'TODAS' ? ` (Sub-aba: ${subTabFilter})` : ''}${
-                          selectedModel !== 'ALL' ? ` (Modelo: ${selectedModel})` : ''
-                        }${searchTerm ? ` (Busca: "${searchTerm}")` : ''}.`}
-                  </span>
-                  {orderList.length > 0 && (
-                    <button
-                      onClick={() => {
-                        playClick();
-                        setMacroFilter('NONE');
-                        setSubTabFilter('TODAS');
-                        setSelectedModel('ALL');
-                        setSearchTerm('');
-                        setStatusFilter('EM_ABERTO');
-                      }}
-                      className="px-4 py-2 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/40 rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      Limpar Todos os Filtros e Mostrar Carteira em Aberto ({totalEmAberto})
-                    </button>
-                  )}
-                </div>
-              ) : pcpViewMode === 'lista' ? (
-                /* VISÃO 1: LISTA (CARDS OU TABELA) */
-                orderViewMode === 'cards' ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {filteredOrders.map((op, index) => (
-                      <OpProductionCard
-                        key={`${op.id || op.numero || op.op_numero}-${index}`}
-                        order={op}
-                        apontamentos={apontamentos}
-                        onOpenChat={handleOpenOpChat}
-                        onSelectForTotem={handleSelectForTotem}
-                        onResetOpCompleta={handleResetOp}
-                        onDelete={handleDeleteOp}
-                        onConfirmarEmbalagem={handleConfirmarEmbalagem}
-                        onTogglePrioridade={handleTogglePrioridade}
-                        onTogglePausada={handleTogglePausada}
-                        onSinalizarAtraso={handleSinalizarAtraso}
-                        unreadCount={unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  /* MODO TABELA */
-                  <div className="border border-blue-900/60 rounded-2xl overflow-hidden bg-[#0c142b] shadow-2xl">
-                    <table className="w-full text-left text-xs font-mono">
-                      <thead className="bg-[#090F21] text-slate-400 border-b border-blue-950">
-                        <tr>
-                          <th className="p-3.5">Nº OP</th>
-                          <th className="p-3.5">DESCRIÇÃO DO PRODUTO</th>
-                          <th className="p-3.5">STATUS MACRO / PRAZO</th>
-                          <th className="p-3.5 text-center">LOTE / QTD</th>
-                          <th className="p-3.5">PROGRESSO</th>
-                          <th className="p-3.5 text-right">AÇÕES PCP</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-blue-950">
-                        {filteredOrders.map((op, index) => {
-                          const steps = obterEtapasDaRota(op);
-                          const evalResult = getRouteEvaluation(op, apontamentos, steps);
-                          const lastStep = steps[steps.length - 1];
-                          const finishedCount = evalResult[lastStep]?.finalizadas || 0;
-                          const totalQtd = Math.max(1, op.quantidade_total || (op as any).quantidade || 1);
-                          const percent = Math.min(100, Math.round((finishedCount / totalQtd) * 100));
-                          const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
-
-                          return (
-                            <tr
-                              key={`${op.id || op.numero || op.op_numero}-${index}`}
-                              className="hover:bg-slate-900/60 transition"
-                            >
-                              <td className="p-3.5">
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    onClick={() => handleTogglePrioridade(op)}
-                                    className={`p-1 rounded transition cursor-pointer ${
-                                      op.favorito || op.prioridade === 'alta'
-                                        ? 'text-amber-400'
-                                        : 'text-slate-600 hover:text-amber-400'
-                                    }`}
-                                    title="Prioridade"
-                                  >
-                                    <Star
-                                      className={`w-3.5 h-3.5 ${
-                                        op.favorito || op.prioridade === 'alta' ? 'fill-amber-400' : ''
-                                      }`}
-                                    />
-                                  </button>
-                                  <span className="font-bold text-blue-300 font-mono text-sm">
-                                    {formatOpNumber(op.numero || op.op_numero)}
-                                  </span>
-                                  {op.pausada && (
-                                    <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                      PAUSADA
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-
-                              <td className="p-3.5 font-sans max-w-sm">
-                                <div className="font-semibold text-slate-100 truncate">{op.descricao}</div>
-                                <div className="text-[11px] text-slate-500 font-mono mt-0.5 flex items-center gap-2">
-                                  <span>Cód: {op.codigo || '—'}</span>
-                                  <span>•</span>
-                                  <span className="text-blue-300">{classificarModeloOP(op)}</span>
-                                </div>
-                              </td>
-
-                              <td className="p-3.5">
-                                <div className="space-y-1">
-                                  {op.status_macro === 'falta_embalar' ? (
-                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40">
-                                      📦 Falta Embalar
-                                    </span>
-                                  ) : isAtrasada(op.data_entrega, op.status_macro) ? (
-                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                                      ⚠️ Atrasada ({op.data_entrega})
-                                    </span>
-                                  ) : isEntregaHoje(op.data_entrega, op.status_macro) ? (
-                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                      📅 Entrega Hoje
-                                    </span>
-                                  ) : (
-                                    <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                                      Prazo: {op.data_entrega || '—'}
-                                    </span>
-                                  )}
-
-                                  {op.motivo_atraso && (
-                                    <div className="text-[10px] text-amber-400 font-bold truncate max-w-xs">
-                                      Motivo: {op.motivo_atraso}
-                                    </div>
-                                  )}
-                                </div>
-                              </td>
-
-                              <td className="p-3.5 text-center text-slate-300">
-                                {op.lote} <span className="text-white font-bold">({op.quantidade_total} un)</span>
-                              </td>
-
-                              <td className="p-3.5">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-20 h-2 bg-slate-900 rounded-full overflow-hidden border border-slate-800">
-                                    <div
-                                      className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 rounded-full transition-all"
-                                      style={{ width: `${percent}%` }}
-                                    />
-                                  </div>
-                                  <span className="text-slate-400 text-[10px]">{percent}%</span>
-                                </div>
-                              </td>
-
-                              <td className="p-3.5 text-right">
-                                <div className="flex items-center justify-end gap-1.5 flex-wrap">
-                                  {op.status_macro === 'falta_embalar' && (
-                                    <button
-                                      onClick={() => handleConfirmarEmbalagem(op)}
-                                      className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[11px] transition cursor-pointer active:scale-95 shadow-sm"
-                                      title="Confirmar Embalagem"
-                                    >
-                                      ✓ Embalar
-                                    </button>
-                                  )}
-
-                                  <button
-                                    onClick={() => handleSinalizarAtraso(op)}
-                                    className="p-1 text-slate-400 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition cursor-pointer"
-                                    title="Sinalizar Atraso / Motivo"
-                                  >
-                                    <AlertTriangle className="w-4 h-4" />
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleTogglePausada(op)}
-                                    className={`p-1 rounded-lg transition cursor-pointer ${
-                                      op.pausada
-                                        ? 'text-amber-400 bg-amber-500/10'
-                                        : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                                    }`}
-                                    title={op.pausada ? 'Retomar' : 'Pausar'}
-                                  >
-                                    {op.pausada ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleOpenOpChat(op)}
-                                    className="relative p-1 text-blue-400 hover:text-blue-200 hover:bg-blue-500/20 rounded-lg transition cursor-pointer"
-                                    title="Abrir Chat PCP & Coordenação"
-                                  >
-                                    <MessageSquare className="w-4 h-4" />
-                                    {unreadCount > 0 && (
-                                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center animate-pulse">
-                                        {unreadCount}
-                                      </span>
-                                    )}
-                                  </button>
-
-                                  <button
-                                    onClick={() => {
-                                      playClick();
-                                      onSelectOpForTotem(op.op_numero);
-                                      onSwitchToTotem();
-                                    }}
-                                    className="px-2.5 py-1 bg-[#1C2F8A] hover:bg-blue-600 text-white rounded-lg font-bold text-[11px] transition cursor-pointer active:scale-95"
-                                    title="Abrir no Totem"
-                                  >
-                                    Totem
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              ) : pcpViewMode === 'kanban' ? (
-                /* VISÃO 2: QUADRO KANBAN (5 COLUNAS ENXUTAS) */
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3.5 items-start">
-                  {kanbanColumns.map((col) => (
-                    <div
-                      key={col.id}
-                      className={`bg-[#0c142b] border rounded-2xl p-3.5 flex flex-col shadow-xl min-h-[450px] ${col.borderClass}`}
-                    >
-                      {/* Cabeçalho da Coluna */}
-                      <div className="flex items-center justify-between pb-3 border-b border-blue-950 mb-3">
-                        <div className="flex items-center gap-2">
-                          <span className="text-base">{col.icon}</span>
-                          <span className="font-mono font-bold text-xs text-white uppercase tracking-wider">
-                            {col.title}
-                          </span>
-                        </div>
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-mono font-bold border ${col.badgeClass}`}>
-                          {col.orders.length}
-                        </span>
-                      </div>
-
-                      {/* Lista de Cards da Coluna */}
-                      <div className="space-y-2.5 flex-1 max-h-[72vh] overflow-y-auto pr-1 no-scrollbar">
-                        {col.orders.length === 0 ? (
-                          <div className="py-10 text-center text-slate-600 font-mono text-xs">
-                            Nenhuma OP nesta etapa
-                          </div>
-                        ) : (
-                          col.orders.map((op) => {
-                            const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
-                            const dias = getDiasRestantes(op.data_entrega);
-
-                            return (
-                              <div
-                                key={op.op_numero || op.numero}
-                                className={`p-3 rounded-xl border transition-all text-xs font-mono shadow-md ${
-                                  op.status_macro === 'falta_embalar'
-                                    ? 'bg-purple-950/40 border-purple-500/50 hover:border-purple-400'
+                      return (
+                        <tr
+                          key={`${op.id || op.numero || op.op_numero}-${index}`}
+                          className="hover:bg-slate-900/60 transition"
+                        >
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePrioridade(op)}
+                                className="p-0.5 text-slate-500 hover:text-amber-400 cursor-pointer"
+                                title="Prioridade Alta"
+                              >
+                                <Star
+                                  className={`w-3.5 h-3.5 ${
+                                    op.favorito || op.prioridade === 'alta'
+                                      ? 'fill-amber-400 text-amber-400'
+                                      : ''
+                                  }`}
+                                />
+                              </button>
+                              <span className="font-bold text-blue-300 font-mono">
+                                {formatOpNumber(op.numero || op.op_numero)}
+                              </span>
+                              {op.pausada && (
+                                <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px] px-1 py-0.2 rounded font-bold">
+                                  PAUSADA
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3.5">
+                            <span className="text-white font-sans font-medium line-clamp-1">
+                              {op.descricao}
+                            </span>
+                          </td>
+                          <td className="p-3.5">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                  op.status_macro === 'embalada' || op.status === 'FINALIZADA'
+                                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                                    : op.status_macro === 'falta_embalar'
+                                    ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                                     : isAtrasada(op.data_entrega, op.status_macro)
-                                    ? 'bg-rose-950/40 border-rose-500/40 hover:border-rose-400'
-                                    : 'bg-slate-950/80 border-blue-950 hover:border-blue-500/50'
+                                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                    : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
                                 }`}
                               >
-                                {/* Topo: Número, Star e Modelo */}
-                                <div className="flex items-center justify-between gap-1 mb-1.5">
-                                  <div className="flex items-center gap-1.5">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleTogglePrioridade(op)}
-                                      className="p-0.5 text-slate-500 hover:text-amber-400 cursor-pointer"
-                                      title="Alternar Prioridade"
-                                    >
-                                      <Star
-                                        className={`w-3.5 h-3.5 ${
-                                          op.favorito || op.prioridade === 'alta'
-                                            ? 'fill-amber-400 text-amber-400'
-                                            : ''
-                                        }`}
-                                      />
-                                    </button>
-                                    <span className="font-black text-blue-200">
-                                      {formatOpNumber(op.numero || op.op_numero)}
-                                    </span>
-                                  </div>
-                                  <span className="text-[10px] text-slate-400 font-bold truncate max-w-[90px]">
-                                    {classificarModeloOP(op)}
-                                  </span>
-                                </div>
-
-                                {/* Descrição */}
-                                <p className="font-sans text-slate-200 font-semibold text-xs line-clamp-2 leading-snug mb-2">
-                                  {op.descricao}
-                                </p>
-
-                                {/* Badges de Prazo e Motivo */}
-                                <div className="flex items-center gap-1.5 flex-wrap mb-2">
-                                  {dias !== null && dias < 0 ? (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
-                                      Atraso {Math.abs(dias)}d
-                                    </span>
-                                  ) : dias === 0 ? (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                      Hoje
-                                    </span>
-                                  ) : dias !== null ? (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                                      {dias}d
-                                    </span>
-                                  ) : null}
-
-                                  {op.pausada && (
-                                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                                      ⏸️ Pausada
-                                    </span>
-                                  )}
-                                </div>
-
-                                {op.motivo_atraso && (
-                                  <div className="text-[10px] text-amber-300 mb-2 truncate bg-amber-950/40 border border-amber-500/30 px-1.5 py-0.5 rounded">
-                                    ⚠️ {op.motivo_atraso}
-                                  </div>
-                                )}
-
-                                {/* Ações Rápidas no Card do Kanban */}
-                                <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-1">
-                                  {op.status_macro === 'falta_embalar' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleConfirmarEmbalagem(op)}
-                                      className="flex-1 py-1 px-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 shadow-sm"
-                                    >
-                                      <CheckCircle2 className="w-3 h-3 text-emerald-200" />
-                                      <span>Confirmar Embalagem</span>
-                                    </button>
-                                  ) : (
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleSinalizarAtraso(op)}
-                                        className="p-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-800 transition cursor-pointer"
-                                        title="Sinalizar Atraso"
-                                      >
-                                        <AlertTriangle className="w-3.5 h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTogglePausada(op)}
-                                        className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                                        title={op.pausada ? 'Retomar' : 'Pausar'}
-                                      >
-                                        {op.pausada ? <Play className="w-3.5 h-3.5 text-amber-400" /> : <Pause className="w-3.5 h-3.5" />}
-                                      </button>
-                                    </div>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenOpChat(op)}
-                                    className="p-1 rounded text-blue-400 hover:text-blue-200 hover:bg-blue-500/20 transition cursor-pointer flex items-center gap-1"
-                                    title="Abrir Chat"
-                                  >
-                                    <MessageSquare className="w-3.5 h-3.5" />
-                                    {unreadCount > 0 && (
-                                      <span className="w-3.5 h-3.5 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-                                        {unreadCount}
-                                      </span>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : pcpViewMode === 'timeline' ? (
-                /* VISÃO 3: LINHA DO TEMPO CRONOLÓGICA */
-                <div className="space-y-4">
-                  {timelineBuckets.map((bucket) => (
-                    <div
-                      key={bucket.id}
-                      className={`p-4 rounded-2xl border shadow-xl bg-[#0c142b] ${bucket.color}`}
-                    >
-                      <div className="flex items-center justify-between pb-3 border-b border-blue-950/80 mb-3">
-                        <span className="font-mono font-bold text-sm tracking-wide">
-                          {bucket.label}
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-slate-900 border border-slate-700 text-white">
-                          {bucket.orders.length} OPs
-                        </span>
-                      </div>
-
-                      {bucket.orders.length === 0 ? (
-                        <p className="text-xs font-mono text-slate-500 py-3 text-center">
-                          Nenhuma ordem de produção neste intervalo de prazo.
-                        </p>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {bucket.orders.map((op) => {
-                            const dias = getDiasRestantes(op.data_entrega);
-                            const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
-
-                            return (
-                              <div
-                                key={op.op_numero || op.numero}
-                                className="p-3.5 rounded-xl bg-slate-950/90 border border-blue-950 hover:border-blue-500/40 transition-all text-xs font-mono shadow-md flex flex-col justify-between"
-                              >
-                                <div>
-                                  <div className="flex items-center justify-between mb-1.5">
-                                    <div className="flex items-center gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleTogglePrioridade(op)}
-                                        className="p-0.5 text-slate-500 hover:text-amber-400 cursor-pointer"
-                                      >
-                                        <Star
-                                          className={`w-3.5 h-3.5 ${
-                                            op.favorito || op.prioridade === 'alta'
-                                              ? 'fill-amber-400 text-amber-400'
-                                              : ''
-                                          }`}
-                                        />
-                                      </button>
-                                      <span className="font-bold text-blue-300 text-sm">
-                                        {formatOpNumber(op.numero || op.op_numero)}
-                                      </span>
-                                    </div>
-                                    <span
-                                      className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                                        dias !== null && dias < 0
-                                          ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
-                                          : dias === 0
-                                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                                          : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
-                                      }`}
-                                    >
-                                      {dias !== null && dias < 0
-                                        ? `Vencida (${Math.abs(dias)}d)`
-                                        : dias === 0
-                                        ? 'Entrega Hoje'
-                                        : dias !== null
-                                        ? `Em ${dias} dias`
-                                        : 'Sem Prazo'}
-                                    </span>
-                                  </div>
-
-                                  <h4 className="font-sans text-white font-semibold text-xs line-clamp-2 leading-snug mb-1">
-                                    {op.descricao}
-                                  </h4>
-
-                                  <div className="text-[11px] text-slate-400 mb-2">
-                                    <span>Prazo: <strong className="text-amber-300">{op.data_entrega || '—'}</strong></span>
-                                    <span className="mx-1.5">•</span>
-                                    <span>Qtd: <strong className="text-white">{op.quantidade_total} un</strong></span>
-                                  </div>
-
-                                  {op.motivo_atraso && (
-                                    <div className="text-[11px] text-amber-300 bg-amber-950/40 border border-amber-500/30 p-1.5 rounded-lg mb-2">
-                                      ⚠️ {op.motivo_atraso}
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="pt-2 border-t border-slate-900 flex items-center justify-between gap-2">
-                                  {op.status_macro === 'falta_embalar' ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleConfirmarEmbalagem(op)}
-                                      className="py-1 px-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-[10px] transition cursor-pointer"
-                                    >
-                                      ✓ Confirmar Embalagem
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSinalizarAtraso(op)}
-                                      className="py-1 px-2 bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-amber-300 rounded-lg text-[10px] font-bold border border-slate-800 transition cursor-pointer"
-                                    >
-                                      ⚠️ Motivo
-                                    </button>
-                                  )}
-
-                                  <button
-                                    type="button"
-                                    onClick={() => handleOpenOpChat(op)}
-                                    className="py-1 px-2.5 bg-blue-950 hover:bg-blue-900 text-blue-300 rounded-lg text-[10px] font-bold border border-blue-800 transition cursor-pointer flex items-center gap-1.5"
-                                  >
-                                    <MessageSquare className="w-3 h-3 text-blue-400" />
-                                    <span>Chat</span>
-                                    {unreadCount > 0 && (
-                                      <span className="w-3.5 h-3.5 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
-                                        {unreadCount}
-                                      </span>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                /* VISÃO 4: ANÁLISES E MÉTRICAS EXECUTIVAS */
-                <div className="space-y-5">
-                  {/* KPI Cards Strip */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {/* On-Time Delivery */}
-                    <div className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl shadow-lg">
-                      <span className="text-xs font-mono text-slate-400 uppercase block font-semibold">
-                        % On-Time Delivery
-                      </span>
-                      <div className="flex items-baseline gap-2 mt-1">
-                        <span
-                          className={`text-3xl font-black font-mono-num ${
-                            onTimePercentage >= 85
-                              ? 'text-emerald-400'
-                              : onTimePercentage >= 70
-                              ? 'text-amber-400'
-                              : 'text-rose-400'
-                          }`}
-                        >
-                          {onTimePercentage}%
-                        </span>
-                        <span className="text-xs text-slate-400 font-mono">no prazo</span>
-                      </div>
-                      <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden mt-3 border border-slate-800">
-                        <div
-                          className={`h-full transition-all duration-300 ${
-                            onTimePercentage >= 85
-                              ? 'bg-emerald-500'
-                              : onTimePercentage >= 70
-                              ? 'bg-amber-500'
-                              : 'bg-rose-500'
-                          }`}
-                          style={{ width: `${onTimePercentage}%` }}
-                        />
-                      </div>
-                      <span className="text-[10px] text-slate-500 mt-2 block font-mono">
-                        {totalComDataValida - totalAtrasadasAbertas} de {totalComDataValida} OPs em dia
-                      </span>
-                    </div>
-
-                    {/* Falta Embalar */}
-                    <div className="bg-[#0c142b] border border-purple-900/60 p-5 rounded-2xl shadow-lg">
-                      <span className="text-xs font-mono text-purple-300 uppercase block font-semibold">
-                        Aguardando Embalagem
-                      </span>
-                      <div className="text-3xl font-black text-purple-400 mt-1 font-mono-num">
-                        {pcpMacroCounts.faltaEmbalar}
-                      </div>
-                      <span className="text-[11px] text-slate-400 mt-2 block">
-                        Portas montadas prontas para expedição
-                      </span>
-                    </div>
-
-                    {/* Em Produção nos Totens */}
-                    <div className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl shadow-lg">
-                      <span className="text-xs font-mono text-blue-300 uppercase block font-semibold">
-                        Operações Ativas no Chão
-                      </span>
-                      <div className="text-3xl font-black text-blue-400 mt-1 font-mono-num">
-                        {totalEmProducao}
-                      </div>
-                      <span className="text-[11px] text-slate-400 mt-2 block">
-                        Lotes em execução nos 5 terminais
-                      </span>
-                    </div>
-
-                    {/* Chat & Alinhamentos */}
-                    <div className="bg-[#0c142b] border border-indigo-900/60 p-5 rounded-2xl shadow-lg">
-                      <span className="text-xs font-mono text-indigo-300 uppercase block font-semibold">
-                        Alinhamentos no Chat
-                      </span>
-                      <div className="text-3xl font-black text-indigo-300 mt-1 font-mono-num">
-                        {allChatMessages.length}
-                      </div>
-                      <span className="text-[11px] text-slate-400 mt-2 block">
-                        {totalUnreadChat > 0 ? (
-                          <strong className="text-rose-400">{totalUnreadChat} mensagens não lidas</strong>
-                        ) : (
-                          'Todas mensagens lidas'
-                        )}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Gráficos / Tabelas de Análise */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {/* Ranking de Motivos de Atraso */}
-                    <div className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl shadow-lg space-y-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-blue-950">
-                        <span className="font-mono font-bold text-xs text-white uppercase flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-400" />
-                          Ranking dos Motivos de Atraso
-                        </span>
-                        <span className="text-xs text-slate-400 font-mono">
-                          {motivosArray.reduce((acc, curr) => acc + curr[1], 0)} ocorrências
-                        </span>
-                      </div>
-
-                      {motivosArray.length === 0 ? (
-                        <p className="text-xs font-mono text-slate-500 py-6 text-center">
-                          Nenhum motivo de atraso registrado nas ordens ativas.
-                        </p>
-                      ) : (
-                        <div className="space-y-2.5">
-                          {motivosArray.map(([motivo, count]) => {
-                            const totalMotivos = motivosArray.reduce((acc, curr) => acc + curr[1], 0);
-                            const perc = totalMotivos > 0 ? Math.round((count / totalMotivos) * 100) : 0;
-                            return (
-                              <div key={motivo} className="space-y-1">
-                                <div className="flex items-center justify-between text-xs font-mono">
-                                  <span className="text-slate-200 font-semibold">{motivo}</span>
-                                  <span className="text-amber-400 font-bold">
-                                    {count} ({perc}%)
-                                  </span>
-                                </div>
-                                <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
-                                  <div
-                                    className="h-full bg-gradient-to-r from-amber-500 to-rose-500 rounded-full"
-                                    style={{ width: `${perc}%` }}
-                                  />
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Distribuição por Família */}
-                    <div className="bg-[#0c142b] border border-blue-900/60 p-5 rounded-2xl shadow-lg space-y-3">
-                      <div className="flex items-center justify-between pb-2 border-b border-blue-950">
-                        <span className="font-mono font-bold text-xs text-white uppercase flex items-center gap-2">
-                          <Layers className="w-4 h-4 text-blue-400" />
-                          Distribuição da Carteira por Família
-                        </span>
-                        <span className="text-xs text-slate-400 font-mono">{orderList.length} OPs</span>
-                      </div>
-
-                      <div className="space-y-2.5">
-                        {MODELOS_PRODUTO.map((mod) => {
-                          const count = modelCounts[mod] || 0;
-                          if (count === 0) return null;
-                          const perc = orderList.length > 0 ? Math.round((count / orderList.length) * 100) : 0;
-                          return (
-                            <div key={mod} className="space-y-1">
-                              <div className="flex items-center justify-between text-xs font-mono">
-                                <span className="text-slate-200 font-semibold">{mod}</span>
-                                <span className="text-blue-300 font-bold">
-                                  {count} ({perc}%)
+                                {op.status_macro === 'embalada' || op.status === 'FINALIZADA'
+                                  ? 'Embalada / Concluída'
+                                  : op.status_macro === 'falta_embalar'
+                                  ? 'Falta Embalar'
+                                  : isAtrasada(op.data_entrega, op.status_macro)
+                                  ? 'Atrasada'
+                                  : 'Em Produção'}
+                              </span>
+                              {op.data_entrega && (
+                                <span className="text-slate-400 text-[11px]">
+                                  Prazo: <strong className="text-amber-300">{op.data_entrega}</strong>
                                 </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-3.5 text-center text-slate-300 font-bold">
+                            {op.quantidade_total || 1} un
+                          </td>
+                          <td className="p-3.5">
+                            <div className="w-36 space-y-1">
+                              <div className="flex justify-between text-[10px] text-slate-400">
+                                <span>{finishedCount}/{totalQtd}</span>
+                                <span>{percent}%</span>
                               </div>
                               <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
                                 <div
-                                  className="h-full bg-gradient-to-r from-blue-600 to-teal-400 rounded-full"
-                                  style={{ width: `${perc}%` }}
+                                  className={`h-full rounded-full ${
+                                    percent >= 100
+                                      ? 'bg-emerald-500'
+                                      : percent > 0
+                                      ? 'bg-blue-500'
+                                      : 'bg-slate-700'
+                                  }`}
+                                  style={{ width: `${percent}%` }}
                                 />
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          );
-        })()}
+                          </td>
+                          <td className="p-3.5 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {op.status_macro === 'falta_embalar' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmarEmbalagem(op)}
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                                  title="Confirmar Embalagem"
+                                >
+                                  ✓ Embalar
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenOpChat(op)}
+                                className="px-2 py-1 bg-slate-900 hover:bg-slate-800 text-blue-300 rounded-lg text-[10px] font-bold border border-blue-900 transition cursor-pointer relative"
+                                title="Chat da OP"
+                              >
+                                <MessageSquare className="w-3 h-3 inline mr-1" />
+                                Chat
+                                {unreadCount > 0 && (
+                                  <span className="ml-1 px-1 bg-rose-500 text-white rounded-full text-[9px]">
+                                    {unreadCount}
+                                  </span>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSelectForTotem(op.numero || op.op_numero)}
+                                className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-bold transition cursor-pointer"
+                                title="Ver no Totem"
+                              >
+                                Totem
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ABA DEDICADA: STATUS DE PRODUÇÃO (PCP & COORDENAÇÃO) */}
+        {activeTab === 'status_pcp' && (
+          <ProductionStatusModule
+            orders={orders}
+            apontamentos={apontamentos}
+            onSelectOpForTotem={(opNum) => {
+              onSelectOpForTotem(opNum);
+              onSwitchToTotem();
+            }}
+            onSwitchToTotem={onSwitchToTotem}
+            onBackToMes={() => setActiveTab('orders')}
+            onOrdersUpdated={onOrdersUpdated}
+          />
+        )}
 
         {/* ABA 3: HISTÓRICO DE APONTAMENTOS */}
         {activeTab === 'apontamentos' && (
