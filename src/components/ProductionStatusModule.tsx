@@ -27,7 +27,8 @@ import {
   checkOp100Percent,
   isOpConcluida,
   isOpEmProducao,
-  isOpEmAberto
+  isOpEmAberto,
+  obterQuantidadeTotal
 } from '../utils/routeEngine';
 import { classificarModeloOP, MODELOS_PRODUTO } from '../utils/productClassifier';
 import { playClick, playSuccessStart } from '../utils/audio';
@@ -140,6 +141,83 @@ const formatarDataMensagem = (raw?: any): string => {
   }
 };
 
+export function getOpLiveTotemStatus(op: ProductionOrder, apontamentos: Apontamento[] = []) {
+  const etapas = Array.isArray(op.rota) && op.rota.length >= 4 ? op.rota : obterEtapasDaRota(op);
+  const totalUnits = obterQuantidadeTotal(op);
+  const evaluation = getRouteEvaluation(op, apontamentos, etapas);
+
+  const isAllFinished = etapas.length > 0 && etapas.every((s) => {
+    const st = (!Array.isArray(op.etapas) && typeof op.etapas === 'object') ? op.etapas?.[s] : undefined;
+    const ev = evaluation[s];
+    return (st && (st.status === 'CONCLUIDO' || st.status === 'FINALIZADO')) || (ev && ev.finalizadas >= totalUnits);
+  });
+
+  if (op.status_macro === 'embalada' || op.status === 'FINALIZADA') {
+    return {
+      type: 'finalizada' as const,
+      label: 'Finalizada / Embalada',
+      badgeClass: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50',
+      icon: '✅',
+      isCompleted: true
+    };
+  }
+
+  if (op.status_macro === 'falta_embalar' || isAllFinished) {
+    return {
+      type: 'falta_embalar' as const,
+      label: 'Processos Finalizados • Falta Embalar',
+      badgeClass: 'bg-purple-500/20 text-purple-300 border-purple-500/50',
+      icon: '📦',
+      canConfirmEmbalagem: true
+    };
+  }
+
+  // Verificar se há apontamento em andamento nos totens
+  const cleanOrderOp = (op.op_numero || op.numero || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+  const activeApt = apontamentos.find((a) => {
+    if (a.status !== 'EM_ANDAMENTO') return false;
+    const aOp = (a.op_numero || a.op || '').replace(/^(\s*OP\s*)+/i, '').replace(/[-_\s]/g, '').toUpperCase();
+    return aOp === cleanOrderOp;
+  });
+
+  const activeEtapaEntry = (!activeApt && op.etapas && typeof op.etapas === 'object' && !Array.isArray(op.etapas))
+    ? Object.entries(op.etapas).find(([_, val]: [string, any]) => {
+        const st = String(val?.status || val || '').toUpperCase().trim();
+        return st === 'EM_PRODUCAO' || st === 'EM_ANDAMENTO' || st === 'IN_PROGRESS';
+      })
+    : null;
+
+  const activeStation = activeApt
+    ? (activeApt.setorFisico || activeApt.setor)
+    : (op.postoAtivo || (activeEtapaEntry ? activeEtapaEntry[0] : null));
+
+  const activeOperator = activeApt
+    ? (activeApt.colaborador || activeApt.operador || 'Operador')
+    : (op.operadorAtual || op.colaboradorIniciou || null);
+
+  if (activeStation) {
+    return {
+      type: 'em_andamento' as const,
+      label: `Processo Atual: ${activeStation}${activeOperator ? ` (${activeOperator})` : ''}`,
+      badgeClass: 'bg-blue-500/20 text-blue-300 border-blue-500/50',
+      icon: '🔵'
+    };
+  }
+
+  const nextWaiting = etapas.find((s) => {
+    const st = (!Array.isArray(op.etapas) && typeof op.etapas === 'object') ? op.etapas?.[s] : undefined;
+    const ev = evaluation[s];
+    return !((st && (st.status === 'CONCLUIDO' || st.status === 'FINALIZADO')) || (ev && ev.finalizadas >= totalUnits));
+  }) || etapas[0];
+
+  return {
+    type: 'aguardando' as const,
+    label: nextWaiting ? `Aguardando: ${nextWaiting}` : 'Aguardando Início',
+    badgeClass: 'bg-amber-500/20 text-amber-300 border-amber-500/50',
+    icon: '🟡'
+  };
+}
+
 export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = React.memo(({
   orders,
   apontamentos,
@@ -148,6 +226,18 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
   onBackToMes,
   onOrdersUpdated
 }) => {
+  // Destaque visual temporário de OP selecionada
+  const [highlightedOpId, setHighlightedOpId] = useState<string | null>(null);
+  const highlightTimeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimeoutRef.current) {
+        clearTimeout(highlightTimeoutRef.current);
+      }
+    };
+  }, []);
+
   // 1. Estados Principais de Filtro e Visualização
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [macroFilter, setMacroFilter] = useState<'NONE' | 'ATRASADAS' | 'HOJE' | 'FALTA_EMBALAR' | 'FINALIZADAS'>('NONE');
@@ -421,10 +511,16 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
         prioridade: nextFav ? 'alta' : 'normal'
       } as any);
       showToast(nextFav ? `OP ${formatOpNumber(cleanId)} marcada como PRIORITÁRIA ⭐` : `Prioridade da OP ${formatOpNumber(cleanId)} removida`, 'info');
+      if (onOrdersUpdated) {
+        onOrdersUpdated({
+          ...orders,
+          [cleanId]: { ...op, favorito: nextFav, prioridade: nextFav ? 'alta' : 'normal' }
+        });
+      }
     } catch (err) {
       console.error('Erro ao alternar prioridade:', err);
     }
-  }, []);
+  }, [orders, onOrdersUpdated]);
 
   const handleTogglePausada = useCallback(async (op: ProductionOrder) => {
     playClick();
@@ -434,20 +530,90 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
       await atualizarStatusMacroOp(cleanId, { pausada: nextPausada ? 1 : 0 });
       await updateProductionOrder(cleanId, { pausada: nextPausada } as any);
       showToast(nextPausada ? `OP ${formatOpNumber(cleanId)} PAUSADA ⏸️` : `OP ${formatOpNumber(cleanId)} RETOMADA ▶️`, 'info');
+      if (onOrdersUpdated) {
+        onOrdersUpdated({
+          ...orders,
+          [cleanId]: { ...op, pausada: nextPausada }
+        });
+      }
     } catch (err) {
       console.error('Erro ao alternar pausa:', err);
     }
-  }, []);
+  }, [orders, onOrdersUpdated]);
 
   const handleSinalizarAtraso = useCallback((op: ProductionOrder) => {
     setSelectedDelayOrder(op);
     setDelayModalOpen(true);
   }, []);
 
+  const handleSelectThread = useCallback((threadOp: ProductionOrder) => {
+    playClick();
+    const cleanId = cleanOpId(threadOp.numero || threadOp.op_numero);
+    const fullOp = orderList.find((o) => cleanOpId(o.numero || o.op_numero) === cleanId) || orders[cleanId] || threadOp;
+
+    // 1. Abre a conversa no painel de chat
+    setActiveThreadOp(fullOp);
+
+    // 2. Garante que a visão principal está na Lista em modo Cards
+    setViewMode('lista');
+    setOrderViewType('cards');
+
+    // 3. Reseta filtros restritivos para garantir visibilidade da OP
+    setMacroFilter('NONE');
+    setQuickFilter('TODAS');
+
+    const opModel = classificarModeloOP(fullOp);
+    if (selectedModel !== 'ALL' && selectedModel !== opModel) {
+      setSelectedModel('ALL');
+    }
+
+    if (searchTerm) {
+      const q = searchTerm.toLowerCase();
+      const matches = (fullOp.numero || '').toLowerCase().includes(q) || (fullOp.descricao || '').toLowerCase().includes(q);
+      if (!matches) {
+        setSearchTerm('');
+      }
+    }
+
+    // 4. Se o índice da OP na lista estiver além da paginação atual, expande o pageSize
+    const opIndex = orderList.findIndex((o) => cleanOpId(o.numero || o.op_numero) === cleanId);
+    if (opIndex >= 0 && opIndex >= pageSize) {
+      setPageSize(Math.max(pageSize, opIndex + 20));
+    }
+
+    // 5. Aplica destaque visual temporário por 4 segundos
+    setHighlightedOpId(cleanId);
+    if (highlightTimeoutRef.current) {
+      clearTimeout(highlightTimeoutRef.current);
+    }
+    highlightTimeoutRef.current = setTimeout(() => {
+      setHighlightedOpId(null);
+    }, 4000);
+
+    // 6. Scroll suave até o card da OP
+    setTimeout(() => {
+      const el = document.getElementById(`op-card-${cleanId}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+  }, [orderList, orders, selectedModel, searchTerm, pageSize]);
+
   const handleOpenOpChat = useCallback((op: ProductionOrder) => {
     setIsInboxOpen(true);
-    setActiveThreadOp(op);
-  }, []);
+    handleSelectThread(op);
+  }, [handleSelectThread]);
+
+  const currentActiveOp = useMemo(() => {
+    if (!activeThreadOp) return null;
+    const cleanId = cleanOpId(activeThreadOp.numero || activeThreadOp.op_numero);
+    return orderList.find((o) => cleanOpId(o.numero || o.op_numero) === cleanId) || orders[cleanId] || activeThreadOp;
+  }, [activeThreadOp, orderList, orders]);
+
+  const totemStatus = useMemo(() => {
+    if (!currentActiveOp) return null;
+    return getOpLiveTotemStatus(currentActiveOp, apontamentos);
+  }, [currentActiveOp, apontamentos]);
 
   // Envio de mensagem no chat integrado
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -1193,6 +1359,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       hideQuantitySelector={true}
                       compact={true}
                       readOnlyRoute={true}
+                      isHighlighted={highlightedOpId === cleanOpId(op.numero || op.op_numero)}
                     />
                   ))}
                 </div>
@@ -1241,9 +1408,17 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                   </thead>
                   <tbody className="divide-y divide-blue-950">
                     {paginatedOrders.map((op, index) => {
-                      const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
+                      const cleanId = cleanOpId(op.numero || op.op_numero);
+                      const isHigh = highlightedOpId === cleanId;
+                      const unreadCount = unreadCountsByOp[cleanId] || 0;
                       return (
-                        <tr key={`${op.id || op.numero || op.op_numero}-${index}`} className="hover:bg-slate-900/60 transition">
+                        <tr
+                          key={`${op.id || op.numero || op.op_numero}-${index}`}
+                          id={`op-card-${cleanId}`}
+                          className={`transition ${
+                            isHigh ? 'bg-amber-500/20 ring-2 ring-amber-400' : 'hover:bg-slate-900/60'
+                          }`}
+                        >
                           <td className="p-3.5 font-bold text-blue-300 font-mono text-sm">
                             <div className="flex items-center gap-1.5">
                               <button
@@ -1355,14 +1530,19 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       <div className="py-10 text-center text-slate-600 font-mono text-xs">Nenhuma OP nesta etapa</div>
                     ) : (
                       col.orders.map((op) => {
-                        const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
+                        const cleanId = cleanOpId(op.numero || op.op_numero);
+                        const isHigh = highlightedOpId === cleanId;
+                        const unreadCount = unreadCountsByOp[cleanId] || 0;
                         const dias = getDiasRestantes(op.data_entrega);
 
                         return (
                           <div
                             key={op.op_numero || op.numero}
+                            id={`op-card-${cleanId}`}
                             className={`p-3 rounded-xl border transition-all text-xs font-mono shadow-md ${
-                              op.status_macro === 'falta_embalar'
+                              isHigh
+                                ? 'ring-4 ring-amber-400 shadow-2xl shadow-amber-500/40 scale-[1.02] z-20 border-2 border-amber-400'
+                                : op.status_macro === 'falta_embalar'
                                 ? 'bg-purple-950/40 border-purple-500/50'
                                 : isAtrasada(op.data_entrega, op.status_macro)
                                 ? 'bg-rose-950/40 border-rose-500/40'
@@ -1495,13 +1675,20 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {bucket.orders.map((op) => {
+                        const cleanId = cleanOpId(op.numero || op.op_numero);
+                        const isHigh = highlightedOpId === cleanId;
                         const dias = getDiasRestantes(op.data_entrega);
-                        const unreadCount = unreadCountsByOp[cleanOpId(op.numero || op.op_numero)] || 0;
+                        const unreadCount = unreadCountsByOp[cleanId] || 0;
 
                         return (
                           <div
                             key={op.op_numero || op.numero}
-                            className="p-3.5 rounded-xl bg-slate-950/90 border border-blue-950 text-xs font-mono shadow-md flex flex-col justify-between"
+                            id={`op-card-${cleanId}`}
+                            className={`p-3.5 rounded-xl border text-xs font-mono shadow-md flex flex-col justify-between transition-all ${
+                              isHigh
+                                ? 'ring-4 ring-amber-400 shadow-2xl shadow-amber-500/40 scale-[1.02] z-20 border-2 border-amber-400 bg-slate-950'
+                                : 'bg-slate-950/90 border-blue-950'
+                            }`}
                           >
                             <div>
                               <div className="flex items-center justify-between mb-1.5">
@@ -1761,21 +1948,145 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                   <div className="flex items-center gap-2 truncate">
                     <button
                       onClick={() => setActiveThreadOp(null)}
-                      className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition"
+                      className="p-1 text-slate-400 hover:text-white rounded hover:bg-slate-800 transition cursor-pointer"
                       title="Voltar para a lista de conversas"
                     >
                       <ArrowLeft className="w-3.5 h-3.5 text-blue-400" />
                     </button>
                     <div className="truncate">
                       <span className="font-mono font-black text-xs text-blue-300 bg-blue-950/80 border border-blue-500/40 px-2 py-0.5 rounded shadow-sm inline-block mb-1">
-                        {formatOpNumber(activeThreadOp.numero || activeThreadOp.op_numero)}
+                        {formatOpNumber(currentActiveOp?.numero || currentActiveOp?.op_numero || activeThreadOp.numero || activeThreadOp.op_numero)}
                       </span>
                       <span className="text-[11px] text-slate-200 truncate block font-sans font-medium">
-                        {activeThreadOp.descricao}
+                        {currentActiveOp?.descricao || activeThreadOp.descricao}
                       </span>
                     </div>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectThread(currentActiveOp || activeThreadOp)}
+                    className="p-1.5 rounded-lg bg-blue-900/30 hover:bg-blue-900/60 text-blue-300 border border-blue-500/40 text-[10px] font-mono font-bold flex items-center gap-1 shrink-0 transition cursor-pointer"
+                    title="Focar e destacar o card desta OP na tela"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Focar Card</span>
+                  </button>
                 </div>
+
+                {/* MINI-CARTÃO DE RESUMO E AÇÕES RÁPIDAS DE SINALIZAÇÃO */}
+                {currentActiveOp && totemStatus && (
+                  <div className="p-3 bg-[#080d1d] border-b border-blue-950/80 shrink-0 space-y-2.5">
+                    {/* Linha 1: Status Real dos Totens + Prazo de Entrega */}
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                      <div className={`px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border flex items-center gap-1.5 shadow-sm ${totemStatus.badgeClass}`}>
+                        <span>{totemStatus.icon}</span>
+                        <span className="truncate max-w-[190px]">{totemStatus.label}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {currentActiveOp.pausada && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                            ⏸️ Pausada
+                          </span>
+                        )}
+                        {currentActiveOp.data_entrega && (
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                              isAtrasada(currentActiveOp.data_entrega, currentActiveOp.status_macro)
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                : isEntregaHoje(currentActiveOp.data_entrega, currentActiveOp.status_macro)
+                                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                : 'bg-slate-900 text-slate-300 border-slate-700'
+                            }`}
+                          >
+                            📅 {currentActiveOp.data_entrega}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Linha 2: 4 Botões de Ações Rápidas de Sinalização em 1 Clique */}
+                    <div className="grid grid-cols-2 gap-1.5 pt-0.5">
+                      {/* 1. Prioridade */}
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePrioridade(currentActiveOp)}
+                        className={`px-2 py-1.5 rounded-lg text-[10px] font-mono font-bold border flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          currentActiveOp.favorito || currentActiveOp.prioridade === 'alta'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/60 shadow-sm'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700 hover:text-amber-300'
+                        }`}
+                        title={currentActiveOp.favorito || currentActiveOp.prioridade === 'alta' ? "Remover Prioridade" : "Marcar como Prioritária"}
+                      >
+                        <Star className={`w-3 h-3 ${currentActiveOp.favorito || currentActiveOp.prioridade === 'alta' ? 'fill-amber-400 text-amber-400' : ''}`} />
+                        <span>{currentActiveOp.favorito || currentActiveOp.prioridade === 'alta' ? 'Prioritária ⭐' : 'Prioridade'}</span>
+                      </button>
+
+                      {/* 2. Confirmar Embalagem (quando falta embalar ou 100% concluída) */}
+                      {totemStatus.type === 'falta_embalar' || currentActiveOp.status_macro === 'falta_embalar' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleConfirmarEmbalagem(currentActiveOp)}
+                          className="px-2 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-mono font-bold border border-emerald-400 flex items-center justify-center gap-1 transition cursor-pointer active:scale-95 shadow-sm"
+                          title="Confirmar Embalagem e Finalizar OP"
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Conf. Embalagem</span>
+                        </button>
+                      ) : (
+                        /* 4. Pausar / Retomar */
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePausada(currentActiveOp)}
+                          className={`px-2 py-1.5 rounded-lg text-[10px] font-mono font-bold border flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                            currentActiveOp.pausada
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+                          }`}
+                          title={currentActiveOp.pausada ? 'Retomar produção' : 'Pausar produção'}
+                        >
+                          {currentActiveOp.pausada ? <Play className="w-3 h-3 text-amber-400" /> : <Pause className="w-3 h-3 text-slate-400" />}
+                          <span>{currentActiveOp.pausada ? 'Retomar OP' : 'Pausar OP'}</span>
+                        </button>
+                      )}
+
+                      {/* 3. Sinalizar Atraso / Motivo */}
+                      <button
+                        type="button"
+                        onClick={() => handleSinalizarAtraso(currentActiveOp)}
+                        className={`px-2 py-1.5 rounded-lg text-[10px] font-mono font-bold border flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                          currentActiveOp.motivo_atraso || isAtrasada(currentActiveOp.data_entrega, currentActiveOp.status_macro)
+                            ? 'bg-rose-500/20 text-rose-300 border-rose-500/60'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700 hover:text-amber-300'
+                        }`}
+                        title="Registrar ou visualizar motivo do atraso"
+                      >
+                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                        <span className="truncate max-w-[120px]">
+                          {currentActiveOp.motivo_atraso ? currentActiveOp.motivo_atraso : 'Sinalizar Atraso'}
+                        </span>
+                      </button>
+
+                      {/* 4. Pausar / Retomar (quando o botão 2 era embalar, o 4 fica aqui) */}
+                      {(totemStatus.type === 'falta_embalar' || currentActiveOp.status_macro === 'falta_embalar') && (
+                        <button
+                          type="button"
+                          onClick={() => handleTogglePausada(currentActiveOp)}
+                          className={`px-2 py-1.5 rounded-lg text-[10px] font-mono font-bold border flex items-center justify-center gap-1.5 transition cursor-pointer active:scale-95 ${
+                            currentActiveOp.pausada
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/60'
+                              : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+                          }`}
+                          title={currentActiveOp.pausada ? 'Retomar produção' : 'Pausar produção'}
+                        >
+                          {currentActiveOp.pausada ? <Play className="w-3 h-3 text-amber-400" /> : <Pause className="w-3 h-3 text-slate-400" />}
+                          <span>{currentActiveOp.pausada ? 'Retomar' : 'Pausar'}</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Mensagens do Thread */}
                 <div className="flex-1 overflow-y-auto p-3 space-y-3 font-mono text-xs no-scrollbar">
@@ -1957,12 +2268,13 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                       return (
                         <div
                           key={cleanId}
-                          onClick={() => {
-                            playClick();
-                            setActiveThreadOp(thread.op);
-                          }}
+                          onClick={() => handleSelectThread(thread.op)}
                           className={`p-3 transition cursor-pointer hover:bg-slate-900/60 flex items-start justify-between gap-2.5 ${
-                            isUnread ? 'bg-rose-950/20 border-l-2 border-rose-500' : ''
+                            activeThreadOp && cleanOpId(activeThreadOp.numero || activeThreadOp.op_numero) === cleanId
+                              ? 'bg-blue-950/40 border-l-4 border-blue-400'
+                              : isUnread
+                              ? 'bg-rose-950/20 border-l-2 border-rose-500'
+                              : ''
                           }`}
                         >
                           <div className="min-w-0 flex-1 space-y-1">

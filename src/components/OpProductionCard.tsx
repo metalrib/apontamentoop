@@ -39,6 +39,7 @@ interface OpProductionCardProps {
   hideManagementActions?: boolean;
   compact?: boolean;
   readOnlyRoute?: boolean;
+  isHighlighted?: boolean;
 }
 
 export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
@@ -57,7 +58,8 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
   hideQuantitySelector = false,
   hideManagementActions = false,
   compact = false,
-  readOnlyRoute = false
+  readOnlyRoute = false,
+  isHighlighted = false
 }) => {
   const op = verificarECorrigirRotaOp((propOrder || propOp)!);
   const order = op;
@@ -252,8 +254,11 @@ export const OpProductionCard: React.FC<OpProductionCardProps> = React.memo(({
 
   return (
     <div
-      className={`bg-[#0c142b] rounded-2xl shadow-xl transition-all duration-200 flex flex-col justify-between relative ${compact ? 'p-4 gap-3' : 'p-5'} ${
-        isConcluidaGeral
+      id={`op-card-${cleanOpId(order.numero || order.op_numero)}`}
+      className={`bg-[#0c142b] rounded-2xl shadow-xl transition-all duration-300 flex flex-col justify-between relative ${compact ? 'p-4 gap-3' : 'p-5'} ${
+        isHighlighted
+          ? 'ring-4 ring-amber-400 shadow-2xl shadow-amber-500/50 scale-[1.02] z-30 border-2 border-amber-400'
+          : isConcluidaGeral
           ? 'border-2 border-emerald-500/50 shadow-emerald-950/20'
           : 'border border-blue-900/60'
       }`}
