@@ -177,6 +177,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_mensagens_op_numero ON mensagens_op(order_numero);
   CREATE INDEX IF NOT EXISTS idx_mensagens_op_timestamp ON mensagens_op(timestamp);
 `);
+try {
+  db.exec(`ALTER TABLE mensagens_op ADD COLUMN lida INTEGER DEFAULT 0;`);
+} catch (e) {}
 
 // Tabela de Apontamentos para histórico e rastreabilidade industrial
 db.exec(`
@@ -4633,6 +4636,7 @@ app.get('/api/mensagens', (req, res) => {
     query += ' ORDER BY timestamp ASC';
     const rows = db.prepare(query).all(...params).map(r => ({
       ...r,
+      lida: Boolean(r.lida || (r.lida_pcp === 1 && r.lida_producao === 1)),
       respostas: typeof r.respostas_json === 'string' ? JSON.parse(r.respostas_json || '[]') : (r.respostas_json || [])
     }));
 
@@ -4753,23 +4757,29 @@ app.post('/api/mensagens/:id/responder', (req, res) => {
     const lidaPcp = rem === 'pcp' ? 1 : 0;
     const lidaProd = rem === 'producao' ? 1 : 0;
 
+    const cleanNum = normalizarIdOP(msgRow.order_numero);
+    const fmtNum = formatarNumeroOP(cleanNum);
+
     db.prepare(`
       UPDATE mensagens_op SET
         respostas_json = ?,
-        lida_pcp = CASE WHEN ? = 1 THEN 1 ELSE lida_pcp END,
-        lida_producao = CASE WHEN ? = 1 THEN 1 ELSE lida_producao END
-      WHERE id = ?
-    `).run(JSON.stringify(respostas), lidaPcp, lidaProd, id);
+        lida = 1,
+        lida_pcp = 1,
+        lida_producao = 1
+      WHERE id = ? OR order_numero = ? OR order_numero = ? OR order_id = ? OR order_id = ?
+         OR REPLACE(REPLACE(order_numero, 'OP ', ''), ' ', '') = ?
+    `).run(JSON.stringify(respostas), id, fmtNum, cleanNum, fmtNum, cleanNum, cleanNum);
 
     const updated = {
       ...msgRow,
-      lida_pcp: rem === 'pcp' ? 1 : msgRow.lida_pcp,
-      lida_producao: rem === 'producao' ? 1 : msgRow.lida_producao,
+      lida: 1,
+      lida_pcp: 1,
+      lida_producao: 1,
       respostas
     };
 
     io.emit('mensagem_op_respondida', { id, resposta: novaResposta, mensagem: updated });
-    io.emit('mensagens_atualizadas', { op_numero: msgRow.order_numero, mensagem: updated });
+    io.emit('mensagens_atualizadas', { op_numero: fmtNum, clean_id: cleanNum, mensagem: updated });
 
     res.json({ success: true, resposta: novaResposta, mensagem: updated });
   } catch (err) {
@@ -4778,7 +4788,7 @@ app.post('/api/mensagens/:id/responder', (req, res) => {
   }
 });
 
-// Marcar mensagem como lida
+// Marcar mensagem individual como lida
 app.patch('/api/mensagens/:id/lida', (req, res) => {
   try {
     const { id } = req.params;
@@ -4803,6 +4813,7 @@ app.patch('/api/mensagens/:id/lida', (req, res) => {
 
     db.prepare(`
       UPDATE mensagens_op SET
+        lida = 1,
         lida_pcp = ?,
         lida_producao = ?,
         arquivada = ?
@@ -4811,6 +4822,7 @@ app.patch('/api/mensagens/:id/lida', (req, res) => {
 
     const updated = {
       ...msgRow,
+      lida: 1,
       lida_pcp: novoLidaPcp,
       lida_producao: novoLidaProd,
       arquivada: novoArquivada,
@@ -4818,9 +4830,40 @@ app.patch('/api/mensagens/:id/lida', (req, res) => {
     };
 
     io.emit('mensagem_op_lida', updated);
+    io.emit('mensagens_atualizadas', { op_numero: msgRow.order_numero, mensagem: updated });
     res.json({ success: true, mensagem: updated });
   } catch (err) {
     console.error('[/api/mensagens/:id/lida] Erro:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Marcar TODAS as mensagens de uma OP como lidas
+app.post(['/api/chat/marcar-lida', '/api/mensagens/marcar-lidas', '/api/mensagens/lidas'], (req, res) => {
+  try {
+    const { op_numero, numero_op, numero, order_numero, leitor } = req.body;
+    const raw = op_numero || numero_op || numero || order_numero;
+    if (!raw) return res.status(400).json({ error: 'Número da OP obrigatório' });
+
+    const clean = normalizarIdOP(raw);
+    const fmt = formatarNumeroOP(clean);
+
+    const info = db.prepare(`
+      UPDATE mensagens_op SET
+        lida = 1,
+        lida_pcp = 1,
+        lida_producao = 1
+      WHERE order_numero = ? OR order_numero = ? OR order_id = ? OR order_id = ?
+         OR REPLACE(REPLACE(order_numero, 'OP ', ''), ' ', '') = ?
+         OR REPLACE(REPLACE(order_id, 'OP ', ''), ' ', '') = ?
+    `).run(fmt, clean, fmt, clean, clean, clean);
+
+    io.emit('mensagens_atualizadas', { op_numero: fmt, clean_id: clean, lida: true });
+    io.emit('mensagem_op_lida', { op_numero: fmt, clean_id: clean, lida: true });
+
+    res.json({ success: true, updated: info.changes, op_numero: fmt, clean_id: clean });
+  } catch (err) {
+    console.error('[/api/chat/marcar-lida] Erro:', err);
     res.status(500).json({ error: err.message });
   }
 });

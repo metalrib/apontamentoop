@@ -4190,6 +4190,67 @@ export async function marcarMensagemLida(
 }
 
 /**
+ * Marca todas as mensagens de uma OP como lidas no backend SQLite
+ */
+export async function marcarConversaOpLida(
+  opNumero: string,
+  payload?: { leitor?: 'pcp' | 'producao' | string }
+): Promise<any> {
+  const localUrl = getApiBaseUrl();
+  const cleanId = cleanOpId(opNumero);
+  try {
+    const res = await fetch(`${localUrl}/api/chat/marcar-lida`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ op_numero: cleanId, ...payload })
+    });
+    if (res.ok) {
+      return await res.json();
+    }
+  } catch (err) {
+    console.warn('[marcarConversaOpLida] Erro ao marcar conversa como lida:', err);
+  }
+  return null;
+}
+
+/**
+ * Determina com precisão se uma mensagem do chat deve ser considerada "Não Lida" para o papel atual.
+ * Regras:
+ * 1. Mensagens com lida === true ou lida === 1 já foram lidas globalmente.
+ * 2. Mensagens enviadas pelo próprio usuário (remetente === role) NUNCA contam como não lidas para ele mesmo.
+ * 3. Se a mensagem já possui respostas enviadas pelo próprio usuário (ou a última resposta é do próprio usuário),
+ *    o usuário já respondeu a conversa, logo não é pendente para ele.
+ * 4. Mensagens direcionadas a ele que não foram lidas pelo seu perfil contam como não lidas.
+ */
+export function isMessageUnreadForRole(msg: any, role: 'pcp' | 'producao' = 'pcp'): boolean {
+  if (!msg) return false;
+  if (msg.lida === true || msg.lida === 1) return false;
+
+  const rem = String(msg.remetente || '').toLowerCase().trim();
+  const isFromSelf = (role === 'producao' && (rem === 'producao' || rem === 'coordenacao')) ||
+                     (role === 'pcp' && rem === 'pcp');
+
+  if (isFromSelf) return false;
+
+  if (role === 'producao') {
+    if (msg.lida_producao === 1 || msg.lida_producao === true) return false;
+  } else {
+    if (msg.lida_pcp === 1 || msg.lida_pcp === true) return false;
+  }
+
+  const respostas = Array.isArray(msg.respostas) ? msg.respostas : [];
+  if (respostas.length > 0) {
+    const lastReply = respostas[respostas.length - 1];
+    const lastRem = String(lastReply?.remetente || '').toLowerCase().trim();
+    const lastIsSelf = (role === 'producao' && (lastRem === 'producao' || lastRem === 'coordenacao')) ||
+                       (role === 'pcp' && lastRem === 'pcp');
+    if (lastIsSelf) return false;
+  }
+
+  return true;
+}
+
+/**
  * Retorna lista de ocorrências da OP ordenadas por data/hora (mais recentes primeiro).
  */
 export function obterOcorrenciasDaOp(order?: ProductionOrder | null): OpOcorrencia[] {

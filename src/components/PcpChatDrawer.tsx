@@ -6,6 +6,8 @@ import {
   enviarMensagemOp,
   responderMensagemOp,
   marcarMensagemLida,
+  marcarConversaOpLida,
+  isMessageUnreadForRole,
   getLocalSocket
 } from '../services/mesStorage';
 import { formatarNumeroOP, cleanOpId } from '../utils/nomusParser';
@@ -79,14 +81,8 @@ export const PcpChatDrawer: React.FC<PcpChatDrawerProps> = ({
       const msgs = await fetchOpMensagens(cleanId);
       setMessages(msgs || []);
 
-      // Marca como lida para o leitor atual
-      const pendentes = (msgs || []).filter(m => (
-        (currentRole === 'pcp' && !m.lida_pcp) ||
-        (currentRole === 'producao' && !m.lida_producao)
-      ));
-      for (const p of pendentes) {
-        marcarMensagemLida(p.id, { leitor: currentRole }).catch(() => {});
-      }
+      // Marca como lida para o leitor atual no SQLite
+      marcarConversaOpLida(cleanId, { leitor: currentRole }).catch(() => {});
     } catch (err) {
       console.warn('[PcpChatDrawer] Erro ao carregar mensagens:', err);
     } finally {
@@ -185,6 +181,7 @@ export const PcpChatDrawer: React.FC<PcpChatDrawerProps> = ({
           order_desc: order.descricao || order.produto || ''
         });
       }
+      marcarConversaOpLida(cleanOpId(order.numero || order.op_numero), { leitor: currentRole }).catch(() => {});
       playSuccessStart();
       setMessageText('');
       await carregarMensagens();

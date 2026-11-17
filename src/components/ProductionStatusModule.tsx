@@ -12,6 +12,8 @@ import {
   enviarMensagemOp,
   responderMensagemOp,
   marcarMensagemLida,
+  marcarConversaOpLida,
+  isMessageUnreadForRole,
   getLocalSocket
 } from '../services/mesStorage';
 import {
@@ -271,7 +273,22 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
   const [activeThreadOp, setActiveThreadOp] = useState<ProductionOrder | null>(null);
   const [threadMessages, setThreadMessages] = useState<OpMessageRow[]>([]);
   const [isLoadingThread, setIsLoadingThread] = useState<boolean>(false);
-  const [chatRole, setChatRole] = useState<'pcp' | 'producao'>('pcp');
+  const [chatRole, setChatRoleState] = useState<'pcp' | 'producao'>(() => {
+    try {
+      const saved = localStorage.getItem('mes_chat_role');
+      if (saved === 'producao' || saved === 'pcp') return saved;
+    } catch {}
+    return 'pcp';
+  });
+
+  const setChatRole = useCallback((role: 'pcp' | 'producao') => {
+    setChatRoleState(role);
+    try {
+      localStorage.setItem('mes_chat_role', role);
+    } catch {}
+  }, []);
+
+  const [isRefreshingMessages, setIsRefreshingMessages] = useState<boolean>(false);
   const [replyText, setReplyText] = useState<string>('');
   const [replyingTo, setReplyingTo] = useState<OpMessageRow | null>(null);
   const [isSendingMsg, setIsSendingMsg] = useState<boolean>(false);
@@ -310,12 +327,24 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     try {
       const msgs = await fetchOpMensagens(cleanId);
       setThreadMessages(msgs || []);
-      // Marca automaticamente as mensagens da outra parte como lidas
-      for (const m of msgs || []) {
-        if (!m.lida) {
-          marcarMensagemLida(String(m.id), { leitor: chatRole }).catch(() => {});
-        }
-      }
+      // Marca todas as mensagens desta OP como lidas no banco
+      marcarConversaOpLida(cleanId, { leitor: chatRole }).catch(() => {});
+      // Atualiza imediatamente o estado local
+      const normOp = normalizarNumeroOp(cleanId);
+      setAllChatMessages((prev) =>
+        prev.map((m: any) => {
+          const msgOp = normalizarNumeroOp(extractOpNumeroFromMsg(m));
+          if (msgOp === normOp) {
+            return {
+              ...m,
+              lida: true,
+              lida_pcp: 1,
+              lida_producao: 1
+            };
+          }
+          return m;
+        })
+      );
     } catch (err) {
       console.warn('Erro ao carregar mensagens do thread:', err);
     } finally {
@@ -341,16 +370,15 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
   const unreadCountsByOp = useMemo(() => {
     const map: Record<string, number> = {};
     allChatMessages.forEach((m: any) => {
-      const isUnread = !(m.lida || m.lida_pcp);
-      if (isUnread) {
-        const clean = extractOpNumeroFromMsg(m);
+      if (isMessageUnreadForRole(m, chatRole)) {
+        const clean = normalizarNumeroOp(extractOpNumeroFromMsg(m));
         if (clean) {
           map[clean] = (map[clean] || 0) + 1;
         }
       }
     });
     return map;
-  }, [allChatMessages]);
+  }, [allChatMessages, chatRole]);
 
   const totalUnreadChat = useMemo(() => {
     return allChatMessages.filter((m: any) => !(m.lida || m.lida_pcp)).length;
@@ -591,14 +619,31 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     const cleanId = normalizarNumeroOp(threadOp.numero || threadOp.op_numero || (threadOp as any).id);
     const fullOp = orderList.find((o) => normalizarNumeroOp(o.numero || o.op_numero || (o as any).id) === cleanId) || orders[cleanId] || orders['OP ' + cleanId] || threadOp;
 
-    // 1. Abre a conversa no painel de chat
+    // 1. Marca imediatamente a conversa no SQLite e no estado local como lida
+    marcarConversaOpLida(cleanId, { leitor: chatRole }).catch(() => {});
+    setAllChatMessages((prev) =>
+      prev.map((m: any) => {
+        const msgOp = normalizarNumeroOp(extractOpNumeroFromMsg(m));
+        if (msgOp === cleanId) {
+          return {
+            ...m,
+            lida: true,
+            lida_pcp: 1,
+            lida_producao: 1
+          };
+        }
+        return m;
+      })
+    );
+
+    // 2. Abre a conversa no painel de chat
     setActiveThreadOp(fullOp);
 
-    // 2. Garante que a visão principal está na Lista em modo Cards
+    // 3. Garante que a visão principal está na Lista em modo Cards
     setViewMode('lista');
     setOrderViewType('cards');
 
-    // 3. Reseta filtros restritivos para garantir visibilidade da OP
+    // 4. Reseta filtros restritivos para garantir visibilidade da OP
     setMacroFilter('NONE');
     setQuickFilter('TODAS');
 
@@ -615,13 +660,13 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
       }
     }
 
-    // 4. Se o índice da OP na lista estiver além da paginação atual, expande o pageSize
+    // 5. Se o índice da OP na lista estiver além da paginação atual, expande o pageSize
     const opIndex = orderList.findIndex((o) => normalizarNumeroOp(o.numero || o.op_numero || (o as any).id) === cleanId);
     if (opIndex >= 0 && opIndex >= pageSize) {
       setPageSize(Math.max(pageSize, opIndex + 20));
     }
 
-    // 5. Aplica destaque visual temporário por 4 segundos
+    // 6. Aplica destaque visual temporário por 4 segundos
     setHighlightedOpId(cleanId);
     if (highlightTimeoutRef.current) {
       clearTimeout(highlightTimeoutRef.current);
@@ -630,14 +675,14 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
       setHighlightedOpId(null);
     }, 4000);
 
-    // 6. Scroll suave até o card da OP
+    // 7. Scroll suave até o card da OP
     setTimeout(() => {
       const el = document.getElementById(`op-card-${cleanId}`);
       if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 150);
-  }, [orderList, orders, selectedModel, searchTerm, pageSize]);
+  }, [orderList, orders, selectedModel, searchTerm, pageSize, chatRole]);
 
   const handleOpenOpChat = useCallback((op: ProductionOrder) => {
     setIsInboxOpen(true);
@@ -682,6 +727,27 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
 
       setReplyText('');
       setReplyingTo(null);
+
+      // Marca imediatamente a conversa como lida no backend SQLite
+      marcarConversaOpLida(cleanId, { leitor: chatRole }).catch(() => {});
+
+      // Atualiza imediatamente o estado local para unreadCount = 0 nesta OP
+      const normOp = normalizarNumeroOp(cleanId);
+      setAllChatMessages((prev) =>
+        prev.map((m: any) => {
+          const msgOp = normalizarNumeroOp(extractOpNumeroFromMsg(m));
+          if (msgOp === normOp) {
+            return {
+              ...m,
+              lida: true,
+              lida_pcp: 1,
+              lida_producao: 1
+            };
+          }
+          return m;
+        })
+      );
+
       await loadThreadMessages(activeThreadOp);
       await refreshMessages();
       playSuccessStart();
@@ -693,9 +759,9 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
     }
   };
 
-  // Conversas ativas agrupadas para o Inbox Lateral
-  const inboxThreads = useMemo(() => {
-    const threadMap: Record<string, { op: ProductionOrder; lastMsg: any; count: number; unread: number }> = {};
+  // Conversas agrupadas sem filtro para contagem precisa de totais
+  const allInboxThreads = useMemo(() => {
+    const threadMap: Record<string, { op: ProductionOrder; lastMsg: any; count: number; unread: number; allMsgs: any[] }> = {};
 
     allChatMessages.forEach((m: any) => {
       const cleanId = normalizarNumeroOp(extractOpNumeroFromMsg(m));
@@ -719,7 +785,6 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
           etapas: {}
         };
 
-      const isUnread = !(m.lida || m.lida_pcp);
       const msgTime = extractTimestampFromMsg(m);
 
       if (!threadMap[cleanId]) {
@@ -727,19 +792,46 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
           op,
           lastMsg: m,
           count: 1,
-          unread: isUnread ? 1 : 0
+          unread: 0,
+          allMsgs: [m]
         };
       } else {
         threadMap[cleanId].count++;
-        if (isUnread) threadMap[cleanId].unread++;
-        // Mantém a mensagem mais recente
+        threadMap[cleanId].allMsgs.push(m);
         if (msgTime > extractTimestampFromMsg(threadMap[cleanId].lastMsg)) {
           threadMap[cleanId].lastMsg = m;
         }
       }
     });
 
-    let threads = Object.values(threadMap);
+    Object.values(threadMap).forEach((t) => {
+      const unreadCount = t.allMsgs.filter((m) => isMessageUnreadForRole(m, chatRole)).length;
+
+      const sorted = [...t.allMsgs].sort((a, b) => extractTimestampFromMsg(a) - extractTimestampFromMsg(b));
+      const latestMsg = sorted[sorted.length - 1];
+      const respostas = Array.isArray(latestMsg?.respostas) ? latestMsg.respostas : [];
+      let latestRem = String(latestMsg?.remetente || '').toLowerCase().trim();
+      if (respostas.length > 0) {
+        latestRem = String(respostas[respostas.length - 1]?.remetente || '').toLowerCase().trim();
+      }
+
+      const latestIsSelf = (chatRole === 'producao' && (latestRem === 'producao' || latestRem === 'coordenacao')) ||
+                           (chatRole === 'pcp' && latestRem === 'pcp');
+
+      t.unread = latestIsSelf ? 0 : unreadCount;
+    });
+
+    return Object.values(threadMap);
+  }, [allChatMessages, orders, orderList, chatRole]);
+
+  // Contagem de conversas que possuem mensagens não lidas
+  const totalUnreadConversas = useMemo(() => {
+    return allInboxThreads.filter((t) => t.unread > 0).length;
+  }, [allInboxThreads]);
+
+  // Conversas ativas agrupadas e filtradas para o Inbox Lateral
+  const inboxThreads = useMemo(() => {
+    let threads = [...allInboxThreads];
 
     // Filtro do inbox (todas vs não lidas)
     if (inboxFilter === 'nao_lidas') {
@@ -763,7 +855,7 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
       if (b.unread > 0 && a.unread === 0) return 1;
       return extractTimestampFromMsg(b.lastMsg) - extractTimestampFromMsg(a.lastMsg);
     });
-  }, [allChatMessages, orders, inboxFilter, inboxSearch]);
+  }, [allInboxThreads, inboxFilter, inboxSearch]);
 
   // 5. Agrupamentos para Kanban, Linha do Tempo e Análises
   const kanbanColumns = useMemo(() => {
@@ -975,9 +1067,9 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
           >
             <MessageSquare className="w-4 h-4 text-purple-300" />
             <span>Inbox PCP ↔ Coordenação</span>
-            {totalUnreadChat > 0 && (
+            {totalUnreadConversas > 0 && (
               <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[10px] font-mono font-bold animate-pulse">
-                {totalUnreadChat}
+                {totalUnreadConversas}
               </span>
             )}
           </button>
@@ -1864,10 +1956,10 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                     {allChatMessages.length}
                   </div>
                   <span className="text-[11px] text-slate-400 mt-2 block">
-                    {totalUnreadChat > 0 ? (
-                      <strong className="text-rose-400">{totalUnreadChat} mensagens não lidas</strong>
+                    {totalUnreadConversas > 0 ? (
+                      <strong className="text-rose-400">{totalUnreadConversas} conversa(s) pendente(s)</strong>
                     ) : (
-                      'Todas mensagens lidas'
+                      'Todas conversas em dia'
                     )}
                   </span>
                 </div>
@@ -1961,24 +2053,38 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                 <span className="font-mono font-bold text-xs text-white uppercase tracking-wider">
                   Inbox PCP ↔ Coordenação
                 </span>
-                {totalUnreadChat > 0 && (
+                {totalUnreadConversas > 0 && (
                   <span className="px-1.5 py-0.2 bg-rose-500 text-white rounded-full text-[9px] font-bold">
-                    {totalUnreadChat}
+                    {totalUnreadConversas}
                   </span>
                 )}
               </div>
 
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => refreshMessages()}
-                  className="p-1 rounded text-slate-400 hover:text-white transition"
+                  type="button"
+                  onClick={async () => {
+                    playClick();
+                    setIsRefreshingMessages(true);
+                    try {
+                      await refreshMessages();
+                      if (activeThreadOp) {
+                        await loadThreadMessages(activeThreadOp);
+                      }
+                    } finally {
+                      setTimeout(() => setIsRefreshingMessages(false), 500);
+                    }
+                  }}
+                  disabled={isRefreshingMessages}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer active:scale-95 disabled:opacity-50"
                   title="Atualizar conversas"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingMessages ? 'animate-spin text-purple-400' : ''}`} />
                 </button>
                 <button
+                  type="button"
                   onClick={() => setIsInboxOpen(false)}
-                  className="p-1 rounded text-slate-400 hover:text-white transition"
+                  className="p-1 rounded text-slate-400 hover:text-white transition cursor-pointer"
                   title="Recolher painel"
                 >
                   <X className="w-4 h-4" />
@@ -2263,23 +2369,25 @@ export const ProductionStatusModule: React.FC<ProductionStatusModuleProps> = Rea
                 <div className="p-2.5 bg-slate-950 border-b border-blue-950 space-y-2 shrink-0">
                   <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-xl border border-slate-800 text-xs font-mono">
                     <button
+                      type="button"
                       onClick={() => setInboxFilter('todas')}
                       className={`flex-1 py-1 rounded-lg font-bold transition ${
                         inboxFilter === 'todas' ? 'bg-[#1C2F8A] text-white' : 'text-slate-400 hover:text-white'
                       }`}
                     >
-                      Todas ({inboxThreads.length})
+                      Todas ({allInboxThreads.length})
                     </button>
                     <button
+                      type="button"
                       onClick={() => setInboxFilter('nao_lidas')}
                       className={`flex-1 py-1 rounded-lg font-bold transition flex items-center justify-center gap-1 ${
                         inboxFilter === 'nao_lidas' ? 'bg-rose-600 text-white' : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       <span>Não Lidas</span>
-                      {totalUnreadChat > 0 && (
+                      {totalUnreadConversas > 0 && (
                         <span className="w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
-                          {totalUnreadChat}
+                          {totalUnreadConversas}
                         </span>
                       )}
                     </button>

@@ -10,7 +10,7 @@ import {
   isOpConcluida,
   isOpEmAberto
 } from '../utils/routeEngine';
-import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas, fetchNomusSyncStatus, NomusSyncStatus, getLocalSocket, updateProductionOrder, atualizarStatusMacroOp, fetchAllMensagens, OpMessageRow } from '../services/mesStorage';
+import { addProductionOrder, saveMultipleOrders, resetFactoryData, deleteProductionOrder, resetarOpCompleta, clearAllOrders, deleteApontamento, clearAllApontamentos, fetchOperators, verificarECorrigirRotaOp, toFirebaseKey, obterOcorrenciasDaOp, sanitizePayload, cleanOpId, formatOpNumber, limparOrdensDuplicadas, fetchNomusSyncStatus, NomusSyncStatus, getLocalSocket, updateProductionOrder, atualizarStatusMacroOp, fetchAllMensagens, isMessageUnreadForRole, OpMessageRow } from '../services/mesStorage';
 import { parseNomusHtml, NomusParseResult, calculateDeadlineInfo, formatarNumeroOP, normalizarIdOP } from '../utils/nomusParser';
 import { classificarModeloOP, MODELOS_PRODUTO } from '../utils/productClassifier';
 import { isEntregaHoje, isAtrasada, getDiasRestantes, classificarBucketTimeline, parseDataEntrega, TimelineBucket } from '../utils/pcpStatusUtils';
@@ -165,9 +165,48 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
     return map;
   }, [allChatMessages]);
 
+  const currentChatRole: 'pcp' | 'producao' = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('mes_chat_role');
+      if (saved === 'producao' || saved === 'pcp') return saved;
+    } catch {}
+    return 'pcp';
+  }, []);
+
+  // Contagem real de conversas (threads) com mensagens não lidas
   const totalUnreadChat = useMemo(() => {
-    return allChatMessages.filter((m) => !m.lida).length;
-  }, [allChatMessages]);
+    const msgsByOp: Record<string, any[]> = {};
+    allChatMessages.forEach((m: any) => {
+      const clean = normalizarNumeroOp(cleanOpId(m.order_numero || m.op_numero || m.order_id));
+      if (clean) {
+        if (!msgsByOp[clean]) msgsByOp[clean] = [];
+        msgsByOp[clean].push(m);
+      }
+    });
+
+    let unreadThreadsCount = 0;
+    Object.values(msgsByOp).forEach((threadMsgs) => {
+      const sorted = [...threadMsgs].sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      const latestMsg = sorted[sorted.length - 1];
+      const respostas = Array.isArray(latestMsg?.respostas) ? latestMsg.respostas : [];
+      let latestRem = String(latestMsg?.remetente || '').toLowerCase().trim();
+      if (respostas.length > 0) {
+        latestRem = String(respostas[respostas.length - 1]?.remetente || '').toLowerCase().trim();
+      }
+
+      const latestIsSelf = (currentChatRole === 'producao' && (latestRem === 'producao' || latestRem === 'coordenacao')) ||
+                           (currentChatRole === 'pcp' && latestRem === 'pcp');
+
+      if (latestIsSelf) return;
+
+      const hasUnread = threadMsgs.some((m) => isMessageUnreadForRole(m, currentChatRole));
+      if (hasUnread) {
+        unreadThreadsCount++;
+      }
+    });
+
+    return unreadThreadsCount;
+  }, [allChatMessages, currentChatRole]);
 
   // Toast de Feedback Operacional
   const [feedbackToast, setFeedbackToast] = useState<{ message: string; type?: 'success' | 'info' | 'error' } | null>(null);
@@ -846,13 +885,9 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
           >
             <BarChart3 className="w-4 h-4 text-amber-200 shrink-0" />
             <span>Status Produção (PCP / Coordenação)</span>
-            {totalUnreadChat > 0 ? (
+            {totalUnreadChat > 0 && (
               <span className="bg-rose-500 text-white px-1.5 py-0.2 text-[9px] rounded-full font-mono font-bold animate-pulse shadow-sm">
                 {totalUnreadChat}
-              </span>
-            ) : (
-              <span className="bg-white/20 text-white border border-white/30 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
-                PCP
               </span>
             )}
           </button>
