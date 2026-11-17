@@ -62,7 +62,9 @@ import {
   Columns,
   BarChart3,
   Package,
-  CalendarDays
+  CalendarDays,
+  Menu,
+  ChevronDown
 } from 'lucide-react';
 import { playClick, playSuccessStart } from '../utils/audio';
 
@@ -107,6 +109,24 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
   // Modal de Sinalização de Motivo de Atraso
   const [delayModalOpen, setDelayModalOpen] = useState<boolean>(false);
   const [selectedDelayOrder, setSelectedDelayOrder] = useState<ProductionOrder | null>(null);
+
+  // Menu Dropdown Único de Opções Administrativas no Header
+  const [optionsMenuOpen, setOptionsMenuOpen] = useState<boolean>(false);
+  const optionsMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (optionsMenuRef.current && !optionsMenuRef.current.contains(event.target as Node)) {
+        setOptionsMenuOpen(false);
+      }
+    };
+    if (optionsMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [optionsMenuOpen]);
 
   // Carga e sincronização em tempo real das mensagens de chat da fábrica
   const refreshAllMessages = useCallback(async () => {
@@ -777,162 +797,173 @@ export const PcpPortal: React.FC<PcpPortalProps> = ({
       )}
 
       {/* Top Header do Portal PCP & Coordenação */}
-      <header className="bg-[#0c142b] border-b border-blue-900/60 px-6 py-4 flex flex-col sm:flex-row items-center justify-between gap-4 sticky top-0 z-40">
-        <div className="flex items-center gap-4">
+      <header className="bg-[#0c142b] border-b border-blue-900/60 px-6 py-3 flex flex-col sm:flex-row items-center justify-between gap-4 sticky top-0 z-40">
+        {/* 1. IDENTIDADE E STATUS COMPACTOS (À ESQUERDA) */}
+        <div className="flex items-center gap-3.5">
           <MetalribLogo size="md" />
-          <div className="border-l border-blue-900/80 pl-4 hidden md:block">
-            <h1 className="text-sm font-black text-white tracking-wider font-mono flex items-center gap-2">
-              <span>PORTAL DO PCP & COORDENAÇÃO</span>
-              <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded font-mono">
-                SISTEMA GERENCIAL
+          <div className="border-l border-blue-900/60 pl-3.5">
+            <h1 className="text-sm font-black text-white tracking-wider font-mono whitespace-nowrap flex items-center gap-2">
+              <span>PORTAL PCP & COORDENAÇÃO</span>
+              <span className="text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/40 px-1.5 py-0.2 rounded font-mono font-bold uppercase tracking-wider">
+                MES
               </span>
             </h1>
-            <p className="text-xs text-slate-400 font-mono">Controle de Fluxo e Orquestração Industrial</p>
+            <div className="flex items-center gap-1.5 text-[11px] font-mono leading-tight mt-0.5 whitespace-nowrap">
+              {nomusSyncStatus?.timestamp ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0 inline-block shadow-sm shadow-emerald-400/50" />
+                  <span className="text-emerald-300">
+                    Sync Nomus: {formatarHoraSync(nomusSyncStatus.timestamp, nomusSyncStatus.horario)} • {nomusSyncStatus.totalProcessadas || orderList.length} OPs
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-slate-500 shrink-0 inline-block" />
+                  <span className="text-slate-400">
+                    Aguardando Sync Nomus • {orderList.length} OPs
+                  </span>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Badge em tempo real da última sincronização do Nomus */}
-          {nomusSyncStatus?.timestamp ? (
-            <div
-              className="px-3 py-2 bg-emerald-950/70 border border-emerald-500/50 text-emerald-300 rounded-xl flex items-center gap-2 text-xs font-semibold shadow-sm transition-all"
-              title={`Última sincronização Nomus: ${formatarHoraSync(nomusSyncStatus.timestamp, nomusSyncStatus.horario)} (${nomusSyncStatus.totalProcessadas} OPs${nomusSyncStatus.novas !== undefined ? `, novas: ${nomusSyncStatus.novas}, atualizadas: ${nomusSyncStatus.atualizadas}` : ''}, origem: ${nomusSyncStatus.origem || 'automática'})`}
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse inline-block shadow-sm shadow-emerald-400/50"></span>
-              <span className="text-emerald-200 font-mono tracking-tight">
-                Sync Nomus: {formatarHoraSync(nomusSyncStatus.timestamp, nomusSyncStatus.horario)} ({nomusSyncStatus.totalProcessadas} {nomusSyncStatus.totalProcessadas === 1 ? 'OP' : 'OPs'})
-              </span>
-            </div>
-          ) : (
-            <div
-              className="px-3 py-2 bg-slate-900/80 border border-slate-700/60 text-slate-400 rounded-xl flex items-center gap-2 text-xs font-medium shadow-sm"
-              title="Aguardando primeira sincronização com o Nomus ERP"
-            >
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 inline-block"></span>
-              <span className="text-slate-300 font-mono tracking-tight">Aguardando Sync Nomus</span>
-            </div>
-          )}
-
-          {/* Botão Deduplicar OPs */}
+        {/* 2. BARRA DE AÇÕES ULTRA-LIMPA (À DIREITA — MÁXIMO 3 ELEMENTOS EM LINHA ÚNICA h-10) */}
+        <div className="flex items-center gap-2.5 h-10">
+          {/* 1) Botão Principal em Destaque: Status Produção (PCP / Coordenação) */}
           <button
-            onClick={handleLimparDuplicadas}
-            className="px-3 py-2 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold text-xs rounded-xl flex items-center gap-1.5 transition border border-amber-500/40 cursor-pointer active:scale-95 shadow-sm"
-            title="Verificar e remover ordens de produção duplicadas no banco SQLite"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden lg:inline">Deduplicar OPs</span>
-          </button>
-
-          {/* Botão de Importar HTML do Nomus */}
-          <button
-            onClick={() => {
-              playClick();
-              setShowNomusImportModal(true);
-            }}
-            className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-lg shadow-emerald-950/50 border border-emerald-400/50 cursor-pointer active:scale-95 ring-2 ring-emerald-500/20"
-            title="Importar HTML do Status de Produção exportado do Nomus ERP"
-          >
-            <Upload className="w-4 h-4 text-emerald-200" />
-            <span>Importar HTML do Nomus</span>
-            <span className="bg-emerald-900/60 text-emerald-200 border border-emerald-400/40 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
-              OPs
-            </span>
-          </button>
-
-          {/* Botão de Equipe / Colaboradores */}
-          <button
-            onClick={() => {
-              playClick();
-              setShowTeamModal(true);
-            }}
-            className="px-4 py-2 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-600 hover:to-indigo-600 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-lg shadow-indigo-950/50 border border-blue-400/50 cursor-pointer active:scale-95"
-            title="Gestão de Colaboradores, Matrículas e Escala de Setores"
-          >
-            <Users className="w-4 h-4 text-blue-200" />
-            <span>Equipe / Colaboradores</span>
-            <span className="bg-blue-900/60 text-blue-200 border border-blue-400/40 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
-              ESCALA
-            </span>
-          </button>
-
-          {/* Botão Prominente Módulo de Status Produção (PCP & Coordenação) */}
-          <button
+            type="button"
             onClick={() => {
               playClick();
               setActiveTab('status_pcp');
             }}
-            className={`px-4 py-2 font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-lg cursor-pointer active:scale-95 border ${
+            className={`h-10 px-4 font-black text-xs rounded-xl flex items-center gap-2 transition shadow-lg cursor-pointer active:scale-95 border relative whitespace-nowrap ${
               activeTab === 'status_pcp'
-                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-300 shadow-purple-950/50 ring-2 ring-purple-400/40'
-                : 'bg-gradient-to-r from-purple-900/70 to-indigo-900/70 hover:from-purple-800/90 hover:to-indigo-800/90 text-purple-200 border-purple-500/50'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 border-amber-300 shadow-amber-950/50 ring-2 ring-amber-400/50'
+                : 'bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:from-indigo-500 hover:to-blue-500 text-white border-indigo-400/60 shadow-indigo-950/50 hover:shadow-indigo-900/60'
             }`}
-            title="Acessar o Módulo Dedicado de Status de Produção (PCP & Coordenação)"
+            title="Acessar o Painel Central de Status de Produção (PCP & Coordenação)"
           >
-            <Layers className="w-4 h-4 text-purple-300" />
-            <span>Status Produção (PCP & Coord.)</span>
+            <BarChart3 className="w-4 h-4 text-amber-200 shrink-0" />
+            <span>Status Produção (PCP / Coordenação)</span>
             {totalUnreadChat > 0 ? (
-              <span className="bg-rose-500 text-white px-1.5 py-0.2 text-[9px] rounded-full font-mono font-bold animate-pulse">
+              <span className="bg-rose-500 text-white px-1.5 py-0.2 text-[9px] rounded-full font-mono font-bold animate-pulse shadow-sm">
                 {totalUnreadChat}
               </span>
             ) : (
-              <span className="bg-purple-950 text-purple-300 border border-purple-500/40 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
+              <span className="bg-white/20 text-white border border-white/30 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
                 PCP
               </span>
             )}
           </button>
 
-          {/* Botão de Chat PCP ↔ Coordenação */}
+          {/* 2) Botão Secundário Discreto: Importar Nomus */}
           <button
+            type="button"
             onClick={() => {
               playClick();
-              setSelectedChatOrder(null);
-              setChatDrawerOpen(true);
+              setShowNomusImportModal(true);
             }}
-            className="px-4 py-2 bg-gradient-to-r from-indigo-700 to-purple-700 hover:from-indigo-600 hover:to-purple-600 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-lg shadow-purple-950/50 border border-purple-400/50 cursor-pointer active:scale-95"
-            title="Abrir Chat PCP & Coordenação (Eduardo)"
+            className="h-10 px-3.5 bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-white font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-sm cursor-pointer active:scale-95 whitespace-nowrap"
+            title="Importar HTML do Status de Produção exportado do Nomus ERP"
           >
-            <MessageSquare className="w-4 h-4 text-purple-200" />
-            <span>Chat PCP & Coord.</span>
-            {totalUnreadChat > 0 ? (
-              <span className="bg-rose-500 text-white border border-rose-400/60 px-1.5 py-0.2 text-[9px] rounded-full font-mono font-bold animate-pulse">
-                {totalUnreadChat}
-              </span>
-            ) : (
-              <span className="bg-purple-900/60 text-purple-200 border border-purple-400/40 px-1.5 py-0.2 text-[9px] rounded font-mono font-bold">
-                CHAT
-              </span>
+            <Upload className="w-4 h-4 text-slate-300 shrink-0" />
+            <span>Importar Nomus</span>
+          </button>
+
+          {/* 3) Dropdown Único: Opções Administrativas */}
+          <div className="relative" ref={optionsMenuRef}>
+            <button
+              type="button"
+              onClick={() => setOptionsMenuOpen((prev) => !prev)}
+              className={`h-10 px-3.5 border font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-sm cursor-pointer active:scale-95 whitespace-nowrap ${
+                optionsMenuOpen
+                  ? 'bg-slate-700 text-white border-blue-400 ring-2 ring-blue-500/20'
+                  : 'bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-200 hover:text-white'
+              }`}
+              title="Ações administrativas e operacionais"
+            >
+              <Menu className="w-4 h-4 text-slate-300 shrink-0" />
+              <span>Opções</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${optionsMenuOpen ? 'rotate-180 text-white' : ''}`} />
+            </button>
+
+            {optionsMenuOpen && (
+              <div className="absolute right-0 mt-2 w-56 bg-[#0c142b] border border-blue-900/80 rounded-2xl shadow-2xl shadow-black z-50 py-1.5 divide-y divide-blue-950/80 animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="px-3.5 py-1.5 text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+                  Menu Operacional
+                </div>
+
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playClick();
+                      setOptionsMenuOpen(false);
+                      setShowTeamModal(true);
+                    }}
+                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-200 hover:text-white hover:bg-blue-600/20 flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Users className="w-4 h-4 text-blue-400 shrink-0" />
+                    <div className="flex flex-col">
+                      <span>Equipe / Colaboradores</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Escala de postos e operadores</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playClick();
+                      setOptionsMenuOpen(false);
+                      setShowNewOpModal(true);
+                    }}
+                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-200 hover:text-white hover:bg-blue-600/20 flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="flex flex-col">
+                      <span>Nova OP Manual</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Cadastrar ordem avulsa</span>
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playClick();
+                      setOptionsMenuOpen(false);
+                      handleLimparDuplicadas();
+                    }}
+                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-200 hover:text-white hover:bg-blue-600/20 flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <RefreshCw className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex flex-col">
+                      <span>Deduplicar OPs</span>
+                      <span className="text-[10px] text-slate-400 font-mono">Limpar duplicidades no banco</span>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playClick();
+                      setOptionsMenuOpen(false);
+                      onSwitchToTotem();
+                    }}
+                    className="w-full px-3.5 py-2 text-left text-xs font-semibold text-emerald-300 hover:text-emerald-200 hover:bg-emerald-950/40 flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Monitor className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <div className="flex flex-col">
+                      <span>Abrir Modo Totem</span>
+                      <span className="text-[10px] text-emerald-400/70 font-mono">Interface de toque da fábrica</span>
+                    </div>
+                  </button>
+                </div>
+              </div>
             )}
-          </button>
-
-          <button
-            onClick={() => setActiveTab('tv_status')}
-            className={`px-4 py-2 font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-md border cursor-pointer active:scale-95 ${
-              activeTab === 'tv_status'
-                ? 'bg-amber-500 text-black border-amber-300 shadow-amber-500/20'
-                : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50'
-            }`}
-            title="Acessar o Painel de Status de Produção e Gerador/Editor de HTML"
-          >
-            <Tv className="w-4 h-4" />
-            <span>Status Produção (HTML / TV)</span>
-          </button>
-
-          <button
-            onClick={() => setShowNewOpModal(true)}
-            className="px-4 py-2 bg-[#1C2F8A] hover:bg-[#253eb8] text-white font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-md shadow-blue-950 border border-blue-400/40 cursor-pointer active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Nova OP Manual</span>
-          </button>
-
-          <button
-            onClick={onSwitchToTotem}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-2 transition shadow-md border border-emerald-400/40 cursor-pointer active:scale-95"
-            title="Ir para a interface de toque dos operadores nos 5 computadores"
-          >
-            <Monitor className="w-4 h-4" />
-            <span>Abrir Modo Totem</span>
-          </button>
+          </div>
         </div>
       </header>
 
