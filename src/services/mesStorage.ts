@@ -781,6 +781,9 @@ export const getLocalServerUrl = (): string => {
   return 'http://192.168.0.12:3001';
 };
 
+export const getApiBaseUrl = (): string => getLocalServerUrl();
+export const API_BASE_URL = getLocalServerUrl();
+
 export function getLocalSocket(): Socket {
   if (!localSocket) {
     const localUrl = getLocalServerUrl();
